@@ -8633,7 +8633,7 @@ $as_echo_n "checking for $compiler option to produce PIC... " >&6; }
       # PIC is the default for these OSes.
       ;;
 
-    mingw* | cygwin* | pw32* | os2* | cegcc*)
+    mingw* | cygwin* | pw32* | cegcc*)
       # This hack is so that the source file can tell whether it is being
       # built for inclusion in a dll (and should export symbols for example).
       # Although the cygwin gcc ignores -fPIC, still need this for old-style
@@ -8672,7 +8672,7 @@ $as_echo_n "checking for $compiler option to produce PIC... " >&6; }
       # Instead, we relocate shared libraries at runtime.
       ;;
 
-    msdosdjgpp*)
+    msdosdjgpp* | i?86-pc-os2-emx)
       # Just because we use GCC doesn't mean we suddenly get shared libraries
       # on systems that don't support them.
       lt_prog_compiler_can_build_shared=no

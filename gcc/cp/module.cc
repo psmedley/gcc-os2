@@ -13985,7 +13985,7 @@ module_state::write_readme (elf_out *to, cpp_reader *reader,
 	  {
 	    time = localtime (&stampy);
 	    readme.print_time ("local", time,
-#if defined (__USE_MISC) || defined (__USE_BSD) /* Is there a better way?  */
+#if (defined (__USE_MISC) || defined (__USE_BSD)) && !defined(__OS2__) /* Is there a better way?  */
 			       time->tm_zone
 #else
 			       ""

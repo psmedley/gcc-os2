@@ -33,6 +33,10 @@ along with GCC; see the file COPYING3.  If not see
 #include "stringpool.h"
 #include "expmed.h"
 #include "optabs.h"
+#ifdef __EMX__
+#include "cp/cp-tree.h" /* we need SET_DECL_LANGUAGE */
+#include "dbxout.h"
+#endif
 #include "regs.h"
 #include "emit-rtl.h"
 #include "recog.h"
@@ -1703,7 +1707,15 @@ ix86_default_align (struct gcc_options *opts)
 }
 
 #ifndef USE_IX86_FRAME_POINTER
+#ifdef __OS2__
+/* OS/2 needs the frame pointer to have proper stack trace when debugging
+   so it needs to be enabled by default. However, the configure portion that
+   sets a default for --enable-frame-pointer is executed after config.gcc which
+   sets this define based on this option. Looks like a configure.ac bug.  */
+#define USE_IX86_FRAME_POINTER 1
+#else
 #define USE_IX86_FRAME_POINTER 0
+#endif
 #endif
 
 /* (Re)compute option overrides affected by optimization levels in
@@ -1735,7 +1747,13 @@ ix86_recompute_optlev_based_flags (struct gcc_options *opts,
 	  SET_OPTION_IF_UNSET (opts, opts_set, flag_omit_frame_pointer,
 			       !(USE_IX86_FRAME_POINTER || opts->x_optimize_size));
       if (opts->x_flag_asynchronous_unwind_tables == 2)
+#ifdef __OS2__
+	/* Don't emit DWARF2 unwind tables on OS/2 by default as it makes no use
+	   of it (this would only add unresolved __ehInit in each object).  */
+	opts->x_flag_asynchronous_unwind_tables = 0;
+#else
 	opts->x_flag_asynchronous_unwind_tables = !USE_IX86_FRAME_POINTER;
+#endif
       if (opts->x_flag_pcc_struct_return == 2)
 	{
 	  /* Intel MCU psABI specifies that -freg-struct-return should
@@ -3432,7 +3450,8 @@ ix86_offload_options (void)
    arguments as in struct attribute_spec.handler.  */
 
 static tree
-ix86_handle_cconv_attribute (tree *node, tree name, tree args, int,
+ix86_handle_cconv_attribute (tree *node, tree name, tree args, 
+			     int flags ATTRIBUTE_UNUSED,
 			     bool *no_add_attrs)
 {
   if (TREE_CODE (*node) != FUNCTION_TYPE
@@ -3460,6 +3479,19 @@ ix86_handle_cconv_attribute (tree *node, tree name, tree args, int,
 	{
 	  error ("regparam and thiscall attributes are not compatible");
 	}
+
+#ifdef TARGET_SYSTEM_DECL_ATTRIBUTES
+      if (lookup_attribute ("system", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("system and regparm attributes are not compatible");
+	}
+#endif
+#ifdef TARGET_OPTLINK_DECL_ATTRIBUTES
+      if (lookup_attribute ("optlink", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("optlink and regparm attributes are not compatible");
+	}
+#endif
 
       cst = TREE_VALUE (args);
       if (TREE_CODE (cst) != INTEGER_CST)
@@ -3510,6 +3542,18 @@ ix86_handle_cconv_attribute (tree *node, tree name, tree args, int,
 	{
 	  error ("fastcall and thiscall attributes are not compatible");
 	}
+#ifdef TARGET_SYSTEM_DECL_ATTRIBUTES
+      if (lookup_attribute ("system", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("fastcall and system attributes are not compatible");
+	}
+#endif
+#ifdef TARGET_OPTLINK_DECL_ATTRIBUTES
+      if (lookup_attribute ("optlink", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("fastcall and optlink attributes are not compatible");
+	}
+#endif
     }
 
   /* Can combine stdcall with fastcall (redundant), regparm and
@@ -3528,6 +3572,18 @@ ix86_handle_cconv_attribute (tree *node, tree name, tree args, int,
 	{
 	  error ("stdcall and thiscall attributes are not compatible");
 	}
+#ifdef TARGET_SYSTEM_DECL_ATTRIBUTES
+      if (lookup_attribute ("system", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("stdcall and system attributes are not compatible");
+	}
+#endif
+#ifdef TARGET_OPTLINK_DECL_ATTRIBUTES
+      if (lookup_attribute ("optlink", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("stdcall and optlink attributes are not compatible");
+	}
+#endif
     }
 
   /* Can combine cdecl with regparm and sseregparm.  */
@@ -3541,6 +3597,18 @@ ix86_handle_cconv_attribute (tree *node, tree name, tree args, int,
         {
 	  error ("fastcall and cdecl attributes are not compatible");
 	}
+#ifdef TARGET_SYSTEM_DECL_ATTRIBUTES
+      if (lookup_attribute ("system", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("system and cdecl attributes are not compatible");
+	}
+#endif
+#ifdef TARGET_OPTLINK_DECL_ATTRIBUTES
+      if (lookup_attribute ("optlink", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("optlink and cdecl attributes are not compatible");
+	}
+#endif
       if (lookup_attribute ("thiscall", TYPE_ATTRIBUTES (*node)))
 	{
 	  error ("cdecl and thiscall attributes are not compatible");
@@ -3563,9 +3631,124 @@ ix86_handle_cconv_attribute (tree *node, tree name, tree args, int,
 	{
 	  error ("cdecl and thiscall attributes are not compatible");
 	}
+#ifdef TARGET_SYSTEM_DECL_ATTRIBUTES
+      if (lookup_attribute ("system", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("system and thiscall attributes are not compatible");
+	}
+#endif
+#ifdef TARGET_OPTLINK_DECL_ATTRIBUTES
+      if (lookup_attribute ("optlink", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("optlink and thiscall attributes are not compatible");
+	}
+#endif
     }
 
+#ifdef TARGET_SYSTEM_DECL_ATTRIBUTES
+  else if (is_attribute_p ("system", name))
+    {
+      if (lookup_attribute ("cdecl", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("cdecl and system attributes are not compatible");
+	}
+      if (lookup_attribute ("stdcall", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("stdcall and system attributes are not compatible");
+	}
+      if (lookup_attribute ("fastcall", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("fastcall and system attributes are not compatible");
+	}
+      if (lookup_attribute ("regparm", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("regparm and system attributes are not compatible");
+	}
+      if (lookup_attribute ("sseregparm", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("sseregparm and system attributes are not compatible");
+	}
+#ifdef TARGET_OPTLINK_DECL_ATTRIBUTES
+      if (lookup_attribute ("optlink", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("optlink and system attributes are not compatible");
+	}
+#endif
+    }
+#endif
+
+#ifdef TARGET_OPTLINK_DECL_ATTRIBUTES
+  else if (is_attribute_p ("optlink", name))
+    {
+      if (lookup_attribute ("cdecl", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("cdecl and optlink attributes are not compatible");
+	}
+      if (lookup_attribute ("stdcall", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("stdcall and optlink attributes are not compatible");
+	}
+      if (lookup_attribute ("fastcall", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("fastcall and optlink attributes are not compatible");
+	}
+      if (lookup_attribute ("regparm", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("regparm and optlink attributes are not compatible");
+	}
+      if (lookup_attribute ("sseregparm", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("sseregparm and optlink attributes are not compatible");
+	}
+#ifdef TARGET_SYSTEM_DECL_ATTRIBUTES
+      if (lookup_attribute ("system", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("system and optlink attributes are not compatible");
+	}
+#endif
+    }
+#endif
+
   /* Can combine sseregparm with all attributes.  */
+#if defined (TARGET_SYSTEM_DECL_ATTRIBUTES) || defined (TARGET_OPTLINK_DECL_ATTRIBUTES)
+  else if (is_attribute_p ("sseregparm", name))
+    {
+#ifdef TARGET_SYSTEM_DECL_ATTRIBUTES
+      if (lookup_attribute ("system", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("system and sseregparm attributes are not compatible");
+	}
+#endif
+#ifdef TARGET_OPTLINK_DECL_ATTRIBUTES
+      if (lookup_attribute ("optlink", TYPE_ATTRIBUTES (*node)))
+        {
+	  error ("optlink and sseregparm attributes are not compatible");
+	}
+#endif
+    }
+#endif
+
+#ifdef __EMX__
+  /* Be compatible with IBM VAC and imply `extern "C"' for certain calling
+     conventions when they are used on functions in C++ code.  It may be a good
+     idea to use a target-specific compiler option for that in the future.  */
+  if (is_attribute_p ("cdecl", name) ||
+#ifdef TARGET_SYSTEM_DECL_ATTRIBUTES
+      is_attribute_p ("system", name) ||
+#endif
+#ifdef TARGET_OPTLINK_DECL_ATTRIBUTES
+      is_attribute_p ("optlink", name) ||
+#endif
+      is_attribute_p ("stdcall", name))
+    {
+      if (TREE_CODE (*node) == FUNCTION_TYPE && (flags & ATTR_FLAG_HANDLER_DECL_FOLLOWS))
+        {
+          tree decl = node[1];
+          if (TREE_CODE (decl) == FUNCTION_DECL && DECL_LANG_SPECIFIC (decl))
+            SET_DECL_LANGUAGE (decl, lang_c);
+        }
+    }
+#endif
 
   return NULL_TREE;
 }
@@ -3962,6 +4145,16 @@ const struct attribute_spec ix86_attribute_table[] =
     ix86_handle_fentry_name, NULL },
   { "cf_check", 0, 0, true, false, false, false,
     ix86_handle_fndecl_attribute, NULL },
+#ifdef TARGET_SYSTEM_DECL_ATTRIBUTES
+  /* System says the function is extern "C" and is not underscored. */
+  { "system", 0, 0, false, true, true, true, ix86_handle_cconv_attribute,
+    NULL },
+#endif
+#ifdef TARGET_OPTLINK_DECL_ATTRIBUTES
+  /* Optlink is like regparm with a few differences */
+  { "optlink", 0, 0, false, true, true, true, ix86_handle_cconv_attribute,
+    NULL },
+#endif
 
   /* End element.  */
   { NULL, 0, 0, false, false, false, false, NULL, NULL }

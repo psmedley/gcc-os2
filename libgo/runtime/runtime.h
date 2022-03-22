@@ -16,8 +16,10 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <pthread.h>
+#ifndef __OS2__
 #include <semaphore.h>
 #include <ucontext.h>
+#endif
 
 #ifdef HAVE_SYS_MMAN_H
 #include <sys/mman.h>

@@ -7662,7 +7662,7 @@ else
     powerpc*-*-linux* | i?86*-*-linux* | x86_64*-*-linux* | s390*-*-linux* | \
     i?86*-*-elfiamcu | i?86*-*-gnu* | x86_64*-*-gnu* | \
     i?86*-*-mingw* | x86_64*-*-mingw* | \
-    i?86*-*-cygwin* | x86_64*-*-cygwin*)
+    i?86*-*-cygwin* | x86_64*-*-cygwin* | i?86-pc-os2-emx)
       enable_decimal_float=yes
       ;;
     *)
@@ -10476,7 +10476,7 @@ else
    # read() to the same fd.  The only system known to have a problem here
    # is VMS, where text files have record structure.
    case "$host_os" in
-     *vms* | ultrix*)
+     *vms* | ultrix* | *os2*)
         gcc_cv_func_mmap_file=no ;;
      *)
         gcc_cv_func_mmap_file=yes;;
@@ -12937,7 +12937,7 @@ if test "${enable_frame_pointer+set}" = set; then :
 else
 
 case $target_os in
-linux* | gnu* | darwin[8912]* | cygwin* | mingw*)
+linux* | gnu* | darwin[8912]* | cygwin* | mingw* | i?86-pc-os2-emx)
   # Enable -fomit-frame-pointer by default for these systems with DWARF2.
   enable_frame_pointer=no
   ;;

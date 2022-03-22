@@ -330,7 +330,7 @@ load_file ( const char* fname )
       return (char*)NULL;
     }
 
-#ifdef HAVE_MMAP_FILE
+#if defined( HAVE_MMAP_FILE )
   curr_data_mapped = BOOL_TRUE;
 
   /*  IF the file size is a multiple of the page size,

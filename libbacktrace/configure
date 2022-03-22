@@ -8585,11 +8585,11 @@ $as_echo_n "checking for $compiler option to produce PIC... " >&6; }
       esac
       ;;
 
-    beos* | irix5* | irix6* | nonstopux* | osf3* | osf4* | osf5*)
+    beos* | irix5* | irix6* | nonstopux* | osf3* | osf4* | osf5* )
       # PIC is the default for these OSes.
       ;;
 
-    mingw* | cygwin* | pw32* | os2* | cegcc*)
+    mingw* | cygwin* | pw32* | *os2* | cegcc*)
       # This hack is so that the source file can tell whether it is being
       # built for inclusion in a dll (and should export symbols for example).
       # Although the cygwin gcc ignores -fPIC, still need this for old-style
@@ -8832,7 +8832,7 @@ $as_echo_n "checking for $compiler option to produce PIC... " >&6; }
 
 case $host_os in
   # For platforms which do not support PIC, -DPIC is meaningless:
-  *djgpp*)
+  *djgpp* | *os2*)
     lt_prog_compiler_pic=
     ;;
   *)
@@ -13187,7 +13187,7 @@ else
     # simply assume that if we have mman.h, we have mmap.
     have_mmap=yes
     case "${host}" in
-    *-*-msdosdjgpp)
+    *-*-msdosdjgpp | *os2*)
         # DJGPP has sys/man.h, but no mmap
 	have_mmap=no ;;
     esac

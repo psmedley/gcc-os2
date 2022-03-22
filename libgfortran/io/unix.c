@@ -39,6 +39,9 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 
 #include <string.h>
 #include <errno.h>
+#ifdef __OS2__
+#include <io.h>
+#endif
 
 
 /* For mingw, we don't identify files by their inode number, but by a

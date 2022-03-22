@@ -42160,7 +42160,8 @@ configure-target-libstdc++-v3:
 	  $$s/$$module_srcdir/configure \
 	  --srcdir=$${topdir}/$$module_srcdir \
 	  $(TARGET_CONFIGARGS) --build=${build_alias} --host=${target_alias} \
-	  --target=${target_alias}  \
+	  --target=${target_alias};  \
+	  cp -p $${topdir}/libtool.os2 ./libtool \
 	  || exit 1
 @endif target-libstdc++-v3
 

@@ -78,7 +78,7 @@ _GLIBCXX_END_NAMESPACE_CXX11
   /// A string of @c char
   typedef basic_string<char>    string;   
 
-#ifdef _GLIBCXX_USE_WCHAR_T
+#if defined(_GLIBCXX_USE_WCHAR_T) || defined(__KLIBC__)
   /// A string of @c wchar_t
   typedef basic_string<wchar_t> wstring;   
 #endif

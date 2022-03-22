@@ -3691,13 +3691,13 @@ if test "$ac_test_CFLAGS" = set; then
   CFLAGS=$ac_save_CFLAGS
 elif test $ac_cv_prog_cc_g = yes; then
   if test "$GCC" = yes; then
-    CFLAGS="-g -O2"
+    CFLAGS="-g"
   else
     CFLAGS="-g"
   fi
 else
   if test "$GCC" = yes; then
-    CFLAGS="-O2"
+    CFLAGS=""
   else
     CFLAGS=
   fi
@@ -5185,6 +5185,8 @@ case "${host}" in
 	;;
     i[34567]86-*-mingw* | x86_64-*-mingw*)
 	;;
+    i*86-pc-*emx)	
+        ;;
     i[34567]86-*-interix[3-9]*)
 	# Interix 3.x gcc -fpic/-fPIC options generate broken code.
 	# Instead, we relocate shared libraries at runtime.
@@ -7331,6 +7333,7 @@ case "${host}" in
      *-*-mingw* | *-*-winnt*)	pexecute=pex-win32  ;;
      *-*-msdosdjgpp*)		pexecute=pex-djgpp  ;;
      *-*-msdos*)		pexecute=pex-msdos  ;;
+     *-*-os2*)			pexecute=pex-djgpp  ;;
      *)				pexecute=pex-unix   ;;
 esac
 

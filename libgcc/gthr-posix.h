@@ -37,11 +37,17 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 #if ((defined(_LIBOBJC) || defined(_LIBOBJC_WEAK)) \
      || !defined(_GTHREAD_USE_MUTEX_TIMEDLOCK))
 # include <unistd.h>
-# if defined(_POSIX_TIMEOUTS) && _POSIX_TIMEOUTS >= 0
+# if defined(_POSIX_TIMEOUTS) && _POSIX_TIMEOUTS >= 0 && !defined(__KLIBC__)
 #  define _GTHREAD_USE_MUTEX_TIMEDLOCK 1
 # else
 #  define _GTHREAD_USE_MUTEX_TIMEDLOCK 0
 # endif
+#endif
+
+#ifdef __KLIBC__
+static inline  int sched_yield(void)
+ {return 0;}
+#undef _GTHREAD_USE_MUTEX_TIMEDLOCK
 #endif
 
 typedef pthread_t __gthread_t;

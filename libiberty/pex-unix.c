@@ -119,7 +119,7 @@ to_ptr32 (char **ptr64)
 
 static pid_t pex_wait (struct pex_obj *, pid_t, int *, struct pex_time *);
 
-#ifdef HAVE_WAIT4
+#if defined(HAVE_WAIT4) && !defined(__EMX__)
 
 static pid_t
 pex_wait (struct pex_obj *obj ATTRIBUTE_UNUSED, pid_t pid, int *status,
@@ -284,6 +284,19 @@ pex_wait (struct pex_obj *obj, pid_t pid, int *status, struct pex_time *time)
 	    *time = pt;
 	  return cpid;
 	}
+  }
+#else
+      if ((flags & PEX_SEARCH) != 0)
+	{
+	  execvp (executable, _argv);
+	  pex_child_error (obj, executable, "execvp", errno);
+	}
+      else
+	{
+	  execv (executable, _argv);
+	  pex_child_error (obj, executable, "execv", errno);
+	}
+#endif
 
       psl = XNEW (struct status_list);
       psl->pid = cpid;
@@ -682,6 +695,66 @@ pex_unix_exec_child (struct pex_obj *obj, int flags, const char *executable,
 		 the parent's copy of environ "too" (in reality there's
 		 only one copy).  This is ok as we restore it below.  */
 	      environ = (char**) env;
+#ifdef __EMX__
+  /* command line cannot exceed 32KB, DosExecPgm limit */
+  {
+    char* argv_rsp[3];
+    char** _argv = argv;
+    char* arg = _argv[0];
+    char rsp_arg[_MAX_PATH];
+    int i = 0;
+    int arglen = 0;
+
+    while( (arg = _argv[i]) != NULL)
+      {
+        arglen += strlen( arg) + 1;
+        i++;
+      }
+
+    /* safe len check */
+    if (arglen > (30*1024))
+      {
+        /* create temporary file */
+        char* rsp = tempnam( NULL, "grsp");
+        FILE* out = fopen( rsp, "w");
+        if (out == NULL)
+          {
+            *err = errno;
+            *errmsg = "tempnam";
+            return (pid_t) -1;
+          }
+        /* dump arguments, skip program name */
+        i = 1;
+        while( (arg = _argv[i]) != NULL)
+          {
+            fprintf( out, "%s\n", arg);
+            i++;
+          }
+        fclose( out);
+        /* new command line args */
+        argv_rsp[0] = _argv[0];
+        sprintf( rsp_arg, "@%s", rsp);
+        argv_rsp[1] = rsp_arg;
+        argv_rsp[2] = NULL;
+        /* add it for automatic cleanup */
+        pex_add_remove( obj, rsp, 1);
+        /* use new argv */
+        _argv = argv_rsp;
+      }
+
+    /* this returns pid instead of status! */
+      if ((flags & PEX_SEARCH) != 0)
+	{
+	  execvp (executable, to_ptr32 (argv));
+	  pex_child_error (obj, executable, "execvp", errno);
+	}
+      else
+	{
+	  execv (executable, to_ptr32 (argv));
+	  pex_child_error (obj, executable, "execv", errno);
+	}
+  }
+#else
 	    if ((flags & PEX_SEARCH) != 0)
 	      {
 		execvp (executable, to_ptr32 (argv));

@@ -2199,10 +2199,12 @@ TRANSFER_FROM_TRAMPOLINE
 #define SYMBOL__MAIN __main
 #endif
 
+#ifndef __OS2__ /* otherwise we don't get __main which we need */
 #if defined (__LIBGCC_INIT_SECTION_ASM_OP__) \
     || defined (__LIBGCC_INIT_ARRAY_SECTION_ASM_OP__)
 #undef HAS_INIT_SECTION
 #define HAS_INIT_SECTION
+#endif
 #endif
 
 #if !defined (HAS_INIT_SECTION) || !defined (OBJECT_FORMAT_ELF)
@@ -2235,7 +2237,7 @@ __do_global_dtors (void)
       (*(p-1)) ();
     }
 #endif
-#if defined (__LIBGCC_EH_FRAME_SECTION_NAME__) && !defined (HAS_INIT_SECTION)
+#if defined (__LIBGCC_EH_FRAME_SECTION_NAME__) && !defined (HAS_INIT_SECTION) && !defined (DONT_AUTOREGISTER_FRAME_INFO)
   {
     static int completed = 0;
     if (! completed)
@@ -2254,7 +2256,7 @@ __do_global_dtors (void)
 void
 __do_global_ctors (void)
 {
-#ifdef __LIBGCC_EH_FRAME_SECTION_NAME__
+#if defined(__LIBGCC_EH_FRAME_SECTION_NAME__) && !defined (DONT_AUTOREGISTER_FRAME_INFO)
   {
     static struct object object;
     __register_frame_info (__EH_FRAME_BEGIN__, &object);

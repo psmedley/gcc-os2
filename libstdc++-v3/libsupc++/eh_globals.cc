@@ -42,7 +42,6 @@ extern "C" void free(void *);
 using namespace __cxxabiv1;
 
 #if _GLIBCXX_HAVE_TLS
-
 namespace
 {
   abi::__cxa_eh_globals*
@@ -63,7 +62,6 @@ __cxxabiv1::__cxa_get_globals() _GLIBCXX_NOTHROW
 
 
 #else
-
 // Single-threaded fallback buffer.
 static __cxa_eh_globals eh_globals;
 

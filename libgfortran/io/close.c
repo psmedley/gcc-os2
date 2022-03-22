@@ -29,6 +29,10 @@ see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 #if !HAVE_UNLINK_OPEN_FILE
 #include <string.h>
 #endif
+#ifdef __OS2__
+#include <io.h>
+#include <string.h>
+#endif
 
 typedef enum
 { CLOSE_INVALID = - 1, CLOSE_DELETE, CLOSE_KEEP, CLOSE_UNSPECIFIED }

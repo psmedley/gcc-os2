@@ -826,6 +826,7 @@ EHFrame0:
 .section .eh_frame,"r"
 #elif defined(HAVE_AS_X86_64_UNWIND_SECTION_TYPE)
 .section .eh_frame,EH_FRAME_FLAGS,@unwind
+#elif defined __KLIBC__
 #else
 .section .eh_frame,EH_FRAME_FLAGS,@progbits
 #endif

@@ -261,7 +261,7 @@ c++.install-common: installdirs
 # We can't use links because not everyone supports them.  So just copy the
 # manpage.
 doc/g++.1: doc/gcc.1
-	cp $< doc/g++.1
+	cp.exe $< doc/g++.1
 
 c++.install-man: $(DESTDIR)$(man1dir)/$(GXX_INSTALL_NAME)$(man1ext)
 

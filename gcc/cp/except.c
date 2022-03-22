@@ -897,8 +897,13 @@ is_admissible_throw_operand_or_catch_parameter (tree t, bool is_throw)
 
 #include "cfns.h"
 
+#ifndef __OS2__
 int
 nothrow_libfn_p (const_tree fn)
+#else
+int
+nothrow_libfn_p (tree fn)
+#endif
 {
   tree id;
 

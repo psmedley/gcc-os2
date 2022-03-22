@@ -32,13 +32,13 @@ along with GCC; see the file COPYING3.  If not see
 #define MAPPED_READING 0
 #else
 #ifdef IN_GCC
-#if HAVE_MMAP_FILE && _POSIX_MAPPED_FILES > 0
+#if (HAVE_MMAP_FILE && _POSIX_MAPPED_FILES > 0) && !defined(__OS2__)
 #define MAPPED_READING 1
 #else
 #define MAPPED_READING 0
 #endif
 #else
-#ifdef HAVE_SYS_MMAN_H
+#if defined(HAVE_SYS_MMAN_H) && !defined(__OS2__)
 #include <sys/mman.h>
 #define MAPPED_READING 1
 #else

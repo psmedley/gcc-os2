@@ -35,6 +35,10 @@
 #define ASYNC_IO 0
 #endif
 
+#ifdef __OS2__
+#include <pthread.h>
+#endif
+
 /* Defining DEBUG_ASYNC will enable somewhat verbose debugging
    output for async I/O.  */
 

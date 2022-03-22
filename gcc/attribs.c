@@ -630,7 +630,8 @@ decl_attributes (tree *node, tree attributes, int flags,
 	{
 	  if (TREE_CODE (*anode) == POINTER_TYPE
 	      && (TREE_CODE (TREE_TYPE (*anode)) == FUNCTION_TYPE
-		  || TREE_CODE (TREE_TYPE (*anode)) == METHOD_TYPE))
+		  || TREE_CODE (TREE_TYPE (*anode)) == METHOD_TYPE)
+              && !(flags & (int) ATTR_FLAG_FUNCTION_NEXT))
 	    {
 	      /* OK, this is a bit convoluted.  We can't just make a copy
 		 of the pointer type and modify its TREE_TYPE, because if
@@ -706,6 +707,7 @@ decl_attributes (tree *node, tree attributes, int flags,
 	continue;
 
       if (spec->handler != NULL)
+#if 0
 	{
 	  int cxx11_flag = (cxx11_attr_p ? ATTR_FLAG_CXX11 : 0);
 
@@ -732,6 +734,25 @@ decl_attributes (tree *node, tree attributes, int flags,
 	  else
 	    returned_attrs = chainon (ret, returned_attrs);
 	}
+#else
+        {
+	  int cxx11_flag = (cxx11_attr_p ? ATTR_FLAG_CXX11 : 0);
+
+          /* We may have replaced decl with its type (see above).  Supply the
+             original decl to the handler following the replacing type.  This is
+             used by handlers of some targets to alter function decls depending
+             on function type attributes.  */
+          tree nodes[2];
+          nodes[0] = *anode;
+          nodes[1] = *node;
+          returned_attrs = chainon ((*spec->handler) (nodes, name, args,
+                                                      flags | cxx11_flag | ATTR_FLAG_HANDLER_DECL_FOLLOWS,
+                                                      &no_add_attrs),
+                                    returned_attrs);
+          /* The node could be changed by the handler, preserve the change.  */
+          *anode = nodes[0];
+        }
+#endif
 
       /* Layout the decl in case anything changed.  */
       if (spec->type_required && DECL_P (*node)

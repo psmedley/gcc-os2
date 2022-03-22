@@ -169,6 +169,96 @@ env_manager::restore ()
 
 
 
+#if 1
+//#include "libc-alias.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <emx/syscalls.h>
+#include <klibc/startup.h>
+
+#define WPUT(x) do { \
+    if (new_argc >= new_alloc) \
+      { \
+        new_alloc += 20; \
+        new_argv = (char **)xrealloc (new_argv, new_alloc * sizeof (char *)); \
+        if (new_argv == NULL) \
+            goto out_of_memory; \
+      } \
+    new_argv[new_argc++] = x; \
+  } while (0)
+
+
+
+void _wildcard2 (int *argcp, char ***argvp)
+{
+  int i, old_argc, new_argc, new_alloc;
+  char **old_argv, **new_argv;
+  char line[256], *p, *q;
+  struct _find find;
+
+  old_argc = *argcp; old_argv = *argvp;
+  _rfnlwr ();
+  for (i = 1; i < old_argc; ++i)
+    if (old_argv[i] != NULL &&
+#if 0
+        !(old_argv[i][-1] & (__KLIBC_ARG_DQUOTE | __KLIBC_ARG_RESPONSE | __KLIBC_ARG_ARGV | __KLIBC_ARG_SHELL)) &&
+#endif
+        strpbrk (old_argv[i], "?*") != NULL)
+      break;
+
+  if (i >= old_argc)
+    return;                 /* do nothing */
+
+  new_argv = NULL; new_alloc = 0; new_argc = 0;
+  for (i = 0; i < old_argc; ++i)
+    {
+      if (i == 0 || old_argv[i] == NULL
+#if 0
+          || (old_argv[i][-1] & (__KLIBC_ARG_DQUOTE | __KLIBC_ARG_RESPONSE | __KLIBC_ARG_ARGV | __KLIBC_ARG_SHELL))
+#endif
+          || strpbrk (old_argv[i], "?*") == NULL
+          || __findfirst (old_argv[i], 0x10, &find) != 0)
+        WPUT (old_argv[i]);
+      else
+        {
+          line[0] = __KLIBC_ARG_NONZERO | __KLIBC_ARG_WILDCARD;
+          strcpy (line+1, old_argv[i]);
+          p = _getname (line + 1);
+          do
+            {
+              if (   find.szName[0] != '.'
+                  || (   find.szName[1] != '\0'
+                      && (find.szName[1] != '.' || find.szName[2] != '\0')))
+                {
+                  strcpy (p, find.szName);
+                  _fnlwr2 (p, line+1);
+                  q = xstrdup (line);
+                  if (q == NULL)
+                    goto out_of_memory;
+                  WPUT (q+1);
+                }
+            } while (__findnext (&find) == 0);
+        }
+    }
+  WPUT (NULL); --new_argc;
+  *argcp = new_argc; *argvp = new_argv;
+  _rfnlwr ();
+
+  return;
+
+out_of_memory:
+  fputs ("Out of memory while expanding wildcards\n", stderr);
+  exit (255);
+}
+#endif
+
+#ifdef __OS2__
+/* No we don't have GNU LD, no matter what configure thinks! */
+#undef HAVE_GNU_LD
+#define HAVE_GNU_LD 0
+#endif
+
 /* By default there is no special suffix for target executables.  */
 #ifdef TARGET_EXECUTABLE_SUFFIX
 #define HAVE_TARGET_EXECUTABLE_SUFFIX
@@ -408,7 +498,7 @@ static void fatal_signal (int);
 static void init_gcc_specs (struct obstack *, const char *, const char *,
 			    const char *);
 #endif
-#if defined(HAVE_TARGET_OBJECT_SUFFIX) || defined(HAVE_TARGET_EXECUTABLE_SUFFIX)
+#if defined(HAVE_TARGET_OBJECT_SUFFIX) || defined(HAVE_TARGET_EXECUTABLE_SUFFIX) && !defined (NO_FORCE_EXEOBJ_SUFFIX)
 static const char *convert_filename (const char *, int, int);
 #endif
 
@@ -3266,7 +3356,7 @@ execute (void)
   for (n_commands = 1, i = 0; argbuf.iterate (i, &arg); i++)
     if (arg && strcmp (arg, "|") == 0)
       {				/* each command.  */
-#if defined (__MSDOS__) || defined (OS2) || defined (VMS)
+#if defined (__MSDOS__) || defined (VMS)
 	fatal_error (input_location, "%<-pipe%> not supported");
 #endif
 	argbuf[i] = 0; /* Termination of command args.  */
@@ -3672,7 +3762,7 @@ static int added_libraries;
 
 const char **outfiles;
 
-#if defined(HAVE_TARGET_OBJECT_SUFFIX) || defined(HAVE_TARGET_EXECUTABLE_SUFFIX)
+#if (defined(HAVE_TARGET_OBJECT_SUFFIX) || defined(HAVE_TARGET_EXECUTABLE_SUFFIX)) && !defined (NO_FORCE_EXEOBJ_SUFFIX)
 
 /* Convert NAME to a new name if it is the standard suffix.  DO_EXE
    is true if we should look for an executable suffix.  DO_OBJ
@@ -4465,9 +4555,11 @@ driver_handle_option (struct gcc_options *opts,
 
     case OPT_o:
       have_o = 1;
+#ifndef NO_FORCE_EXEOBJ_SUFFIX
 #if defined(HAVE_TARGET_EXECUTABLE_SUFFIX) || defined(HAVE_TARGET_OBJECT_SUFFIX)
       arg = convert_filename (arg, ! have_c, 0);
 #endif
+#endif /* NO_FORCE_EXEOBJ_SUFFIX */
       output_file = arg;
       /* On some systems, ld cannot handle "-o" without a space.  So
 	 split the option from its argument.  */
@@ -4752,6 +4844,7 @@ process_command (unsigned int decoded_options_count,
 	}
     }
 
+#ifndef __EMX__ /* Under OS/2 (__EMX__) LPATH is used in LANManager client & server */
   /* Use LPATH like LIBRARY_PATH (for the CMU build program).  */
   temp = env.get ("LPATH");
   if (temp && *cross_compile == '0')
@@ -4784,6 +4877,7 @@ process_command (unsigned int decoded_options_count,
 	    endp++;
 	}
     }
+#endif /* not __EMX__ */
 
   /* Process the options and store input files and switches in their
      vectors.  */
@@ -5272,14 +5366,12 @@ process_command (unsigned int decoded_options_count,
      configured-in locations.  */
   if (!gcc_exec_prefix)
     {
-#ifndef OS2
       add_prefix (&exec_prefixes, standard_libexec_prefix, "GCC",
 		  PREFIX_PRIORITY_LAST, 1, 0);
       add_prefix (&exec_prefixes, standard_libexec_prefix, "BINUTILS",
 		  PREFIX_PRIORITY_LAST, 2, 0);
       add_prefix (&exec_prefixes, standard_exec_prefix, "BINUTILS",
 		  PREFIX_PRIORITY_LAST, 2, 0);
-#endif
       add_prefix (&startfile_prefixes, standard_exec_prefix, "BINUTILS",
 		  PREFIX_PRIORITY_LAST, 1, 0);
     }
@@ -5968,7 +6060,9 @@ do_spec_1 (const char *spec, int inswitch, const char *soft_matched_part)
 
 	  case 'b':
 	    /* Don't use %b in the linker command.  */
+#ifndef __OS2__ /* this causes 'internal compiler error: in do_spec_1, at gcc.c:6063' with GCC 11.x - dunno why - FIXME */ 
 	    gcc_assert (suffixed_basename_length);
+#endif
 	    if (!this_is_output_file && dumpdir_length)
 	      obstack_grow (&obstack, dumpdir, dumpdir_length);
 	    if (this_is_output_file || !outbase_length)
@@ -6277,8 +6371,8 @@ do_spec_1 (const char *spec, int inswitch, const char *soft_matched_part)
 		/* We are going to expand `%i' into `@FILE', where FILE
 		   is a newly-created temporary filename.  The filenames
 		   that would usually be expanded in place of %o will be
-		   written to the temporary file.  */
-		if (at_file_supplied)
+	       written to the temporary file.  */
+	    if (at_file_supplied)
 		  open_at_file ();
 
 		for (i = 0; (int) i < n_infiles; i++)
@@ -6288,7 +6382,7 @@ do_spec_1 (const char *spec, int inswitch, const char *soft_matched_part)
 		      infiles[i].compiled = true;
 		    }
 
-		if (at_file_supplied)
+	    if (at_file_supplied)
 		  close_at_file ();
 	      }
 	    else
@@ -8014,8 +8108,12 @@ int
 driver::main (int argc, char **argv)
 {
   bool early_exit;
-
   set_progname (argv[0]);
+#ifdef __OS2__ 
+  /* No one is using it nowadays, perhaps it should go away (dangerous).  */
+    _envargs (&argc, (char ***)&argv, "GCCOPT");
+    _wildcard2 (&argc, (char ***)&argv);
+#endif
   expand_at_files (&argc, &argv);
   decode_argv (argc, const_cast <const char **> (argv));
   global_initializations ();
@@ -8066,13 +8164,22 @@ driver::set_progname (const char *argv0) const
 void
 driver::expand_at_files (int *argc, char ***argv) const
 {
+#ifndef __EMX__
   char **old_argv = *argv;
+#endif
 
   expandargv (argc, argv);
 
+  /* NOTE: Do NOT set at_file_supplied on EMX to ensure that GCC
+     never creates response files for child processes. Libiberty's
+     `pex_run_in_environment` will create response files on its own
+     when needed on EMX (see pex-djgpp.c) and doing it here would
+     lead to nested response files which are not supported.  */
+#ifndef __EMX__
   /* Determine if any expansions were made.  */
   if (*argv != old_argv)
     at_file_supplied = true;
+#endif
 }
 
 /* Decode the command-line arguments from argc/argv into the
@@ -8889,7 +8996,7 @@ driver::do_spec_on_infiles () const
 
       for (i = 0; i < n_infiles ; i++)
 	if (infiles[i].incompiler
-	    || (infiles[i].language && infiles[i].language[0] != '*'))
+	    || (!infiles[i].language || infiles[i].language[0] != '*'))
 	  {
 	    set_input (infiles[i].name);
 	    break;

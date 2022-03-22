@@ -267,6 +267,26 @@ extern void ix86_d_target_versions (void);
 extern void ix86_d_register_target_info (void);
 extern bool ix86_d_has_stdcall_convention (unsigned int *, unsigned int *);
 
+/* In emx.c  */
+extern bool i386_emx_binds_local_p (const_tree);
+extern void i386_emx_init_sections (void);
+extern tree i386_emx_mangle_decl_assembler_name (tree, tree);
+extern void i386_emx_maybe_record_exported_symbol (tree, const char *, int);
+extern bool i386_emx_valid_dllimport_attribute_p (const_tree);
+extern section *emx_function_section (tree decl ATTRIBUTE_UNUSED,
+                                      enum node_frequency freq ATTRIBUTE_UNUSED,
+                                      bool startup ATTRIBUTE_UNUSED,
+                                      bool exit ATTRIBUTE_UNUSED);
+extern void i386_emx_asm_output_aligned_decl_common (FILE *, tree,
+						    const char *,
+						    HOST_WIDE_INT,
+						    HOST_WIDE_INT);
+
+/* In emx-cxx.c  */
+extern void i386_emx_adjust_class_at_definition (tree);
+extern bool i386_emx_type_dllimport_p (tree);
+extern bool i386_emx_type_dllexport_p (tree);
+
 /* In winnt.c  */
 extern void i386_pe_unique_section (tree, int);
 extern void i386_pe_declare_function_type (FILE *, const char *, int);
