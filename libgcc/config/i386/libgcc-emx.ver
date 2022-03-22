@@ -1,0 +1,47 @@
+# Copyright (C) 2010-2014 Free Software Foundation, Inc.
+#
+# This file is part of GCC.
+#
+# GCC is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3, or (at your option)
+# any later version.
+#
+# GCC is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with GCC; see the file COPYING3.  If not see
+# <http://www.gnu.org/licenses/>.
+
+# Export custom EMX/KLIBC build symbols
+
+__chkstk_ms
+
+# __GTHREADS
+__gthread_os2_mutex_init
+__gthread_os2_mutex_destroy
+__gthread_os2_mutex_lock
+__gthread_os2_mutex_trylock
+__gthread_os2_mutex_unlock
+
+# __GTHREAD_HAS_COND
+__gthread_os2_cond_init
+__gthread_os2_cond_destroy
+__gthread_os2_cond_broadcast
+__gthread_os2_cond_wait
+__gthread_os2_cond_wait_recursive
+
+# __GTHREADS_CXX0X
+__gthread_os2_create
+__gthread_os2_join
+__gthread_os2_detach
+__gthread_os2_equal
+__gthread_os2_self
+__gthread_os2_yield
+__gthread_os2_mutex_timedlock
+__gthread_os2_recursive_mutex_timedlock
+__gthread_os2_cond_signal
+__gthread_os2_cond_timedwait

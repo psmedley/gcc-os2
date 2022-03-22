@@ -1,0 +1,91 @@
+# Build a shared libgcc library with a DEF file.
+
+# mkmap-flat.awk is used with the pe_dll option to produce a DEF instead
+# of an ELF map file.
+
+# The version of GCC in this tree
+gcc_version := $(shell cat $(srcdir)/../gcc/BASE-VER)
+
+# DLL version string.
+SHLIB_EXT = .dll
+SHLIB_SOVERSION = 1
+SHLIB_MKMAP = $(srcdir)/mkmap-flat.awk
+SHLIB_MAPFILES = libgcc-std.ver $(srcdir)/config/i386/libgcc-glibc.ver
+SHLIB_MAPFILES += $(srcdir)/config/i386/libgcc-emx.ver
+SHLIB_MKMAP_OPTS = -v pe_dll=gcc$(SHLIB_SOVERSION) -v leading_underscore=1 \
+		-v pe_def="GNU GCC Runtime Version $(gcc_version)-$(RPM_PACKAGE_RELEASE)"
+
+# The OS/2 target have shared libgcc, but the names are release specific and constrained by 8.3 limits.
+SHLIB_BASENAME  = gcc$(SHLIB_SOVERSION)
+SHLIB_MULTINAME = $(SHLIB_BASENAME)
+SHLIB_DLLNAME   = $(SHLIB_MULTINAME).dll
+SHLIB_LINK      = cp @shlib_map_file@ @shlib_map_file@.def && \
+	gcc -g -Zhigh-mem -Zomf -Zmap -Zdll -o $(SHLIB_DLLNAME) \
+	@shlib_map_file@.def @shlib_objs@ \
+	-lc_alias -lc_dll  \
+	&& ar rs $(SHLIB_BASENAME).a __main.o emx-ctordtor.o emx-eh.o \
+        && emximp -o libgcc_so_d.a @shlib_map_file@.def \
+	&& ar rs libgcc_so_d.a __main.o emx-ctordtor.o emx-eh.o \
+        && emxomf -o libgcc_so_d.lib libgcc_so_d.a \
+        && touch $@
+SHLIB_SUBDIR    = .
+SHLIB_INSTALL   = $(INSTALL_DATA) $(SHLIB_SUBDIR)/$(SHLIB_DLLNAME) $(DESTDIR)$(slibdir)/ \
+    && $(INSTALL_DATA) $(SHLIB_SUBDIR)/$(SHLIB_BASENAME).a $(DESTDIR)$(libsubdir)/$(SHLIB_SUBDIR)/ \
+    && $(INSTALL_DATA) $(SHLIB_SUBDIR)/libgcc_so_d.lib $(DESTDIR)$(libsubdir)/$(SHLIB_SUBDIR)/ \
+    && $(INSTALL_DATA) $(SHLIB_SUBDIR)/libgcc_so_d.a $(DESTDIR)$(libsubdir)/$(SHLIB_SUBDIR)/
+
+# Dont use collect2
+USE_COLLECT2    =
+# Don't run fixproto
+STMP_FIXPROTO   =
+## Don't fix includes
+# bird 2005-12-18: Yes we do, it'll prevent syslimits.h from getting in place otherwise.
+##STMP_FIXINC     =
+
+# Override libgcc2 C flags to ensure stack probing and epilogues.
+TARGET_LIBGCC2_CFLAGS = -Zaout -O2 -fomit-frame-pointer -Wall -DNDEBUG
+
+# Provide alternative source code for libgcc1
+LIB1ASMSRC = i386/emx.S
+LIB1ASMFUNCS = _alloca _chkstk_ms
+
+# Extra functions to add to libgcc.
+LIB2FUNCS_EXTRA = $(srcdir)/config/i386/emx-ctordtor.c
+LIB2ADDEH       = \
+    $(srcdir)/config/i386/emx-eh.c \
+    $(srcdir)/config/i386/emx-ctordtor.c \
+    $(srcdir)/unwind-dw2.c \
+    $(srcdir)/unwind-dw2-fde.c \
+    $(srcdir)/unwind-sjlj.c \
+    $(srcdir)/unwind-c.c
+#LIB2ADDEHDEP
+
+
+# Copy these files to include/ subdirectory
+# GCC-OS/2: We override this to prevent usage of $(srcdir)/ginclude/stddef.h
+#           and $(srcdir)/ginclude/float.h.
+# bird:     Don't forget to check this when updating the code GCC.
+USER_H          = \
+	 $(srcdir)/ginclude/iso646.h \
+	 $(srcdir)/ginclude/stdarg.h \
+	 $(srcdir)/ginclude/stdbool.h \
+	 \
+	 $(srcdir)/ginclude/varargs.h \
+	 $(srcdir)/unwind.h \
+	 $(EXTRA_HEADERS)
+
+# bird (#424): New gcc*dll hacks
+stage1 stage2 stage3 stage4:
+	echo "t-emx hacks: $@ starting"
+	-mv -f gcc3*.dll gcc3*.a gcc3*.def $@
+	echo "t-emx hacks: $@ done"
+
+# how to make the emx.o object.
+emx.o: $(srcdir)/config/i386/emx.c $(RTL_H) $(TREE_H) $(CONFIG_H)
+	$(CC) -c $(ALL_CFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) $(srcdir)/config/i386/emx.c
+
+# how to make the emx-ctordtor.o object.
+emx-ctordtor.o: $(srcdir)/config/i386/emx-ctordtor.c $(RTL_H) $(TREE_H) $(CONFIG_H)
+	$(CC) -c $(ALL_CFLAGS) $(ALL_CPPFLAGS) $(INCLUDES) $(srcdir)/config/i386/emx-ctordtor.c
+
+# end-of-file: t-emx
