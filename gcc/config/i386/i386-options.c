@@ -3732,24 +3732,20 @@ ix86_handle_cconv_attribute (tree *node, tree name, tree args,
   /* Be compatible with IBM VAC and imply `extern "C"' for certain calling
      conventions when they are used on functions in C++ code.  It may be a good
      idea to use a target-specific compiler option for that in the future.  */
-  if (is_attribute_p ("cdecl", name) ||
-#ifdef TARGET_SYSTEM_DECL_ATTRIBUTES
-      is_attribute_p ("system", name) ||
-#endif
-#ifdef TARGET_OPTLINK_DECL_ATTRIBUTES
+  if (is_attribute_p ("system", name) ||
       is_attribute_p ("optlink", name) ||
-#endif
-      is_attribute_p ("stdcall", name))
+      is_attribute_p ("stdcall", name) ||
+      is_attribute_p ("cdecl", name))
     {
       if (TREE_CODE (*node) == FUNCTION_TYPE && (flags & ATTR_FLAG_HANDLER_DECL_FOLLOWS))
         {
-          tree decl = node[1];
+          /* Pick up the original node's DECL (node[1] is last_decl).  */
+          tree decl = node[2];
           if (TREE_CODE (decl) == FUNCTION_DECL && DECL_LANG_SPECIFIC (decl))
             SET_DECL_LANGUAGE (decl, lang_c);
         }
     }
 #endif
-
   return NULL_TREE;
 }
 
