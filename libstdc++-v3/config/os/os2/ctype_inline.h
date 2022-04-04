@@ -104,7 +104,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     return __low;
   }
 
-#ifdef _GLIBCXX_USE_WCHAR_Tx
+#ifdef _GLIBCXX_USE_WCHAR_T
   inline bool
   ctype<wchar_t>::
   do_is(mask __m, wchar_t __c) const
