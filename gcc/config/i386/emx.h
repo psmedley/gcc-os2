@@ -296,7 +296,7 @@ extern int emx_c_set_decl_assembler_name (tree, int);
 
 extern int emx_return_in_memory_with_fntype (tree type, tree fntype);
 extern const char * emx_strip_name_encoding_full (const char *);
-extern void emx_eh_frame_section (void);
+extern void emx_eh_frame_section (const void*);
 extern void emx_output_function_begin_epilogue (FILE *);
 
 /* These functions are for handling dllexport and dllimport. */
