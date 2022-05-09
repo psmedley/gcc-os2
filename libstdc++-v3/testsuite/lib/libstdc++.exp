@@ -1,6 +1,6 @@
 # libstdc++ "tool init file" for DejaGNU
 
-# Copyright (C) 2001-2021 Free Software Foundation, Inc.
+# Copyright (C) 2001-2022 Free Software Foundation, Inc.
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -1335,6 +1335,22 @@ proc check_effective_target_net_ts_ip { } {
     return [check_v3_target_prop_cached et_net_ts_ip {
 	set cond "__has_include(<netinet/in.h>)"
 	return [v3_check_preprocessor_condition net_ts_ip $cond]
+    }]
+}
+
+# Return 1 if libstdc++ was built as --enable-libstdcxx-allocator=new
+proc check_effective_target_std_allocator_new { } {
+    return [check_v3_target_prop_cached et_std_alloc_new {
+	set cond "_GLIBCXX_USE_ALLOCATOR_NEW"
+	return [v3_check_preprocessor_condition std_alloc_new $cond]
+    }]
+}
+
+# Return 1 if libstdc++ was built as --enable-libstdcxx-backtrace
+proc check_effective_target_stacktrace { } {
+    return [check_v3_target_prop_cached et_stacktrace {
+	set cond "_GLIBCXX_HAVE_STACKTRACE"
+	return [v3_check_preprocessor_condition stacktrace $cond]
     }]
 }
 

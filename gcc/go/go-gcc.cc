@@ -1,5 +1,5 @@
 // go-gcc.cc -- Go frontend to gcc IR.
-// Copyright (C) 2011-2021 Free Software Foundation, Inc.
+// Copyright (C) 2011-2022 Free Software Foundation, Inc.
 // Contributed by Ian Lance Taylor, Google.
 
 // This file is part of GCC.
@@ -896,6 +896,20 @@ Gcc_backend::Gcc_backend()
                                NULL_TREE);
   this->define_builtin(BUILT_IN_ATOMIC_ADD_FETCH_8, "__atomic_add_fetch_8", NULL,
                        t, 0);
+
+  t = build_function_type_list(unsigned_char_type_node,
+			       ptr_type_node,
+			       integer_type_node,
+			       NULL_TREE);
+  this->define_builtin(BUILT_IN_ATOMIC_LOAD_1, "__atomic_load_1", NULL, t, 0);
+
+  t = build_function_type_list(void_type_node,
+			       ptr_type_node,
+			       unsigned_char_type_node,
+			       integer_type_node,
+			       NULL_TREE);
+  this->define_builtin(BUILT_IN_ATOMIC_STORE_1, "__atomic_store_1", NULL,
+		       t, 0);
 
   t = build_function_type_list(unsigned_char_type_node,
                                ptr_type_node,
@@ -2853,6 +2867,7 @@ Gcc_backend::static_chain_variable(Bfunction* function, const std::string& name,
   TREE_USED(decl) = 1;
   DECL_ARTIFICIAL(decl) = 1;
   DECL_IGNORED_P(decl) = 1;
+  DECL_NAMELESS(decl) = 1;
   TREE_READONLY(decl) = 1;
 
   struct function *f = DECL_STRUCT_FUNCTION(fndecl);
@@ -2912,6 +2927,7 @@ Gcc_backend::temporary_variable(Bfunction* function, Bblock* bblock,
 		       type_tree);
       DECL_ARTIFICIAL(var) = 1;
       DECL_IGNORED_P(var) = 1;
+      DECL_NAMELESS(var) = 1;
       TREE_USED(var) = 1;
       DECL_CONTEXT(var) = decl;
 
@@ -3290,6 +3306,7 @@ Gcc_backend::function(Btype* fntype, const std::string& name,
           build_decl(location.gcc_location(), RESULT_DECL, NULL_TREE, restype);
       DECL_ARTIFICIAL(resdecl) = 1;
       DECL_IGNORED_P(resdecl) = 1;
+      DECL_NAMELESS(resdecl) = 1;
       DECL_CONTEXT(resdecl) = decl;
       DECL_RESULT(decl) = resdecl;
     }

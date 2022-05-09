@@ -1,6 +1,6 @@
 /* AArch64 Non-NEON ACLE intrinsics include file.
 
-   Copyright (C) 2014-2021 Free Software Foundation, Inc.
+   Copyright (C) 2014-2022 Free Software Foundation, Inc.
    Contributed by ARM Ltd.
 
    This file is part of GCC.
@@ -29,13 +29,16 @@
 
 #include <stdint.h>
 
+#pragma GCC aarch64 "arm_acle.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #pragma GCC push_options
 #pragma GCC target ("arch=armv8.3-a")
-__extension__ static __inline int32_t __attribute__ ((__always_inline__))
+__extension__ extern __inline int32_t
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __jcvt (double __a)
 {
   return __builtin_aarch64_jcvtzs (__a);
@@ -45,49 +48,57 @@ __jcvt (double __a)
 
 #pragma GCC push_options
 #pragma GCC target ("arch=armv8.5-a")
-__extension__ static __inline float __attribute__ ((__always_inline__))
+__extension__ extern __inline float
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __rint32zf (float __a)
 {
   return __builtin_aarch64_frint32zsf (__a);
 }
 
-__extension__ static __inline double __attribute__ ((__always_inline__))
+__extension__ extern __inline double
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __rint32z (double __a)
 {
   return __builtin_aarch64_frint32zdf (__a);
 }
 
-__extension__ static __inline float __attribute__ ((__always_inline__))
+__extension__ extern __inline float
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __rint64zf (float __a)
 {
   return __builtin_aarch64_frint64zsf (__a);
 }
 
-__extension__ static __inline double __attribute__ ((__always_inline__))
+__extension__ extern __inline double
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __rint64z (double __a)
 {
   return __builtin_aarch64_frint64zdf (__a);
 }
 
-__extension__ static __inline float __attribute__ ((__always_inline__))
+__extension__ extern __inline float
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __rint32xf (float __a)
 {
   return __builtin_aarch64_frint32xsf (__a);
 }
 
-__extension__ static __inline double __attribute__ ((__always_inline__))
+__extension__ extern __inline double
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __rint32x (double __a)
 {
   return __builtin_aarch64_frint32xdf (__a);
 }
 
-__extension__ static __inline float __attribute__ ((__always_inline__))
+__extension__ extern __inline float
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __rint64xf (float __a)
 {
   return __builtin_aarch64_frint64xsf (__a);
 }
 
-__extension__ static __inline double __attribute__ ((__always_inline__))
+__extension__ extern __inline double
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __rint64x (double __a)
 {
   return __builtin_aarch64_frint64xdf (__a);
@@ -100,49 +111,57 @@ __rint64x (double __a)
 
 #pragma GCC target ("+nothing+crc")
 
-__extension__ static __inline uint32_t __attribute__ ((__always_inline__))
+__extension__ extern __inline uint32_t
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __crc32b (uint32_t __a, uint8_t __b)
 {
   return __builtin_aarch64_crc32b (__a, __b);
 }
 
-__extension__ static __inline uint32_t __attribute__ ((__always_inline__))
+__extension__ extern __inline uint32_t
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __crc32cb (uint32_t __a, uint8_t __b)
 {
   return __builtin_aarch64_crc32cb (__a, __b);
 }
 
-__extension__ static __inline uint32_t __attribute__ ((__always_inline__))
+__extension__ extern __inline uint32_t
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __crc32ch (uint32_t __a, uint16_t __b)
 {
   return __builtin_aarch64_crc32ch (__a, __b);
 }
 
-__extension__ static __inline uint32_t __attribute__ ((__always_inline__))
+__extension__ extern __inline uint32_t
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __crc32cw (uint32_t __a, uint32_t __b)
 {
   return __builtin_aarch64_crc32cw (__a, __b);
 }
 
-__extension__ static __inline uint32_t __attribute__ ((__always_inline__))
+__extension__ extern __inline uint32_t
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __crc32cd (uint32_t __a, uint64_t __b)
 {
   return __builtin_aarch64_crc32cx (__a, __b);
 }
 
-__extension__ static __inline uint32_t __attribute__ ((__always_inline__))
+__extension__ extern __inline uint32_t
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __crc32h (uint32_t __a, uint16_t __b)
 {
   return __builtin_aarch64_crc32h (__a, __b);
 }
 
-__extension__ static __inline uint32_t __attribute__ ((__always_inline__))
+__extension__ extern __inline uint32_t
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __crc32w (uint32_t __a, uint32_t __b)
 {
   return __builtin_aarch64_crc32w (__a, __b);
 }
 
-__extension__ static __inline uint32_t __attribute__ ((__always_inline__))
+__extension__ extern __inline uint32_t
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __crc32d (uint32_t __a, uint64_t __b)
 {
   return __builtin_aarch64_crc32x (__a, __b);
@@ -166,25 +185,29 @@ __crc32d (uint32_t __a, uint64_t __b)
 #define _TMFAILURE_INT        0x00800000u
 #define _TMFAILURE_TRIVIAL    0x01000000u
 
-__extension__ static __inline uint64_t __attribute__ ((__always_inline__))
+__extension__ extern __inline uint64_t
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __tstart (void)
 {
   return __builtin_aarch64_tstart ();
 }
 
-__extension__ static __inline void __attribute__ ((__always_inline__))
+__extension__ extern __inline void
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __tcommit (void)
 {
   __builtin_aarch64_tcommit ();
 }
 
-__extension__ static __inline void __attribute__ ((__always_inline__))
+__extension__ extern __inline void
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __tcancel (const uint64_t __reason)
 {
   __builtin_aarch64_tcancel (__reason);
 }
 
-__extension__ static __inline uint64_t __attribute__ ((__always_inline__))
+__extension__ extern __inline uint64_t
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __ttest (void)
 {
   return __builtin_aarch64_ttest ();
@@ -193,15 +216,54 @@ __ttest (void)
 #pragma GCC pop_options
 #endif
 
+#ifdef __ARM_FEATURE_LS64
+#pragma GCC push_options
+#pragma GCC target ("+nothing+ls64")
+
+typedef __arm_data512_t data512_t;
+
+__extension__ extern __inline data512_t
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
+__arm_ld64b (const void *__addr)
+{
+  return __builtin_aarch64_ld64b (__addr);
+}
+
+__extension__ extern __inline void
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
+__arm_st64b (void *__addr, data512_t __value)
+{
+  __builtin_aarch64_st64b (__addr, __value);
+}
+
+__extension__ extern __inline uint64_t
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
+__arm_st64bv (void *__addr, data512_t __value)
+{
+  return __builtin_aarch64_st64bv (__addr, __value);
+}
+
+__extension__ extern __inline uint64_t
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
+__arm_st64bv0 (void *__addr, data512_t __value)
+{
+  return __builtin_aarch64_st64bv0 (__addr, __value);
+}
+
+#pragma GCC pop_options
+#endif
+
 #pragma GCC push_options
 #pragma GCC target ("+nothing+rng")
-__extension__ static __inline int __attribute__ ((__always_inline__))
+__extension__ extern __inline int
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __rndr (uint64_t *__res)
 {
   return __builtin_aarch64_rndr (__res);
 }
 
-__extension__ static __inline int __attribute__ ((__always_inline__))
+__extension__ extern __inline int
+__attribute__ ((__always_inline__, __gnu_inline__, __artificial__))
 __rndrrs (uint64_t *__res)
 {
   return __builtin_aarch64_rndrrs (__res);

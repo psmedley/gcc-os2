@@ -1,6 +1,6 @@
 #   Copyright (C) 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999, 2000,
 #   2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012,
-#   2014, 2015, 2016, 2019 Free Software Foundation, Inc.
+#   2014, 2015, 2016, 2019, 2022 Free Software Foundation, Inc.
 #
 # This file is free software; you can redistribute it and/or modify it
 # under the terms of the GNU General Public License as published by
@@ -151,7 +151,6 @@ target_libraries="target-libgcc \
 		target-newlib \
 		target-libgomp \
 		target-liboffloadmic \
-		target-libhsail-rt \
 		target-libatomic \
 		target-libitm \
 		target-libstdc++-v3 \
@@ -300,6 +299,14 @@ AC_ARG_ENABLE(offload-targets,
   fi
 ], [enable_offload_targets=])
 
+AC_ARG_ENABLE(offload-defaulted,
+[AS_HELP_STRING([--enable-offload-defaulted]
+		[If enabled, configured but not installed offload compilers and
+		libgomp plugins are silently ignored.  Useful for distribution
+		compilers where those are in separate optional packages.])],
+[enable_offload_defaulted=$enableval],
+[enable_offload_defaulted=])
+
 # Handle --enable-gold, --enable-ld.
 # --disable-gold [--enable-ld]
 #     Build only ld.  Default option.
@@ -346,7 +353,7 @@ case "${ENABLE_GOLD}" in
       # Check for target supported by gold.
       case "${target}" in
         i?86-*-* | x86_64-*-* | sparc*-*-* | powerpc*-*-* | arm*-*-* \
-        | aarch64*-*-* | tilegx*-*-* | mips*-*-* | s390*-*-*)
+        | aarch64*-*-* | tilegx*-*-* | mips*-*-* | s390*-*-* | loongarch*-*-*)
 	  configdirs="$configdirs gold"
 	  if test x${ENABLE_GOLD} = xdefault; then
 	    default_ld=gold
@@ -601,26 +608,6 @@ if test -d ${srcdir}/libvtv; then
     fi
 fi
 
-
-# Disable libhsail-rt on unsupported systems.
-if test -d ${srcdir}/libhsail-rt; then
-    if test x$enable_libhsail_rt = x; then
-        AC_MSG_CHECKING([for libhsail-rt support])
-        if (srcdir=${srcdir}/libhsail-rt; \
-                . ${srcdir}/configure.tgt; \
-                test -n "$UNSUPPORTED")
-        then
-            AC_MSG_RESULT([no])
-            unsupported_languages="$unsupported_languages brig"
-            # This implicitly disables also target-libhsail-rt as it won't
-            # get added to the build without BRIG FE.
-        else
-            AC_MSG_RESULT([yes])
-        fi
-    fi
-fi
-
-
 # Disable libquadmath for some systems.
 case "${target}" in
   avr-*-*)
@@ -662,7 +649,7 @@ case "${target}" in
 esac
 
 # Disable libstdc++-v3 for some systems.
-# Allow user to override this if they pass --enable-libstdc++-v3
+# Allow user to override this if they pass --enable-libstdcxx
 if test "${ENABLE_LIBSTDCXX}" = "default" ; then
   case "${target}" in
     *-*-vxworks*)
@@ -912,6 +899,9 @@ case "${target}" in
   i[[3456789]]86-*-*)
     libgloss_dir=i386
     ;;
+  loongarch*-*-*)
+    libgloss_dir=loongarch
+    ;;
   m68hc11-*-*|m6811-*-*|m68hc12-*-*|m6812-*-*)
     libgloss_dir=m68hc11
     ;;
@@ -1034,7 +1024,7 @@ case "${target}" in
   *-*-dragonfly*)
     ;;
   *-*-freebsd*)
-    if test "x$with_gmp" = x && test "x$with_gmp_dir" = x \
+    if test "x$with_gmp" = x \
 	&& ! test -d ${srcdir}/gmp \
 	&& test -f /usr/local/include/gmp.h; then
       with_gmp=/usr/local
@@ -1296,6 +1286,11 @@ case "${target}" in
   wasm32-*-*)
     noconfigdirs="$noconfigdirs ld"
     ;;
+  loongarch*-*-linux*)
+    ;;
+  loongarch*-*-*)
+    noconfigdirs="$noconfigdirs gprof"
+    ;;
 esac
 
 # If we aren't building newlib, then don't build libgloss, since libgloss
@@ -1350,6 +1345,7 @@ if test "${build}" != "${host}" ; then
   AR_FOR_BUILD=${AR_FOR_BUILD-ar}
   AS_FOR_BUILD=${AS_FOR_BUILD-as}
   CC_FOR_BUILD=${CC_FOR_BUILD-gcc}
+  CPP_FOR_BUILD="${CPP_FOR_BUILD-\$(CC_FOR_BUILD) -E}"
   CXX_FOR_BUILD=${CXX_FOR_BUILD-g++}
   DSYMUTIL_FOR_BUILD=${DSYMUTIL_FOR_BUILD-dsymutil}
   GFORTRAN_FOR_BUILD=${GFORTRAN_FOR_BUILD-gfortran}
@@ -1378,7 +1374,7 @@ else
   WINDMC_FOR_BUILD="\$(WINDMC)"
 fi
 
-AC_PROG_CC
+AC_PROG_CC_C99
 AC_PROG_CXX
 
 # We must set the default linker to the linker used by gcc for the correct
@@ -1421,6 +1417,7 @@ int main() {}])],
 fi
 
 ACX_PROG_GNAT
+ACX_PROG_GDC
 ACX_PROG_CMP_IGNORE_INITIAL
 
 AC_ARG_ENABLE([bootstrap],
@@ -1479,6 +1476,65 @@ elif test "$have_compiler" = yes; then
   fi
 fi
 
+AC_ARG_ENABLE([pgo-build],
+[AS_HELP_STRING([--enable-pgo-build[[=lto]]],
+		[enable the PGO build])],
+[enable_pgo_build=$enableval],
+[enable_pgo_build=no])
+
+# Issue errors and warnings for invalid/strange PGO build combinations.
+case "$have_compiler:$host:$target:$enable_pgo_build" in
+  *:*:*:no) ;;
+
+  # Allow the PGO build only if we aren't building a compiler and
+  # we are in a native configuration.
+  no:$build:$build:yes | no:$build:$build:lto) ;;
+
+  # Disallow the PGO bootstrap if we are building a compiler.
+  yes:*:*:yes | yes:*:*:lto)
+    AC_MSG_ERROR([cannot perform the PGO bootstrap when building a compiler]) ;;
+
+  *)
+    AC_MSG_ERROR([invalid option for --enable-pgo-build])
+    ;;
+esac
+
+if test "$enable_pgo_build" != "no"; then
+  AC_MSG_CHECKING([whether the compiler supports -fprofile-generate])
+  old_CFLAGS="$CFLAGS"
+  PGO_BUILD_GEN_CFLAGS="-fprofile-generate"
+  CFLAGS="$CFLAGS $PGO_BUILD_CFLAGS"
+  AC_COMPILE_IFELSE([AC_LANG_SOURCE([int foo;])],,
+		    [PGO_BUILD_GEN_CFLAGS=])
+  CFLAGS="$old_CFLAGS"
+  if test -n "$PGO_BUILD_GEN_CFLAGS"; then
+    AC_MSG_RESULT([yes])
+    PGO_BUILD_USE_CFLAGS="-fprofile-use"
+  else
+    AC_MSG_RESULT([no])
+    AC_MSG_ERROR([cannot perform the PGO build without -fprofile-generate])
+  fi
+
+  if test "$enable_pgo_build" = "lto"; then
+    AC_MSG_CHECKING([whether the compiler supports -flto=jobserver -ffat-lto-objects])
+    old_CFLAGS="$CFLAGS"
+    PGO_BUILD_LTO_CFLAGS="-flto=jobserver -ffat-lto-objects"
+    CFLAGS="$CFLAGS $PGO_BUILD_LTO_CFLAGS"
+    AC_COMPILE_IFELSE([AC_LANG_SOURCE([int foo;])],,
+		      [PGO_BUILD_LTO_CFLAGS=])
+    CFLAGS="$old_CFLAGS"
+    if test -n "$PGO_BUILD_LTO_CFLAGS"; then
+      AC_MSG_RESULT([yes])
+    else
+      AC_MSG_RESULT([no])
+      AC_MSG_WARN([LTO is disabled for the PGO build])
+    fi
+  fi
+fi
+AC_SUBST(PGO_BUILD_GEN_CFLAGS)
+AC_SUBST(PGO_BUILD_USE_CFLAGS)
+AC_SUBST(PGO_BUILD_LTO_CFLAGS)
+
 # Used for setting $lt_cv_objdir
 _LT_CHECK_OBJDIR
 
@@ -1523,11 +1579,6 @@ fi
 
 # Specify a location for mpfr
 # check for this first so it ends up on the link line before gmp.
-AC_ARG_WITH(mpfr-dir,
-[AS_HELP_STRING([--with-mpfr-dir=PATH], [this option has been REMOVED])],
-[AC_MSG_ERROR([The --with-mpfr-dir=PATH option has been removed.
-Use --with-mpfr=PATH or --with-mpfr-include=PATH plus --with-mpfr-lib=PATH])])
-
 AC_ARG_WITH(mpfr,
 [AS_HELP_STRING([--with-mpfr=PATH],
 		[specify prefix directory for installed MPFR package.
@@ -1567,11 +1618,6 @@ Building GCC with MPFR in the source tree is only handled for MPFR 3.1.0+.])
 fi
 
 # Specify a location for gmp
-AC_ARG_WITH(gmp-dir,
-[AS_HELP_STRING([--with-gmp-dir=PATH], [this option has been REMOVED])],
-[AC_MSG_ERROR([The --with-gmp-dir=PATH option has been removed.
-Use --with-gmp=PATH or --with-gmp-include=PATH plus --with-gmp-lib=PATH])])
-
 AC_ARG_WITH(gmp,
 [AS_HELP_STRING([--with-gmp=PATH],
 		[specify prefix directory for the installed GMP package.
@@ -2102,6 +2148,22 @@ if test -d ${srcdir}/gcc; then
             ;;
         esac
 
+        # Disable D if no preexisting GDC is available.
+        case ${add_this_lang}:${language}:${have_gdc} in
+          yes:d:no)
+            # Specifically requested language; tell them.
+            AC_MSG_ERROR([GDC is required to build $language])
+           ;;
+          all:d:no)
+            AC_MSG_WARN([GDC is required to build $language])
+            add_this_lang=unsupported
+            ;;
+          *:d:no)
+            # Silently disable.
+            add_this_lang=unsupported
+            ;;
+        esac
+
         # Disable jit if -enable-host-shared not specified
         # but not if building for Mingw. All code in Windows
         # is position independent code (PIC).
@@ -2169,7 +2231,7 @@ directories, to avoid imposing the performance cost of
 		  *) stage1_languages="${stage1_languages}${language}," ;;
 		esac
 		# We need to bootstrap any supporting libraries.
-		bootstrap_target_libs="${bootstrap_target_libs}${target_libs},"
+		bootstrap_target_libs=`echo "${bootstrap_target_libs}${target_libs}," | sed "s/ /,/g"`
 		;;
 	    esac
 	    ;;
@@ -2300,6 +2362,16 @@ case ,${enable_languages}, in
     noconfigdirs="$noconfigdirs target-liboffloadmic target-libitm target-libsanitizer target-libvtv"
     ;;
 esac
+
+# If gcc/ is not in the source tree then we'll not be building a
+# target compiler, assume in that case we don't want to build any
+# target libraries or tools.
+#
+# This was added primarily for the benefit for binutils-gdb who reuse
+# this configure script, but don't always have target tools available.
+if test ! -d ${srcdir}/gcc; then
+   skipdirs="${skipdirs} ${target_configdirs}"
+fi
 
 # Remove the entries in $skipdirs and $noconfigdirs from $configdirs,
 # $build_configdirs and $target_configdirs.
@@ -2842,6 +2914,16 @@ if echo " ${target_configdirs} " | grep " libvtv " > /dev/null 2>&1 &&
   bootstrap_target_libs=${bootstrap_target_libs}target-libvtv,
 fi
 
+# If we are building libatomic and the list of enabled languages includes the
+# D frontend, bootstrap it.
+if echo " ${target_configdirs} " | grep " libatomic " > /dev/null 2>&1; then
+  case ,${enable_languages}, in
+    *,d,*)
+      bootstrap_target_libs=${bootstrap_target_libs}target-libatomic,
+      ;;
+  esac
+fi
+
 # Determine whether gdb needs tk/tcl or not.
 # Use 'maybe' since enable_gdbtk might be true even if tk isn't available
 # and in that case we want gdb to be built without tk.  Ugh!
@@ -2879,6 +2961,9 @@ case " ${configdirs} " in
     ;;
   *\ gdbserver\ *)
     configdirs="${configdirs} gnulib gdbsupport"
+    ;;
+  *\ sim\ *)
+    configdirs="${configdirs} gnulib"
     ;;
 esac
 
@@ -2970,6 +3055,12 @@ extrasub_target="$extrasub_target
 /^@if /,/^@endif /d
 /^@unless /d
 /^@endunless /d"
+
+if test "$enable_pgo_build" != "no"; then
+  extrasub_build="$extrasub_build
+/^@if pgo-build\$/d
+/^@endif pgo-build\$/d"
+fi
 
 # Create the serialization dependencies.  This uses a temporary file.
 
@@ -3339,6 +3430,7 @@ esac
 # our build compiler if desired.
 if test x"${build}" = x"${host}" ; then
   CFLAGS_FOR_BUILD=${CFLAGS_FOR_BUILD-${CFLAGS}}
+  CPPFLAGS_FOR_BUILD=${CPPFLAGS_FOR_BUILD-${CPPFLAGS}}
   CXXFLAGS_FOR_BUILD=${CXXFLAGS_FOR_BUILD-${CXXFLAGS}}
   LDFLAGS_FOR_BUILD=${LDFLAGS_FOR_BUILD-${LDFLAGS}}
 fi
@@ -3405,6 +3497,8 @@ AC_SUBST(AR_FOR_BUILD)
 AC_SUBST(AS_FOR_BUILD)
 AC_SUBST(CC_FOR_BUILD)
 AC_SUBST(CFLAGS_FOR_BUILD)
+AC_SUBST(CPP_FOR_BUILD)
+AC_SUBST(CPPFLAGS_FOR_BUILD)
 AC_SUBST(CXXFLAGS_FOR_BUILD)
 AC_SUBST(CXX_FOR_BUILD)
 AC_SUBST(DLLTOOL_FOR_BUILD)
@@ -3504,6 +3598,8 @@ AC_SUBST(CC)
 AC_SUBST(CXX)
 AC_SUBST(CFLAGS)
 AC_SUBST(CXXFLAGS)
+AC_SUBST(GDC)
+AC_SUBST(GDCFLAGS)
 
 # Target tools.
 AC_ARG_WITH([build-time-tools], 

@@ -1,6 +1,6 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
 <html>
-<!-- Copyright (C) 1988-2021 Free Software Foundation, Inc.
+<!-- Copyright (C) 1988-2022 Free Software Foundation, Inc.
 
 Permission is granted to copy, distribute and/or modify this document
 under the terms of the GNU Free Documentation License, Version 1.3 or
@@ -19,7 +19,7 @@ A GNU Manual
 You have freedom to copy and modify this GNU Manual, like GNU
      software.  Copies published by the Free Software Foundation raise
      funds for GNU development. -->
-<!-- Created by GNU Texinfo 6.5, http://www.gnu.org/software/texinfo/ -->
+<!-- Created by GNU Texinfo 6.7, http://www.gnu.org/software/texinfo/ -->
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <title>Installing GCC: Configuration</title>
@@ -33,23 +33,14 @@ You have freedom to copy and modify this GNU Manual, like GNU
 <!--
 a.summary-letter {text-decoration: none}
 blockquote.indentedblock {margin-right: 0em}
-blockquote.smallindentedblock {margin-right: 0em; font-size: smaller}
-blockquote.smallquotation {font-size: smaller}
 div.display {margin-left: 3.2em}
 div.example {margin-left: 3.2em}
 div.lisp {margin-left: 3.2em}
-div.smalldisplay {margin-left: 3.2em}
-div.smallexample {margin-left: 3.2em}
-div.smalllisp {margin-left: 3.2em}
 kbd {font-style: oblique}
 pre.display {font-family: inherit}
 pre.format {font-family: inherit}
 pre.menu-comment {font-family: serif}
 pre.menu-preformatted {font-family: serif}
-pre.smalldisplay {font-family: inherit; font-size: smaller}
-pre.smallexample {font-size: smaller}
-pre.smallformat {font-family: inherit; font-size: smaller}
-pre.smalllisp {font-size: smaller}
 span.nolinebreak {white-space: nowrap}
 span.roman {font-family: initial; font-weight: normal}
 span.sansserif {font-family: sans-serif; font-weight: normal}
@@ -81,8 +72,8 @@ ul.no-bullet {list-style: none}
 
 
 
-<a name="index-Configuration"></a>
-<a name="index-Installing-GCC_003a-Configuration"></a>
+<span id="index-Configuration"></span>
+<span id="index-Installing-GCC_003a-Configuration"></span>
 
 <p>Like most GNU software, GCC must be configured before it can be built.
 This document describes the recommended configuration procedure
@@ -128,14 +119,13 @@ scripts may fail.
 
 <p>To configure GCC:
 </p>
-<div class="smallexample">
-<pre class="smallexample">% mkdir <var>objdir</var>
+<div class="example">
+<pre class="example">% mkdir <var>objdir</var>
 % cd <var>objdir</var>
 % <var>srcdir</var>/configure [<var>options</var>] [<var>target</var>]
 </pre></div>
 
-<a name="Distributor-options"></a>
-<h3 class="heading">Distributor options</h3>
+<span id="Distributor-options"></span><h3 class="heading">Distributor options</h3>
 
 <p>If you will be distributing binary versions of GCC, with modifications
 to the source code, you should use the options described in this
@@ -176,24 +166,69 @@ The <var>url</var> should end with a <code>/</code> character.
 </dd>
 </dl>
 
-<a name="Target-specification"></a>
-<h3 class="heading">Target specification</h3>
-<ul>
-<li> GCC has code to correctly determine the correct value for <var>target</var>
-for nearly all native systems.  Therefore, we highly recommend you do
-not provide a configure target when configuring a native compiler.
+<span id="Host_002c-Build-and-Target-specification"></span><h3 class="heading">Host, Build and Target specification</h3>
 
-</li><li> <var>target</var> must be specified as <samp>--target=<var>target</var></samp>
-when configuring a cross compiler; examples of valid targets would be
-m68k-elf, sh-elf, etc.
+<p>Specify the host, build and target machine configurations.  You do this
+when you run the <samp>configure</samp> script.
+</p>
+<p>The <em>build</em> machine is the system which you are using, the
+<em>host</em> machine is the system where you want to run the resulting
+compiler (normally the build machine), and the <em>target</em> machine is
+the system for which you want the compiler to generate code.
+</p>
+<p>If you are building a compiler to produce code for the machine it runs
+on (a native compiler), you normally do not need to specify any operands
+to <samp>configure</samp>; it will try to guess the type of machine you are on
+and use that as the build, host and target machines.  So you don&rsquo;t need
+to specify a configuration when building a native compiler unless
+<samp>configure</samp> cannot figure out what your configuration is or guesses
+wrong.
+</p>
+<p>In those cases, specify the build machine&rsquo;s <em>configuration name</em>
+with the <samp>--host</samp> option; the host and target will default to be
+the same as the host machine.
+</p>
+<p>Here is an example:
+</p>
+<div class="example">
+<pre class="example">./configure --host=x86_64-pc-linux-gnu
+</pre></div>
 
-</li><li> Specifying just <var>target</var> instead of <samp>--target=<var>target</var></samp>
-implies that the host defaults to <var>target</var>.
-</li></ul>
+<p>A configuration name may be canonical or it may be more or less
+abbreviated (<samp>config.sub</samp> script produces canonical versions).
+</p>
+<p>A canonical configuration name has three parts, separated by dashes.
+It looks like this: &lsquo;<samp><var>cpu</var>-<var>company</var>-<var>system</var></samp>&rsquo;.
+</p>
+<p>Here are the possible CPU types:
+</p>
+<blockquote>
+<p>aarch64, aarch64_be, alpha, alpha64, amdgcn, arc, arceb, arm, armeb, avr, bfin,
+bpf, cr16, cris, csky, epiphany, fido, fr30, frv, ft32, h8300, hppa, hppa2.0,
+hppa64, i486, i686, ia64, iq2000, lm32, loongarch64, m32c, m32r, m32rle, m68k,
+mcore, microblaze, microblazeel, mips, mips64, mips64el, mips64octeon,
+mips64orion, mips64vr, mipsel, mipsisa32, mipsisa32r2, mipsisa64, mipsisa64r2,
+mipsisa64r2el, mipsisa64sb1, mipsisa64sr71k, mipstx39, mmix, mn10300, moxie,
+msp430, nds32be, nds32le, nios2, nvptx, or1k, pdp11, powerpc, powerpc64,
+powerpc64le, powerpcle, pru, riscv32, riscv32be, riscv64, riscv64be, rl78, rx,
+s390, s390x, sh, shle, sparc, sparc64, tic6x, tilegx, tilegxbe, tilepro, v850,
+v850e, v850e1, vax, visium, x86_64, xstormy16, xtensa
+</p></blockquote>
 
+<p>Here is a list of system types:
+</p>
+<blockquote>
+<p>aix<var>version</var>, amdhsa, aout, cygwin, darwin<var>version</var>,
+eabi, eabialtivec, eabisim, eabisimaltivec, elf, elf32,
+elfbare, elfoabi, freebsd<var>version</var>, gnu, hpux, hpux<var>version</var>,
+kfreebsd-gnu, kopensolaris-gnu, linux-androideabi, linux-gnu,
+linux-gnu_altivec, linux-musl, linux-uclibc, lynxos, mingw32, mingw32crt,
+mmixware, msdosdjgpp, netbsd, netbsdelf<var>version</var>, nto-qnx, openbsd,
+rtems, solaris<var>version</var>, symbianelf, tpf, uclinux, uclinux_eabi, vms,
+vxworks, vxworksae, vxworksmils
+</p></blockquote>
 
-<a name="Options-specification"></a>
-<h3 class="heading">Options specification</h3>
+<span id="Options-specification"></span><h3 class="heading">Options specification</h3>
 
 <p>Use <var>options</var> to override several configure time options for
 GCC.  A list of supported <var>options</var> follows; &lsquo;<samp>configure
@@ -469,7 +504,7 @@ but yielding a slightly slower compiler.
 libraries.
 </p>
 </dd>
-<dt><code><a name="with-gnu-as"></a>--with-gnu-as</code></dt>
+<dt><code><span id="with-gnu-as"></span>--with-gnu-as</code></dt>
 <dd><p>Specify that the compiler should assume that the
 assembler it finds is the GNU assembler.  However, this does not modify
 the rules to find an assembler and will result in confusion if the
@@ -492,7 +527,7 @@ whether you use the GNU assembler.  On any other system,
 </li></ul>
 
 </dd>
-<dt><code><a name="with-as"></a>--with-as=<var>pathname</var></code></dt>
+<dt><code><span id="with-as"></span>--with-as=<var>pathname</var></code></dt>
 <dd><p>Specify that the compiler should use the assembler pointed to by
 <var>pathname</var>, rather than the one found by the standard rules to find
 an assembler, which are:
@@ -525,7 +560,7 @@ assemblers installed and want to choose one that is not found by the
 above rules.
 </p>
 </dd>
-<dt><code><a name="with-gnu-ld"></a>--with-gnu-ld</code></dt>
+<dt><code><span id="with-gnu-ld"></span>--with-gnu-ld</code></dt>
 <dd><p>Same as <a href="#with-gnu-as"><samp>--with-gnu-as</samp></a>
 but for the linker.
 </p>
@@ -538,12 +573,6 @@ but for the linker.
 <dt><code>--with-dsymutil=<var>pathname</var></code></dt>
 <dd><p>Same as <a href="#with-as"><samp>--with-as</samp></a>
 but for the debug linker (only used on Darwin platforms so far).
-</p>
-</dd>
-<dt><code>--with-stabs</code></dt>
-<dd><p>Specify that stabs debugging
-information should be used instead of whatever format the host normally
-uses.  Normally GCC uses the same debug format as the host system.
 </p>
 </dd>
 <dt><code>--with-tls=<var>dialect</var></code></dt>
@@ -624,8 +653,9 @@ sysv, aix.
 <dt><code>--without-multilib-list</code></dt>
 <dd><p>Specify what multilibs to build.  <var>list</var> is a comma separated list of
 values, possibly consisting of a single value.  Currently only implemented
-for aarch64*-*-*, arm*-*-*, riscv*-*-*, sh*-*-* and x86-64-*-linux*.  The
-accepted values and meaning for each target is given below.
+for aarch64*-*-*, arm*-*-*, loongarch64-*-*, riscv*-*-*, sh*-*-* and
+x86-64-*-linux*.  The accepted values and meaning for each target is given
+below.
 </p>
 <dl compact="compact">
 <dt><code>aarch64*-*-*</code></dt>
@@ -700,6 +730,15 @@ profile.  The union of these options is considered when specifying both
 </table>
 
 </dd>
+<dt><code>loongarch*-*-*</code></dt>
+<dd><p><var>list</var> is a comma-separated list of the following ABI identifiers:
+<code>lp64d[/base]</code> <code>lp64f[/base]</code> <code>lp64d[/base]</code>, where the
+<code>/base</code> suffix may be omitted, to enable their respective run-time
+libraries.  If <var>list</var> is empty or <code>default</code>,
+or if <samp>--with-multilib-list</samp> is not specified, then the default ABI
+as specified by <samp>--with-abi</samp> or implied by <samp>--target</samp> is selected.
+</p>
+</dd>
 <dt><code>riscv*-*-*</code></dt>
 <dd><p><var>list</var> is a single ABI name.  The target architecture must be either
 <code>rv32gc</code> or <code>rv64gc</code>.  This will build a single multilib for the
@@ -729,14 +768,14 @@ specialized subset.
 </p>
 <p>Example 1: to configure a compiler for SH4A only, but supporting both
 endians, with little endian being the default:
-</p><div class="smallexample">
-<pre class="smallexample">--with-cpu=sh4a --with-endian=little,big --with-multilib-list=
+</p><div class="example">
+<pre class="example">--with-cpu=sh4a --with-endian=little,big --with-multilib-list=
 </pre></div>
 
 <p>Example 2: to configure a compiler for both SH4A and SH4AL-DSP, but with
 only little endian SH4AL:
-</p><div class="smallexample">
-<pre class="smallexample">--with-cpu=sh4a --with-endian=little,big \
+</p><div class="example">
+<pre class="example">--with-cpu=sh4a --with-endian=little,big \
 --with-multilib-list=sh4al,!mb/m4al
 </pre></div>
 
@@ -763,25 +802,25 @@ for riscv*-*-elf*.  The accepted values and meanings are given below.
 reuse rule with architecture string and reuse rule with sub-extension.
 </p>
 <p>Example 1: Add multi-lib suppport for rv32i with ilp32.
-</p><div class="smallexample">
-<pre class="smallexample">rv32i-ilp32--
+</p><div class="example">
+<pre class="example">rv32i-ilp32--
 </pre></div>
 
 <p>Example 2: Add multi-lib suppport for rv32i with ilp32 and rv32imafd with ilp32.
-</p><div class="smallexample">
-<pre class="smallexample">rv32i-ilp32--;rv32imafd-ilp32--
+</p><div class="example">
+<pre class="example">rv32i-ilp32--;rv32imafd-ilp32--
 </pre></div>
 
 <p>Example 3: Add multi-lib suppport for rv32i with ilp32; rv32im with ilp32 and
 rv32ic with ilp32 will reuse this multi-lib set.
-</p><div class="smallexample">
-<pre class="smallexample">rv32i-ilp32-rv32im-c
+</p><div class="example">
+<pre class="example">rv32i-ilp32-rv32im-c
 </pre></div>
 
 <p>Example 4: Add multi-lib suppport for rv64ima with lp64; rv64imaf with lp64,
 rv64imac with lp64 and rv64imafc with lp64 will reuse this multi-lib set.
-</p><div class="smallexample">
-<pre class="smallexample">rv64ima-lp64--f,c,fc
+</p><div class="example">
+<pre class="example">rv64ima-lp64--f,c,fc
 </pre></div>
 
 <p><samp>--with-multilib-generator</samp> have an optional configuration argument
@@ -791,14 +830,14 @@ currently we support medlow and medany.
 </p>
 <p>Example 5: Add multi-lib suppport for rv64ima with lp64; rv64ima with lp64 and
 medlow code model
-</p><div class="smallexample">
-<pre class="smallexample">rv64ima-lp64--;--cmodel=medlow
+</p><div class="example">
+<pre class="example">rv64ima-lp64--;--cmodel=medlow
 </pre></div>
 
 <p>Example 6: Add multi-lib suppport for rv64ima with lp64; rv64ima with lp64 and
 medlow code model; rv64ima with lp64 and medany code model
-</p><div class="smallexample">
-<pre class="smallexample">rv64ima-lp64--;--cmodel=medlow,medany
+</p><div class="example">
+<pre class="example">rv64ima-lp64--;--cmodel=medlow,medany
 </pre></div>
 
 </dd>
@@ -1092,6 +1131,24 @@ size as a power of two in bytes.  On AArch64 <var>size</var> is required to be e
 12 (4KB) or 16 (64KB).
 </p>
 </dd>
+<dt><code>--with-isa-spec=<var>ISA-spec-string</var></code></dt>
+<dd><p>On RISC-V targets specify the default version of the RISC-V Unprivileged
+(formerly User-Level) ISA specification to produce code conforming to.
+The possibilities for <var>ISA-spec-string</var> are:
+</p><dl compact="compact">
+<dt><code>2.2</code></dt>
+<dd><p>Produce code conforming to version 2.2.
+</p></dd>
+<dt><code>20190608</code></dt>
+<dd><p>Produce code conforming to version 20190608.
+</p></dd>
+<dt><code>20191213</code></dt>
+<dd><p>Produce code conforming to version 20191213.
+</p></dd>
+</dl>
+<p>In the absence of this configuration option the default version is 20191213.
+</p>
+</dd>
 <dt><code>--enable-__cxa_atexit</code></dt>
 <dd><p>Define if you want to use __cxa_atexit, rather than atexit, to
 register C++ destructors for local statics and global objects.
@@ -1199,7 +1256,7 @@ parallel.  The default is &lsquo;<samp>yes</samp>&rsquo; for &lsquo;<samp>libada
 the remaining libraries.
 </p>
 </dd>
-<dt><code><a name="WithAixSoname"></a>--with-aix-soname=&lsquo;<samp>aix</samp>&rsquo;, &lsquo;<samp>svr4</samp>&rsquo; or &lsquo;<samp>both</samp>&rsquo;</code></dt>
+<dt><code><span id="WithAixSoname"></span>--with-aix-soname=&lsquo;<samp>aix</samp>&rsquo;, &lsquo;<samp>svr4</samp>&rsquo; or &lsquo;<samp>both</samp>&rsquo;</code></dt>
 <dd><p>Traditional AIX shared library versioning (versioned <code>Shared Object</code>
 files as members of unversioned <code>Archive Library</code> files named
 &lsquo;<samp>lib.a</samp>&rsquo;) causes numerous headaches for package managers. However,
@@ -1210,7 +1267,7 @@ where this is called the &quot;SONAME&quot;. But as they prevent static linking,
 linker does search for &lsquo;<samp>libNAME.so</samp>&rsquo; before &lsquo;<samp>libNAME.a</samp>&rsquo; library
 filenames with the &lsquo;<samp>-lNAME</samp>&rsquo; linker flag.
 </p>
-<a name="AixLdCommand"></a><p>For detailed information please refer to the AIX
+<span id="AixLdCommand"></span><p>For detailed information please refer to the AIX
 <a href="https://www.ibm.com/support/knowledgecenter/search/%22the%20ld%20command%2C%20also%20called%20the%20linkage%20editor%20or%20binder%22">ld
 Command</a> reference.
 </p>
@@ -1310,8 +1367,8 @@ this option is still experimental and not for normal use yet.
 their runtime libraries should be built.  For a list of valid values for
 <var>langN</var> you can issue the following command in the
 <samp>gcc</samp> directory of your GCC source tree:<br>
-</p><div class="smallexample">
-<pre class="smallexample">grep ^language= */config-lang.in
+</p><div class="example">
+<pre class="example">grep ^language= */config-lang.in
 </pre></div>
 <p>Currently, you can use any of the following:
 <code>all</code>, <code>default</code>, <code>ada</code>, <code>c</code>, <code>c++</code>, <code>d</code>,
@@ -1445,8 +1502,8 @@ compiler driver.
 <dd><p>The <samp>--enable-win32-registry</samp> option enables Microsoft Windows-hosted GCC
 to look up installations paths in the registry using the following key:
 </p>
-<div class="smallexample">
-<pre class="smallexample"><code>HKEY_LOCAL_MACHINE\SOFTWARE\Free Software Foundation\<var>key</var></code>
+<div class="example">
+<pre class="example"><code>HKEY_LOCAL_MACHINE\SOFTWARE\Free Software Foundation\<var>key</var></code>
 </pre></div>
 
 <p><var>key</var> defaults to GCC version number, and can be overridden by the
@@ -1641,17 +1698,6 @@ Until all of the libraries are converted to use IEEE 128-bit floating
 point, it is not recommended to use
 <samp>--with-long-double-format=ieee</samp>.
 </p>
-<p>On little endian PowerPC Linux systems, if you explicitly set the
-<code>long double</code> type, it will build multilibs to allow you to
-select either <code>long double</code> format, unless you disable multilibs
-with the <code>--disable-multilib</code> option.  At present,
-<code>long double</code> multilibs are not built on big endian PowerPC Linux
-systems.  If you are building multilibs, you will need to configure
-the compiler using the <samp>--with-system-zlib</samp> option.
-</p>
-<p>If you do not set the <code>long double</code> type explicitly, no multilibs
-will be generated.
-</p>
 </dd>
 <dt><code>--enable-fdpic</code></dt>
 <dd><p>On SH Linux systems, generate ELF FDPIC code.
@@ -1801,8 +1847,8 @@ GNU/Linux (&lsquo;<samp>i686-pc-linux-gnu</samp>&rsquo;) linker executable (whic
 executable on the former system), you can configure GCC as follows for
 getting compatible linker plugins:
 </p>
-<div class="smallexample">
-<pre class="smallexample">% <var>srcdir</var>/configure \
+<div class="example">
+<pre class="example">% <var>srcdir</var>/configure \
     --host=x86_64-pc-linux-gnu \
     --enable-linker-plugin-configure-flags=--host=i686-pc-linux-gnu \
     --enable-linker-plugin-flags='CC=gcc\ -m32\ -Wl,-rpath,[...]/i686-pc-linux-gnu/lib'
@@ -1849,11 +1895,20 @@ Offload compilers are expected to be already installed.  Default search
 path for them is <samp><var>exec-prefix</var></samp>, but it can be changed by
 specifying paths <var>path1</var>, &hellip;, <var>pathN</var>.
 </p>
-<div class="smallexample">
-<pre class="smallexample">% <var>srcdir</var>/configure \
+<div class="example">
+<pre class="example">% <var>srcdir</var>/configure \
     --enable-offload-targets=x86_64-intelmicemul-linux-gnu=/path/to/x86_64/compiler,nvptx-none
 </pre></div>
 
+</dd>
+<dt><code>--enable-offload-defaulted</code></dt>
+<dd>
+<p>Tell GCC that configured but not installed offload compilers and libgomp
+plugins are silently ignored.  Useful for distribution compilers where
+those are in separate optional packages and where the presence or absence
+of those optional packages should determine the actual supported offloading
+target set rather than the GCC configure-time selection.
+</p>
 </dd>
 <dt><code>--with-hsa-runtime=<var>pathname</var></code></dt>
 <dt><code>--with-hsa-runtime-include=<var>pathname</var></code></dt>
@@ -1903,8 +1958,7 @@ disabled.
 </p></dd>
 </dl>
 
-<a name="Cross-Compiler-Specific-Options"></a>
-<h4 class="subheading">Cross-Compiler-Specific Options</h4>
+<span id="Cross-Compiler-Specific-Options"></span><h4 class="subheading">Cross-Compiler-Specific Options</h4>
 <p>The following options only apply to building cross compilers.
 </p>
 <dl compact="compact">
@@ -1998,7 +2052,7 @@ omitted from <samp>libgcc.a</samp> on the assumption that it will be provided by
 being used as the target C&nbsp; library.  This causes float support
 functions like <code>__addsf3</code> to be omitted from <samp>libgcc.a</samp> on
 the assumption that it will be provided by <samp>libm.a</samp>.  For more
-technical details, cf. <a href="http://gcc.gnu.org/PR54461">PR54461</a>.
+technical details, cf. <a href="https://gcc.gnu.org/PR54461">PR54461</a>.
 It is not supported for
 RTEMS configurations, which currently use newlib.  The option is
 supported since version 4.7.2 and is the default in 4.8.0 and newer.
@@ -2081,8 +2135,7 @@ tools.
 </p></dd>
 </dl>
 
-<a name="Overriding-configure-test-results"></a>
-<h4 class="subsubheading">Overriding <code>configure</code> test results</h4>
+<span id="Overriding-configure-test-results"></span><h4 class="subsubheading">Overriding <code>configure</code> test results</h4>
 
 <p>Sometimes, it might be necessary to override the result of some
 <code>configure</code> test, for example in order to ease porting to a new
@@ -2091,19 +2144,19 @@ script provides three variables for this:
 </p>
 <dl compact="compact">
 <dt><code>build_configargs</code></dt>
-<dd><a name="index-build_005fconfigargs"></a>
+<dd><span id="index-build_005fconfigargs"></span>
 <p>The contents of this variable is passed to all build <code>configure</code>
 scripts.
 </p>
 </dd>
 <dt><code>host_configargs</code></dt>
-<dd><a name="index-host_005fconfigargs"></a>
+<dd><span id="index-host_005fconfigargs"></span>
 <p>The contents of this variable is passed to all host <code>configure</code>
 scripts.
 </p>
 </dd>
 <dt><code>target_configargs</code></dt>
-<dd><a name="index-target_005fconfigargs"></a>
+<dd><span id="index-target_005fconfigargs"></span>
 <p>The contents of this variable is passed to all target <code>configure</code>
 scripts.
 </p>
@@ -2114,8 +2167,7 @@ scripts.
 overrides, you can pass a setting for <code>CONFIG_SITE</code> and set
 variables in the site file.
 </p>
-<a name="Objective-C-Specific-Options"></a>
-<h4 class="subheading">Objective-C-Specific Options</h4>
+<span id="Objective-C-Specific-Options"></span><h4 class="subheading">Objective-C-Specific Options</h4>
 
 <p>The following options apply to the build of the Objective-C runtime library.
 </p>
@@ -2151,8 +2203,7 @@ default locations.
 </p></dd>
 </dl>
 
-<a name="D-Specific-Options"></a>
-<h4 class="subheading">D-Specific Options</h4>
+<span id="D-Specific-Options"></span><h4 class="subheading">D-Specific Options</h4>
 
 <p>The following options apply to the build of the D runtime library.
 </p>
@@ -2202,7 +2253,6 @@ to be available for each multilib variant, unless configured with
 <p>
 <p><a href="./index.html">Return to the GCC Installation page</a>
 </p>
-
 
 
 

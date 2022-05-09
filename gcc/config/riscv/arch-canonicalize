@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 # Tool for canonical RISC-V architecture string.
-# Copyright (C) 2011-2021 Free Software Foundation, Inc.
+# Copyright (C) 2011-2022 Free Software Foundation, Inc.
 # Contributed by Andrew Waterman (andrew@sifive.com).
 #
 # This file is part of GCC.
@@ -20,6 +20,9 @@
 # along with GCC; see the file COPYING3.  If not see
 # <http://www.gnu.org/licenses/>.
 
+# TODO: Extract riscv_subset_t from riscv-common.cc and make it can be compiled
+#       standalone to replace this script, that also prevents us implementing
+#       that twice and keep sync again and again.
 
 from __future__ import print_function
 import sys
@@ -29,7 +32,7 @@ import itertools
 from functools import reduce
 
 SUPPORTED_ISA_SPEC = ["2.2", "20190608", "20191213"]
-CANONICAL_ORDER = "imafdgqlcbjtpvn"
+CANONICAL_ORDER = "imafdgqlcbjktpvn"
 LONG_EXT_PREFIXES = ['z', 's', 'h', 'x']
 
 #
@@ -38,6 +41,28 @@ LONG_EXT_PREFIXES = ['z', 's', 'h', 'x']
 IMPLIED_EXT = {
   "d" : ["f", "zicsr"],
   "f" : ["zicsr"],
+  "zk" : ["zkn", "zkr", "zkt"],
+  "zkn" : ["zbkb", "zbkc", "zbkx", "zkne", "zknd", "zknh"],
+  "zks" : ["zbkb", "zbkc", "zbkx", "zksed", "zksh"],
+
+  "v" : ["zvl128b", "zve64d"],
+  "zve32x" : ["zvl32b"],
+  "zve64x" : ["zve32x", "zvl64b"],
+  "zve32f" : ["f", "zve32x"],
+  "zve64f" : ["f", "zve32f", "zve64x"],
+  "zve64d" : ["d", "zve64f"],
+
+  "zvl64b" : ["zvl32b"],
+  "zvl128b" : ["zvl64b"],
+  "zvl256b" : ["zvl128b"],
+  "zvl512b" : ["zvl256b"],
+  "zvl1024b" : ["zvl512b"],
+  "zvl2048b" : ["zvl1024b"],
+  "zvl4096b" : ["zvl2048b"],
+  "zvl8192b" : ["zvl4096b"],
+  "zvl16384b" : ["zvl8192b"],
+  "zvl32768b" : ["zvl16384b"],
+  "zvl65536b" : ["zvl32768b"],
 }
 
 def arch_canonicalize(arch, isa_spec):

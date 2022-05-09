@@ -1,6 +1,6 @@
 ; Options for the IA-32 and AMD64 ports of the compiler.
 
-; Copyright (C) 2005-2021 Free Software Foundation, Inc.
+; Copyright (C) 2005-2022 Free Software Foundation, Inc.
 ;
 ; This file is part of GCC.
 ;
@@ -404,6 +404,10 @@ momit-leaf-frame-pointer
 Target Mask(OMIT_LEAF_FRAME_POINTER) Save
 Omit the frame pointer in leaf functions.
 
+mrelax-cmpxchg-loop
+Target Mask(RELAX_CMPXCHG_LOOP) Save
+Relax cmpxchg loop for atomic_fetch_{or,xor,and,nand} by adding load and cmp before cmpxchg, execute pause and loop back to load and compare if load value is not expected.
+
 mpc32
 Target RejectNegative
 Set 80387 floating-point precision to 32-bit.
@@ -619,6 +623,14 @@ Enum(prefer_vector_width) String(256) Value(PVW_AVX256)
 
 EnumValue
 Enum(prefer_vector_width) String(512) Value(PVW_AVX512)
+
+mmove-max=
+Target RejectNegative Joined Var(ix86_move_max) Enum(prefer_vector_width) Init(PVW_NONE) Save
+Maximum number of bits that can be moved from memory to memory efficiently.
+
+mstore-max=
+Target RejectNegative Joined Var(ix86_store_max) Enum(prefer_vector_width) Init(PVW_NONE) Save
+Maximum number of bits that can be stored to memory efficiently.
 
 ;; ISA support
 
@@ -1190,3 +1202,15 @@ Emit GNU_PROPERTY_X86_ISA_1_NEEDED GNU property.
 mmwait
 Target Mask(ISA2_MWAIT) Var(ix86_isa_flags2) Save
 Support MWAIT and MONITOR built-in functions and code generation.
+
+mavx512fp16
+Target Mask(ISA2_AVX512FP16) Var(ix86_isa_flags2) Save
+Support MMX, SSE, SSE2, SSE3, SSSE3, SSE4.1, SSE4.2, AVX, AVX2, AVX512F and AVX512FP16 built-in functions and code generation.
+
+mdirect-extern-access
+Target Var(ix86_direct_extern_access) Init(1)
+Do not use GOT to access external symbols.
+
+-param=x86-stlf-window-ninsns=
+Target Joined UInteger Var(x86_stlf_window_ninsns) Init(64) Param
+Instructions number above which STFL stall penalty can be compensated.

@@ -1,6 +1,6 @@
 ; Options for the GCN port of the compiler.
 
-; Copyright (C) 2016-2021 Free Software Foundation, Inc.
+; Copyright (C) 2016-2022 Free Software Foundation, Inc.
 ;
 ; This file is part of GCC.
 ;
@@ -62,16 +62,17 @@ bool flag_bypass_init_error = false
 mbypass-init-error
 Target RejectNegative Var(flag_bypass_init_error)
 
-bool flag_worker_partitioning = false
-
-macc-experimental-workers
-Target Var(flag_worker_partitioning) Init(0)
-
 int stack_size_opt = -1
 
 mstack-size=
 Target RejectNegative Joined UInteger Var(stack_size_opt) Init(-1)
 -mstack-size=<number>	Set the private segment size per wave-front, in bytes.
+
+int gang_private_size_opt = -1
+
+mgang-private-size=
+Target RejectNegative Joined UInteger Var(gang_private_size_opt) Init(-1)
+Amount of local data-share (LDS) memory to reserve for gang-private variables.
 
 Wopenacc-dims
 Target Var(warn_openacc_dims) Warning

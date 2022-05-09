@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 2009-2020, Free Software Foundation, Inc.         --
+--          Copyright (C) 2009-2022, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -35,7 +35,6 @@ with Ada.Unchecked_Deallocation;
 
 with Interfaces; use Interfaces;
 
-with System;                   use System;
 with System.Address_Image;
 with System.Bounded_Strings;   use System.Bounded_Strings;
 with System.IO;                use System.IO;
@@ -138,7 +137,7 @@ package body System.Dwarf_Lines is
       File :        uint32) return String;
    --  Extract a file name from the header
 
-   type Callback is access procedure (C : in out Dwarf_Context);
+   type Callback is not null access procedure (C : in out Dwarf_Context);
    procedure For_Each_Row (C : in out Dwarf_Context; F : Callback);
    --  Traverse each .debug_line entry with a callback
 

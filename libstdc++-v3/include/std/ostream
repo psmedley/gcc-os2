@@ -1,6 +1,6 @@
 // Output streams -*- C++ -*-
 
-// Copyright (C) 1997-2021 Free Software Foundation, Inc.
+// Copyright (C) 1997-2022 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -316,19 +316,6 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       put(char_type __c);
 
       /**
-       *  @brief  Core write functionality, without sentry.
-       *  @param  __s  The array to insert.
-       *  @param  __n  Maximum number of characters to insert.
-      */
-      void
-      _M_write(const char_type* __s, streamsize __n)
-      {
-	const streamsize __put = this->rdbuf()->sputn(__s, __n);
-	if (__put != __n)
-	  this->setstate(ios_base::badbit);
-      }
-
-      /**
        *  @brief  Character string insertion.
        *  @param  __s  The array to insert.
        *  @param  __n  Maximum number of characters to insert.
@@ -426,6 +413,13 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       template<typename _ValueT>
 	__ostream_type&
 	_M_insert(_ValueT __v);
+
+    private:
+#if !_GLIBCXX_INLINE_VERSION
+      void
+      _M_write(const char_type* __s, streamsize __n)
+      { std::__ostream_insert(*this, __s, __n); }
+#endif
     };
 
   /**
@@ -511,7 +505,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   template<typename _CharT, typename _Traits>
     inline basic_ostream<_CharT, _Traits>&
     operator<<(basic_ostream<_CharT, _Traits>& __out, _CharT __c)
-    { return __ostream_insert(__out, &__c, 1); }
+    {
+      if (__out.width() != 0)
+	return __ostream_insert(__out, &__c, 1);
+      __out.put(__c);
+      return __out;
+    }
 
   template<typename _CharT, typename _Traits>
     inline basic_ostream<_CharT, _Traits>&
@@ -522,7 +521,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   template<typename _Traits>
     inline basic_ostream<char, _Traits>&
     operator<<(basic_ostream<char, _Traits>& __out, char __c)
-    { return __ostream_insert(__out, &__c, 1); }
+    {
+      if (__out.width() != 0)
+	return __ostream_insert(__out, &__c, 1);
+      __out.put(__c);
+      return __out;
+    }
 
   // Signed and unsigned
   template<typename _Traits>

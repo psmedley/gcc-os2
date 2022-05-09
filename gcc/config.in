@@ -1331,6 +1331,13 @@
 #endif
 
 
+/* Define if your Arm assembler permits context-specific feature extensions.
+   */
+#ifndef USED_FOR_TARGET
+#undef HAVE_GAS_ARM_EXTENDED_ARCH
+#endif
+
+
 /* Define if your assembler supports .balign and .p2align. */
 #ifndef USED_FOR_TARGET
 #undef HAVE_GAS_BALIGN_AND_P2ALIGN
@@ -2010,6 +2017,12 @@
 #endif
 
 
+/* Define to 1 if you have the <sys/locking.h> header file. */
+#ifndef USED_FOR_TARGET
+#undef HAVE_SYS_LOCKING_H
+#endif
+
+
 /* Define to 1 if you have the <sys/mman.h> header file. */
 #ifndef USED_FOR_TARGET
 #undef HAVE_SYS_MMAN_H
@@ -2183,6 +2196,12 @@
 #endif
 
 
+/* Define if _LK_LOC supported by _locking. */
+#ifndef USED_FOR_TARGET
+#undef HOST_HAS_LK_LOCK
+#endif
+
+
 /* Define if O_CLOEXEC supported by fcntl. */
 #ifndef USED_FOR_TARGET
 #undef HOST_HAS_O_CLOEXEC
@@ -2204,6 +2223,12 @@
 /* Define to 1 if ld64 supports '-export_dynamic'. */
 #ifndef USED_FOR_TARGET
 #undef LD64_HAS_EXPORT_DYNAMIC
+#endif
+
+
+/* Define to 1 if ld64 supports '-platform_version'. */
+#ifndef USED_FOR_TARGET
+#undef LD64_HAS_PLATFORM_VERSION
 #endif
 
 
@@ -2281,6 +2306,12 @@
 #endif
 
 
+/* Define to 1 to if -foffload is defaulted */
+#ifndef USED_FOR_TARGET
+#undef OFFLOAD_DEFAULTED
+#endif
+
+
 /* Define to offload targets, separated by commas. */
 #ifndef USED_FOR_TARGET
 #undef OFFLOAD_TARGETS
@@ -2338,6 +2369,18 @@
 /* Define to PREFIX/include if cpp should also search that directory. */
 #ifndef USED_FOR_TARGET
 #undef PREFIX_INCLUDE_DIR
+#endif
+
+
+/* The size of `dev_t', as computed by sizeof. */
+#ifndef USED_FOR_TARGET
+#undef SIZEOF_DEV_T
+#endif
+
+
+/* The size of `ino_t', as computed by sizeof. */
+#ifndef USED_FOR_TARGET
+#undef SIZEOF_INO_T
 #endif
 
 

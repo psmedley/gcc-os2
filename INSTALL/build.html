@@ -1,6 +1,6 @@
 <!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
 <html>
-<!-- Copyright (C) 1988-2021 Free Software Foundation, Inc.
+<!-- Copyright (C) 1988-2022 Free Software Foundation, Inc.
 
 Permission is granted to copy, distribute and/or modify this document
 under the terms of the GNU Free Documentation License, Version 1.3 or
@@ -19,7 +19,7 @@ A GNU Manual
 You have freedom to copy and modify this GNU Manual, like GNU
      software.  Copies published by the Free Software Foundation raise
      funds for GNU development. -->
-<!-- Created by GNU Texinfo 6.5, http://www.gnu.org/software/texinfo/ -->
+<!-- Created by GNU Texinfo 6.7, http://www.gnu.org/software/texinfo/ -->
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <title>Installing GCC: Building</title>
@@ -33,23 +33,14 @@ You have freedom to copy and modify this GNU Manual, like GNU
 <!--
 a.summary-letter {text-decoration: none}
 blockquote.indentedblock {margin-right: 0em}
-blockquote.smallindentedblock {margin-right: 0em; font-size: smaller}
-blockquote.smallquotation {font-size: smaller}
 div.display {margin-left: 3.2em}
 div.example {margin-left: 3.2em}
 div.lisp {margin-left: 3.2em}
-div.smalldisplay {margin-left: 3.2em}
-div.smallexample {margin-left: 3.2em}
-div.smalllisp {margin-left: 3.2em}
 kbd {font-style: oblique}
 pre.display {font-family: inherit}
 pre.format {font-family: inherit}
 pre.menu-comment {font-family: serif}
 pre.menu-preformatted {font-family: serif}
-pre.smalldisplay {font-family: inherit; font-size: smaller}
-pre.smallexample {font-size: smaller}
-pre.smallformat {font-family: inherit; font-size: smaller}
-pre.smalllisp {font-size: smaller}
 span.nolinebreak {white-space: nowrap}
 span.roman {font-family: initial; font-weight: normal}
 span.sansserif {font-family: sans-serif; font-weight: normal}
@@ -82,7 +73,7 @@ ul.no-bullet {list-style: none}
 
 
 
-<a name="index-Installing-GCC_003a-Building"></a>
+<span id="index-Installing-GCC_003a-Building"></span>
 
 <p>Now that GCC is configured, you are ready to build the compiler and
 runtime libraries.
@@ -129,8 +120,7 @@ documentation, you need version 4.7 or later of Texinfo installed if you
 want Info documentation to be regenerated.  Releases contain Info
 documentation pre-built for the unmodified documentation in the release.
 </p>
-<a name="Building-a-native-compiler"></a>
-<h3 class="section">Building a native compiler</h3>
+<span id="Building-a-native-compiler"></span><h3 class="section">Building a native compiler</h3>
 
 <p>For a native build, the default configuration is to perform
 a 3-stage bootstrap of the compiler when &lsquo;<samp>make</samp>&rsquo; is invoked.
@@ -172,8 +162,8 @@ following example.  This will save roughly 40% of disk space both for
 the bootstrap and the final installation.  (Libraries will still contain
 debugging information.)
 </p>
-<div class="smallexample">
-<pre class="smallexample">make BOOT_CFLAGS='-O' bootstrap
+<div class="example">
+<pre class="example">make BOOT_CFLAGS='-O' bootstrap
 </pre></div>
 
 <p>You can place non-default optimization flags into <code>BOOT_CFLAGS</code>; they
@@ -337,8 +327,7 @@ systems that are running Linux kernel version 5.4 or later.
 </dd>
 </dl>
 
-<a name="Building-a-cross-compiler"></a>
-<h3 class="section">Building a cross compiler</h3>
+<span id="Building-a-cross-compiler"></span><h3 class="section">Building a cross compiler</h3>
 
 <p>When building a cross compiler, it is not generally possible to do a
 3-stage bootstrap of the compiler.  This makes for an interesting problem
@@ -415,8 +404,7 @@ alternatives for <samp>crt0.o</samp>, for use with profiling or other
 compilation options.  Check your target&rsquo;s definition of
 <code>STARTFILE_SPEC</code> to find out what start files it uses.
 </p>
-<a name="Building-in-parallel"></a>
-<h3 class="section">Building in parallel</h3>
+<span id="Building-in-parallel"></span><h3 class="section">Building in parallel</h3>
 
 <p>GNU Make 3.80 and above, which is necessary to build GCC, support
 building in parallel.  To activate this, you can use &lsquo;<samp>make -j 2</samp>&rsquo;
@@ -426,13 +414,15 @@ your machine will result in fewer and shorter I/O latency hits, thus
 improving overall throughput; this is especially true for slow drives
 and network filesystems.
 </p>
-<a name="Building-the-Ada-compiler"></a>
-<h3 class="section">Building the Ada compiler</h3>
+<span id="Building-the-Ada-compiler"></span><h3 class="section">Building the Ada compiler</h3>
 
 <p><a href="prerequisites.html#GNAT-prerequisite">GNAT prerequisites</a>.
 </p>
-<a name="Building-with-profile-feedback"></a>
-<h3 class="section">Building with profile feedback</h3>
+<span id="Building-the-D-compiler"></span><h3 class="section">Building the D compiler</h3>
+
+<p><a href="prerequisites.html#GDC-prerequisite">GDC prerequisites</a>.
+</p>
+<span id="Building-with-profile-feedback"></span><h3 class="section">Building with profile feedback</h3>
 
 <p>It is possible to use profile feedback to optimize the compiler itself.  This
 should result in a faster compiler binary.  Experiments done on x86 using gcc
@@ -465,7 +455,6 @@ the code quality may be much worse.
 <p>
 <p><a href="./index.html">Return to the GCC Installation page</a>
 </p>
-
 
 
 

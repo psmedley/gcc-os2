@@ -1,6 +1,6 @@
 // std::to_chars implementation for floating-point types -*- C++ -*-
 
-// Copyright (C) 2020-2021 Free Software Foundation, Inc.
+// Copyright (C) 2020-2022 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -21,9 +21,6 @@
 // a copy of the GCC Runtime Library Exception along with this program;
 // see the files COPYING3 and COPYING.RUNTIME respectively.  If not, see
 // <http://www.gnu.org/licenses/>.
-
-// Activate __glibcxx_assert within this file to shake out any bugs.
-#define _GLIBCXX_ASSERTIONS 1
 
 #include <charconv>
 
@@ -76,14 +73,10 @@ extern "C" int __sprintfieee128(char*, const char*, ...);
 # define LONG_DOUBLE_KIND LDK_UNSUPPORTED
 #endif
 
-#if defined _GLIBCXX_USE_FLOAT128 && __FLT128_MANT_DIG__ == 113
+// For now we only support __float128 when it's the powerpc64 __ieee128 type.
+#if defined _GLIBCXX_LONG_DOUBLE_ALT128_COMPAT && __FLT128_MANT_DIG__ == 113
 // Define overloads of std::to_chars for __float128.
 # define FLOAT128_TO_CHARS 1
-#endif
-
-// For now we only support __float128 when it's the powerpc64 __ieee128 type.
-#ifndef _GLIBCXX_LONG_DOUBLE_ALT128_COMPAT
-# undef FLOAT128_TO_CHARS
 #endif
 
 #ifdef FLOAT128_TO_CHARS
@@ -1118,6 +1111,7 @@ template<typename T>
       }
 
     __glibcxx_assert(false);
+    __builtin_unreachable();
   }
 
 template<typename T>
@@ -1206,6 +1200,8 @@ template<typename T>
 	    effective_precision = min(precision, max_eff_scientific_precision);
 	    output_specifier = "%.*Lg";
 	  }
+	else
+	  __builtin_unreachable();
 	const int excess_precision = (fmt != chars_format::general
 				      ? precision - effective_precision : 0);
 
@@ -1238,6 +1234,8 @@ template<typename T>
 	      output_length_upper_bound = sign + strlen("0");
 	    output_length_upper_bound += sizeof(radix) + effective_precision;
 	  }
+	else
+	  __builtin_unreachable();
 
 	// Do the sprintf into the local buffer.
 	char buffer[output_length_upper_bound+1];
@@ -1574,6 +1572,7 @@ template<typename T>
       }
 
     __glibcxx_assert(false);
+    __builtin_unreachable();
   }
 
 // Define the overloads for float.

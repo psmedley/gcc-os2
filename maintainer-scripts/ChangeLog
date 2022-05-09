@@ -1,14 +1,15 @@
-2022-04-21  Release Manager
+2022-05-06  Release Manager
 
-	* GCC 11.3.0 released.
+	* GCC 12.1.0 released.
 
-2021-07-28  Release Manager
+2021-05-14  Jakub Jelinek  <jakub@redhat.com>
 
-	* GCC 11.2.0 released.
+	* crontab: Stop doing gcc-8 snapshots.
 
-2021-04-27  Release Manager
+2021-04-20  Jakub Jelinek  <jakub@redhat.com>
 
-	* GCC 11.1.0 released.
+	* crontab: Snapshots from trunk are now GCC 12 related.
+	Add GCC 11 snapshots from the respective branch.
 
 2021-04-09  Martin Liska  <mliska@suse.cz>
 

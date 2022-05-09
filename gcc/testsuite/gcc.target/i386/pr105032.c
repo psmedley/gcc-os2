@@ -1,5 +1,6 @@
-/* { dg-do compile { target ia32 } } */
+/* { dg-do compile } */
 /* { dg-options "-w" } */
+/* { dg-additional-options "-m32" { target x86_64-*-* } } */
 
 typedef unsigned int size_t;	
 __extension__ typedef long int __off_t;

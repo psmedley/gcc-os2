@@ -1,6 +1,6 @@
 // Implementation of std::function -*- C++ -*-
 
-// Copyright (C) 2004-2021 Free Software Foundation, Inc.
+// Copyright (C) 2004-2022 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -82,17 +82,17 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
   union [[gnu::may_alias]] _Any_data
   {
-    void*       _M_access()       { return &_M_pod_data[0]; }
-    const void* _M_access() const { return &_M_pod_data[0]; }
+    void*       _M_access()       noexcept { return &_M_pod_data[0]; }
+    const void* _M_access() const noexcept { return &_M_pod_data[0]; }
 
     template<typename _Tp>
       _Tp&
-      _M_access()
+      _M_access() noexcept
       { return *static_cast<_Tp*>(_M_access()); }
 
     template<typename _Tp>
       const _Tp&
-      _M_access() const
+      _M_access() const noexcept
       { return *static_cast<const _Tp*>(_M_access()); }
 
     _Nocopy_types _M_unused;
@@ -131,7 +131,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
 	// Retrieve a pointer to the function object
 	static _Functor*
-	_M_get_pointer(const _Any_data& __source)
+	_M_get_pointer(const _Any_data& __source) noexcept
 	{
 	  if _GLIBCXX17_CONSTEXPR (__stored_locally)
 	    {
@@ -217,22 +217,22 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
 	template<typename _Signature>
 	  static bool
-	  _M_not_empty_function(const function<_Signature>& __f)
+	  _M_not_empty_function(const function<_Signature>& __f) noexcept
 	  { return static_cast<bool>(__f); }
 
 	template<typename _Tp>
 	  static bool
-	  _M_not_empty_function(_Tp* __fp)
+	  _M_not_empty_function(_Tp* __fp) noexcept
 	  { return __fp != nullptr; }
 
 	template<typename _Class, typename _Tp>
 	  static bool
-	  _M_not_empty_function(_Tp _Class::* __mp)
+	  _M_not_empty_function(_Tp _Class::* __mp) noexcept
 	  { return __mp != nullptr; }
 
 	template<typename _Tp>
 	  static bool
-	  _M_not_empty_function(const _Tp&)
+	  _M_not_empty_function(const _Tp&) noexcept
 	  { return true; }
       };
 
@@ -454,16 +454,16 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	}
 
       /**
-       *  @brief %Function assignment operator.
+       *  @brief Function assignment operator.
        *  @param __x A %function with identical call signature.
-       *  @post @c (bool)*this == (bool)x
-       *  @returns @c *this
+       *  @post `(bool)*this == (bool)x`
+       *  @returns `*this`
        *
-       *  The target of @a __x is copied to @c *this. If @a __x has no
-       *  target, then @c *this will be empty.
+       *  The target of `__x` is copied to `*this`. If `__x` has no
+       *  target, then `*this` will be empty.
        *
-       *  If @a __x targets a function pointer or a reference to a function
-       *  object, then this operation will not throw an %exception.
+       *  If `__x` targets a function pointer or a reference to a function
+       *  object, then this operation will not throw an exception.
        */
       function&
       operator=(const function& __x)
@@ -473,15 +473,15 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       }
 
       /**
-       *  @brief %Function move-assignment operator.
+       *  @brief Function move-assignment operator.
        *  @param __x A %function rvalue with identical call signature.
-       *  @returns @c *this
+       *  @returns `*this`
        *
-       *  The target of @a __x is moved to @c *this. If @a __x has no
-       *  target, then @c *this will be empty.
+       *  The target of `__x` is moved to `*this`. If `__x` has no
+       *  target, then `*this` will be empty.
        *
-       *  If @a __x targets a function pointer or a reference to a function
-       *  object, then this operation will not throw an %exception.
+       *  If `__x` targets a function pointer or a reference to a function
+       *  object, then this operation will not throw an exception.
        */
       function&
       operator=(function&& __x) noexcept
@@ -491,11 +491,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       }
 
       /**
-       *  @brief %Function assignment to zero.
-       *  @post @c !(bool)*this
-       *  @returns @c *this
+       *  @brief Function assignment to empty.
+       *  @post `!(bool)*this`
+       *  @returns `*this`
        *
-       *  The target of @c *this is deallocated, leaving it empty.
+       *  The target of `*this` is deallocated, leaving it empty.
        */
       function&
       operator=(nullptr_t) noexcept
@@ -510,20 +510,21 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       }
 
       /**
-       *  @brief %Function assignment to a new target.
-       *  @param __f A %function object that is callable with parameters of
-       *  type @c T1, @c T2, ..., @c TN and returns a value convertible
-       *  to @c Res.
-       *  @return @c *this
+       *  @brief Function assignment to a new target.
+       *  @param __f  A function object that is callable with parameters of
+       *              type  `_ArgTypes...` and returns a value convertible
+       *              to `_Res`.
+       *  @return `*this`
+       *  @since C++11
        *
-       *  This  %function object wrapper will target a copy of @a
-       *  __f. If @a __f is @c reference_wrapper<F>, then this function
-       *  object will contain a reference to the function object @c
-       *  __f.get(). If @a __f is a NULL function pointer or NULL
-       *  pointer-to-member, @c this object will be empty.
+       *  This function object wrapper will target a copy of `__f`. If `__f`
+       *  is `reference_wrapper<F>`, then this function object will contain
+       *  a reference to the function object `__f.get()`. If `__f` is a null
+       *  function pointer or null pointer-to-member, this object will be
+       *  empty.
        *
-       *  If @a __f is a non-NULL function pointer or an object of type @c
-       *  reference_wrapper<F>, this function will not throw.
+       *  If `__f` is a non-null function pointer or an object of type
+       *  `reference_wrapper<F>`, this function will not throw.
        */
       template<typename _Functor>
 	_Requires<_Callable<_Functor>, function&>
@@ -549,8 +550,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
        *  @brief Swap the targets of two %function objects.
        *  @param __x A %function with identical call signature.
        *
-       *  Swap the targets of @c this function object and @a __f. This
-       *  function will not throw an %exception.
+       *  Swap the targets of `this` function object and `__f`.
+       *  This function will not throw exceptions.
        */
       void swap(function& __x) noexcept
       {
@@ -564,10 +565,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       /**
        *  @brief Determine if the %function wrapper has a target.
        *
-       *  @return @c true when this %function object contains a target,
-       *  or @c false when it is empty.
+       *  @return `true` when this function object contains a target,
+       *  or `false` when it is empty.
        *
-       *  This function will not throw an %exception.
+       *  This function will not throw exceptions.
        */
       explicit operator bool() const noexcept
       { return !_M_empty(); }
@@ -575,12 +576,12 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
       // [3.7.2.4] function invocation
 
       /**
-       *  @brief Invokes the function targeted by @c *this.
+       *  @brief Invokes the function targeted by `*this`.
        *  @returns the result of the target.
-       *  @throws bad_function_call when @c !(bool)*this
+       *  @throws `bad_function_call` when `!(bool)*this`
        *
        *  The function call operator invokes the target function object
-       *  stored by @c this.
+       *  stored by `this`.
        */
       _Res
       operator()(_ArgTypes... __args) const
@@ -597,9 +598,9 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
        *  wrapper.
        *
        *  @returns the type identifier of the target function object, or
-       *  @c typeid(void) if @c !(bool)*this.
+       *  `typeid(void)` if `!(bool)*this`.
        *
-       *  This function will not throw an %exception.
+       *  This function will not throw exceptions.
        */
       const type_info&
       target_type() const noexcept
@@ -619,7 +620,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
        *  @brief Access the stored target function object.
        *
        *  @return Returns a pointer to the stored target function object,
-       *  if @c typeid(_Functor).equals(target_type()); otherwise, a null
+       *  if `typeid(_Functor).equals(target_type())`; otherwise, a null
        *  pointer.
        *
        * This function does not throw exceptions.
@@ -707,11 +708,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   // [20.7.15.2.6] null pointer comparisons
 
   /**
-   *  @brief Compares a polymorphic function object wrapper against 0
-   *  (the NULL pointer).
-   *  @returns @c true if the wrapper has no target, @c false otherwise
+   *  @brief Test whether a polymorphic function object wrapper is empty.
+   *  @returns `true` if the wrapper has no target, `false` otherwise
    *
-   *  This function will not throw an %exception.
+   *  This function will not throw exceptions.
    */
   template<typename _Res, typename... _Args>
     inline bool
@@ -726,11 +726,10 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
     { return !static_cast<bool>(__f); }
 
   /**
-   *  @brief Compares a polymorphic function object wrapper against 0
-   *  (the NULL pointer).
-   *  @returns @c false if the wrapper has no target, @c true otherwise
+   *  @brief Test whether a polymorphic function object wrapper is non-empty.
+   *  @returns `false` if the wrapper has no target, `true` otherwise
    *
-   *  This function will not throw an %exception.
+   *  This function will not throw exceptions.
    */
   template<typename _Res, typename... _Args>
     inline bool
@@ -749,7 +748,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
   /**
    *  @brief Swap the targets of two polymorphic function object wrappers.
    *
-   *  This function will not throw an %exception.
+   *  This function will not throw exceptions.
    */
   // _GLIBCXX_RESOLVE_LIB_DEFECTS
   // 2062. Effect contradictions w/o no-throw guarantee of std::function swaps
