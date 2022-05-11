@@ -346,9 +346,11 @@ do {                                                                    \
      flag_pic = 0;                                                     \
 } while (0)                                                             \
 
+#if 0 //breaks things with GCC 12.x
 /* Add a __POST$xxx label before epilogue if -mepilogue specified */
 #undef TARGET_ASM_FUNCTION_BEGIN_EPILOGUE
 #define TARGET_ASM_FUNCTION_BEGIN_EPILOGUE emx_output_function_begin_epilogue
+#endif
 
 /* Output assembler code to FILE to increment profiler label # LABELNO
    for profiling a function entry.  */

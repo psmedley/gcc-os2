@@ -167,7 +167,7 @@ void birddump (tree node, const char *pszFunction)
 #endif
 
 void
-emx_eh_frame_section (const void*)
+emx_eh_frame_section (const char*)
 {
 /*
   tree label = get_file_function_name ('F');

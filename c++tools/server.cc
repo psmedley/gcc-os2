@@ -36,6 +36,10 @@ along with GCC; see the file COPYING3.  If not see
 #include <sys/stat.h>
 #include <fcntl.h>
 
+#ifdef __KLIBC__
+#undef HAVE_AF_INET6
+#endif
+
 // Network
 /* Include network stuff first.  Excitingly OSX10.14 uses bcmp here, which
    we poison later!  */
