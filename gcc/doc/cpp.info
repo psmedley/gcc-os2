@@ -1,4 +1,4 @@
-This is cpp.info, produced by makeinfo version 6.7 from cpp.texi.
+This is cpp.info, produced by makeinfo version 6.5 from cpp.texi.
 
 Copyright (C) 1987-2022 Free Software Foundation, Inc.
 
@@ -5617,8 +5617,3 @@ Node: Option Index224776
 Node: Concept Index230878
 
 End Tag Table
-
-
-Local Variables:
-coding: utf-8
-End:

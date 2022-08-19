@@ -19,7 +19,7 @@ A GNU Manual
 You have freedom to copy and modify this GNU Manual, like GNU
      software.  Copies published by the Free Software Foundation raise
      funds for GNU development. -->
-<!-- Created by GNU Texinfo 6.7, http://www.gnu.org/software/texinfo/ -->
+<!-- Created by GNU Texinfo 6.5, http://www.gnu.org/software/texinfo/ -->
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <title>Prerequisites for GCC</title>
@@ -33,14 +33,23 @@ You have freedom to copy and modify this GNU Manual, like GNU
 <!--
 a.summary-letter {text-decoration: none}
 blockquote.indentedblock {margin-right: 0em}
+blockquote.smallindentedblock {margin-right: 0em; font-size: smaller}
+blockquote.smallquotation {font-size: smaller}
 div.display {margin-left: 3.2em}
 div.example {margin-left: 3.2em}
 div.lisp {margin-left: 3.2em}
+div.smalldisplay {margin-left: 3.2em}
+div.smallexample {margin-left: 3.2em}
+div.smalllisp {margin-left: 3.2em}
 kbd {font-style: oblique}
 pre.display {font-family: inherit}
 pre.format {font-family: inherit}
 pre.menu-comment {font-family: serif}
 pre.menu-preformatted {font-family: serif}
+pre.smalldisplay {font-family: inherit; font-size: smaller}
+pre.smallexample {font-size: smaller}
+pre.smallformat {font-family: inherit; font-size: smaller}
+pre.smalllisp {font-size: smaller}
 span.nolinebreak {white-space: nowrap}
 span.roman {font-family: initial; font-weight: normal}
 span.sansserif {font-family: sans-serif; font-weight: normal}
@@ -70,13 +79,14 @@ ul.no-bullet {list-style: none}
 
 
 
-<span id="index-Prerequisites"></span>
+<a name="index-Prerequisites"></a>
 
 <p>GCC requires that various tools and packages be available for use in the
 build procedure.  Modifying GCC sources requires additional tools
 described below.
 </p>
-<span id="Tools_002fpackages-necessary-for-building-GCC"></span><h3 class="heading">Tools/packages necessary for building GCC</h3>
+<a name="Tools_002fpackages-necessary-for-building-GCC"></a>
+<h3 class="heading">Tools/packages necessary for building GCC</h3>
 <dl compact="compact">
 <dt>ISO C++11 compiler</dt>
 <dd><p>Necessary to bootstrap GCC.
@@ -109,7 +119,7 @@ name of the package depends on your distro) or you must build GCC as a
 &lsquo;<samp>fatal error: gnu/stubs-32.h: No such file</samp>&rsquo;
 </p>
 </dd>
-<dt><span id="GNAT-prerequisite"></span>GNAT</dt>
+<dt><a name="GNAT-prerequisite"></a>GNAT</dt>
 <dd>
 <p>In order to build GNAT, the Ada compiler, you need a working GNAT
 compiler (GCC version 5.1 or later).
@@ -139,7 +149,7 @@ by verifying that &lsquo;<samp>gnatls -v</samp>&rsquo; lists only one explicit p
 section.
 </p>
 </dd>
-<dt><span id="GDC-prerequisite"></span>GDC</dt>
+<dt><a name="GDC-prerequisite"></a>GDC</dt>
 <dd>
 <p>In order to build GDC, the D compiler, you need a working GDC
 compiler (GCC version 9.1 or later) and D runtime library,
@@ -306,7 +316,8 @@ Alternatively, the <samp>--with-zstd</samp> configure option should be used.
 </dd>
 </dl>
 
-<span id="Tools_002fpackages-necessary-for-modifying-GCC"></span><h3 class="heading">Tools/packages necessary for modifying GCC</h3>
+<a name="Tools_002fpackages-necessary-for-modifying-GCC"></a>
+<h3 class="heading">Tools/packages necessary for modifying GCC</h3>
 <dl compact="compact">
 <dt>autoconf version 2.69</dt>
 <dt>GNU m4 version 1.4.6 (or later)</dt>

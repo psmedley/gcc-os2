@@ -19,7 +19,7 @@ A GNU Manual
 You have freedom to copy and modify this GNU Manual, like GNU
      software.  Copies published by the Free Software Foundation raise
      funds for GNU development. -->
-<!-- Created by GNU Texinfo 6.7, http://www.gnu.org/software/texinfo/ -->
+<!-- Created by GNU Texinfo 6.5, http://www.gnu.org/software/texinfo/ -->
 <head>
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
 <title>Installing GCC: Configuration</title>
@@ -33,14 +33,23 @@ You have freedom to copy and modify this GNU Manual, like GNU
 <!--
 a.summary-letter {text-decoration: none}
 blockquote.indentedblock {margin-right: 0em}
+blockquote.smallindentedblock {margin-right: 0em; font-size: smaller}
+blockquote.smallquotation {font-size: smaller}
 div.display {margin-left: 3.2em}
 div.example {margin-left: 3.2em}
 div.lisp {margin-left: 3.2em}
+div.smalldisplay {margin-left: 3.2em}
+div.smallexample {margin-left: 3.2em}
+div.smalllisp {margin-left: 3.2em}
 kbd {font-style: oblique}
 pre.display {font-family: inherit}
 pre.format {font-family: inherit}
 pre.menu-comment {font-family: serif}
 pre.menu-preformatted {font-family: serif}
+pre.smalldisplay {font-family: inherit; font-size: smaller}
+pre.smallexample {font-size: smaller}
+pre.smallformat {font-family: inherit; font-size: smaller}
+pre.smalllisp {font-size: smaller}
 span.nolinebreak {white-space: nowrap}
 span.roman {font-family: initial; font-weight: normal}
 span.sansserif {font-family: sans-serif; font-weight: normal}
@@ -72,8 +81,8 @@ ul.no-bullet {list-style: none}
 
 
 
-<span id="index-Configuration"></span>
-<span id="index-Installing-GCC_003a-Configuration"></span>
+<a name="index-Configuration"></a>
+<a name="index-Installing-GCC_003a-Configuration"></a>
 
 <p>Like most GNU software, GCC must be configured before it can be built.
 This document describes the recommended configuration procedure
@@ -119,13 +128,14 @@ scripts may fail.
 
 <p>To configure GCC:
 </p>
-<div class="example">
-<pre class="example">% mkdir <var>objdir</var>
+<div class="smallexample">
+<pre class="smallexample">% mkdir <var>objdir</var>
 % cd <var>objdir</var>
 % <var>srcdir</var>/configure [<var>options</var>] [<var>target</var>]
 </pre></div>
 
-<span id="Distributor-options"></span><h3 class="heading">Distributor options</h3>
+<a name="Distributor-options"></a>
+<h3 class="heading">Distributor options</h3>
 
 <p>If you will be distributing binary versions of GCC, with modifications
 to the source code, you should use the options described in this
@@ -166,7 +176,8 @@ The <var>url</var> should end with a <code>/</code> character.
 </dd>
 </dl>
 
-<span id="Host_002c-Build-and-Target-specification"></span><h3 class="heading">Host, Build and Target specification</h3>
+<a name="Host_002c-Build-and-Target-specification"></a>
+<h3 class="heading">Host, Build and Target specification</h3>
 
 <p>Specify the host, build and target machine configurations.  You do this
 when you run the <samp>configure</samp> script.
@@ -190,8 +201,8 @@ the same as the host machine.
 </p>
 <p>Here is an example:
 </p>
-<div class="example">
-<pre class="example">./configure --host=x86_64-pc-linux-gnu
+<div class="smallexample">
+<pre class="smallexample">./configure --host=x86_64-pc-linux-gnu
 </pre></div>
 
 <p>A configuration name may be canonical or it may be more or less
@@ -228,7 +239,8 @@ rtems, solaris<var>version</var>, symbianelf, tpf, uclinux, uclinux_eabi, vms,
 vxworks, vxworksae, vxworksmils
 </p></blockquote>
 
-<span id="Options-specification"></span><h3 class="heading">Options specification</h3>
+<a name="Options-specification"></a>
+<h3 class="heading">Options specification</h3>
 
 <p>Use <var>options</var> to override several configure time options for
 GCC.  A list of supported <var>options</var> follows; &lsquo;<samp>configure
@@ -504,7 +516,7 @@ but yielding a slightly slower compiler.
 libraries.
 </p>
 </dd>
-<dt><code><span id="with-gnu-as"></span>--with-gnu-as</code></dt>
+<dt><code><a name="with-gnu-as"></a>--with-gnu-as</code></dt>
 <dd><p>Specify that the compiler should assume that the
 assembler it finds is the GNU assembler.  However, this does not modify
 the rules to find an assembler and will result in confusion if the
@@ -527,7 +539,7 @@ whether you use the GNU assembler.  On any other system,
 </li></ul>
 
 </dd>
-<dt><code><span id="with-as"></span>--with-as=<var>pathname</var></code></dt>
+<dt><code><a name="with-as"></a>--with-as=<var>pathname</var></code></dt>
 <dd><p>Specify that the compiler should use the assembler pointed to by
 <var>pathname</var>, rather than the one found by the standard rules to find
 an assembler, which are:
@@ -560,7 +572,7 @@ assemblers installed and want to choose one that is not found by the
 above rules.
 </p>
 </dd>
-<dt><code><span id="with-gnu-ld"></span>--with-gnu-ld</code></dt>
+<dt><code><a name="with-gnu-ld"></a>--with-gnu-ld</code></dt>
 <dd><p>Same as <a href="#with-gnu-as"><samp>--with-gnu-as</samp></a>
 but for the linker.
 </p>
@@ -768,14 +780,14 @@ specialized subset.
 </p>
 <p>Example 1: to configure a compiler for SH4A only, but supporting both
 endians, with little endian being the default:
-</p><div class="example">
-<pre class="example">--with-cpu=sh4a --with-endian=little,big --with-multilib-list=
+</p><div class="smallexample">
+<pre class="smallexample">--with-cpu=sh4a --with-endian=little,big --with-multilib-list=
 </pre></div>
 
 <p>Example 2: to configure a compiler for both SH4A and SH4AL-DSP, but with
 only little endian SH4AL:
-</p><div class="example">
-<pre class="example">--with-cpu=sh4a --with-endian=little,big \
+</p><div class="smallexample">
+<pre class="smallexample">--with-cpu=sh4a --with-endian=little,big \
 --with-multilib-list=sh4al,!mb/m4al
 </pre></div>
 
@@ -802,25 +814,25 @@ for riscv*-*-elf*.  The accepted values and meanings are given below.
 reuse rule with architecture string and reuse rule with sub-extension.
 </p>
 <p>Example 1: Add multi-lib suppport for rv32i with ilp32.
-</p><div class="example">
-<pre class="example">rv32i-ilp32--
+</p><div class="smallexample">
+<pre class="smallexample">rv32i-ilp32--
 </pre></div>
 
 <p>Example 2: Add multi-lib suppport for rv32i with ilp32 and rv32imafd with ilp32.
-</p><div class="example">
-<pre class="example">rv32i-ilp32--;rv32imafd-ilp32--
+</p><div class="smallexample">
+<pre class="smallexample">rv32i-ilp32--;rv32imafd-ilp32--
 </pre></div>
 
 <p>Example 3: Add multi-lib suppport for rv32i with ilp32; rv32im with ilp32 and
 rv32ic with ilp32 will reuse this multi-lib set.
-</p><div class="example">
-<pre class="example">rv32i-ilp32-rv32im-c
+</p><div class="smallexample">
+<pre class="smallexample">rv32i-ilp32-rv32im-c
 </pre></div>
 
 <p>Example 4: Add multi-lib suppport for rv64ima with lp64; rv64imaf with lp64,
 rv64imac with lp64 and rv64imafc with lp64 will reuse this multi-lib set.
-</p><div class="example">
-<pre class="example">rv64ima-lp64--f,c,fc
+</p><div class="smallexample">
+<pre class="smallexample">rv64ima-lp64--f,c,fc
 </pre></div>
 
 <p><samp>--with-multilib-generator</samp> have an optional configuration argument
@@ -830,14 +842,14 @@ currently we support medlow and medany.
 </p>
 <p>Example 5: Add multi-lib suppport for rv64ima with lp64; rv64ima with lp64 and
 medlow code model
-</p><div class="example">
-<pre class="example">rv64ima-lp64--;--cmodel=medlow
+</p><div class="smallexample">
+<pre class="smallexample">rv64ima-lp64--;--cmodel=medlow
 </pre></div>
 
 <p>Example 6: Add multi-lib suppport for rv64ima with lp64; rv64ima with lp64 and
 medlow code model; rv64ima with lp64 and medany code model
-</p><div class="example">
-<pre class="example">rv64ima-lp64--;--cmodel=medlow,medany
+</p><div class="smallexample">
+<pre class="smallexample">rv64ima-lp64--;--cmodel=medlow,medany
 </pre></div>
 
 </dd>
@@ -1256,7 +1268,7 @@ parallel.  The default is &lsquo;<samp>yes</samp>&rsquo; for &lsquo;<samp>libada
 the remaining libraries.
 </p>
 </dd>
-<dt><code><span id="WithAixSoname"></span>--with-aix-soname=&lsquo;<samp>aix</samp>&rsquo;, &lsquo;<samp>svr4</samp>&rsquo; or &lsquo;<samp>both</samp>&rsquo;</code></dt>
+<dt><code><a name="WithAixSoname"></a>--with-aix-soname=&lsquo;<samp>aix</samp>&rsquo;, &lsquo;<samp>svr4</samp>&rsquo; or &lsquo;<samp>both</samp>&rsquo;</code></dt>
 <dd><p>Traditional AIX shared library versioning (versioned <code>Shared Object</code>
 files as members of unversioned <code>Archive Library</code> files named
 &lsquo;<samp>lib.a</samp>&rsquo;) causes numerous headaches for package managers. However,
@@ -1267,7 +1279,7 @@ where this is called the &quot;SONAME&quot;. But as they prevent static linking,
 linker does search for &lsquo;<samp>libNAME.so</samp>&rsquo; before &lsquo;<samp>libNAME.a</samp>&rsquo; library
 filenames with the &lsquo;<samp>-lNAME</samp>&rsquo; linker flag.
 </p>
-<span id="AixLdCommand"></span><p>For detailed information please refer to the AIX
+<a name="AixLdCommand"></a><p>For detailed information please refer to the AIX
 <a href="https://www.ibm.com/support/knowledgecenter/search/%22the%20ld%20command%2C%20also%20called%20the%20linkage%20editor%20or%20binder%22">ld
 Command</a> reference.
 </p>
@@ -1367,8 +1379,8 @@ this option is still experimental and not for normal use yet.
 their runtime libraries should be built.  For a list of valid values for
 <var>langN</var> you can issue the following command in the
 <samp>gcc</samp> directory of your GCC source tree:<br>
-</p><div class="example">
-<pre class="example">grep ^language= */config-lang.in
+</p><div class="smallexample">
+<pre class="smallexample">grep ^language= */config-lang.in
 </pre></div>
 <p>Currently, you can use any of the following:
 <code>all</code>, <code>default</code>, <code>ada</code>, <code>c</code>, <code>c++</code>, <code>d</code>,
@@ -1502,8 +1514,8 @@ compiler driver.
 <dd><p>The <samp>--enable-win32-registry</samp> option enables Microsoft Windows-hosted GCC
 to look up installations paths in the registry using the following key:
 </p>
-<div class="example">
-<pre class="example"><code>HKEY_LOCAL_MACHINE\SOFTWARE\Free Software Foundation\<var>key</var></code>
+<div class="smallexample">
+<pre class="smallexample"><code>HKEY_LOCAL_MACHINE\SOFTWARE\Free Software Foundation\<var>key</var></code>
 </pre></div>
 
 <p><var>key</var> defaults to GCC version number, and can be overridden by the
@@ -1847,8 +1859,8 @@ GNU/Linux (&lsquo;<samp>i686-pc-linux-gnu</samp>&rsquo;) linker executable (whic
 executable on the former system), you can configure GCC as follows for
 getting compatible linker plugins:
 </p>
-<div class="example">
-<pre class="example">% <var>srcdir</var>/configure \
+<div class="smallexample">
+<pre class="smallexample">% <var>srcdir</var>/configure \
     --host=x86_64-pc-linux-gnu \
     --enable-linker-plugin-configure-flags=--host=i686-pc-linux-gnu \
     --enable-linker-plugin-flags='CC=gcc\ -m32\ -Wl,-rpath,[...]/i686-pc-linux-gnu/lib'
@@ -1895,8 +1907,8 @@ Offload compilers are expected to be already installed.  Default search
 path for them is <samp><var>exec-prefix</var></samp>, but it can be changed by
 specifying paths <var>path1</var>, &hellip;, <var>pathN</var>.
 </p>
-<div class="example">
-<pre class="example">% <var>srcdir</var>/configure \
+<div class="smallexample">
+<pre class="smallexample">% <var>srcdir</var>/configure \
     --enable-offload-targets=x86_64-intelmicemul-linux-gnu=/path/to/x86_64/compiler,nvptx-none
 </pre></div>
 
@@ -1955,10 +1967,27 @@ when in standards-compliant mode (e.g., when <code>--std=c99</code> or
 default is derived from glibc&rsquo;s behavior. When glibc clamps float_t to double,
 GCC follows and enables the option. For other cross compiles, the default is
 disabled.
+</p>
+</dd>
+<dt><code>--with-zstd=<var>pathname</var></code></dt>
+<dt><code>--with-zstd-include=<var>pathname</var></code></dt>
+<dt><code>--with-zstd-lib=<var>pathname</var></code></dt>
+<dd><p>If you do not have the <code>zstd</code> library installed in a standard
+location and you want to build GCC, you can explicitly specify the
+directory where it is installed (&lsquo;<samp>--with-zstd=<var>zstdinstalldir</var></samp>&rsquo;).
+The <samp>--with-zstd=<var>zstdinstalldir</var></samp> option is shorthand for
+<samp>--with-zstd-lib=<var>zstdinstalldir</var>/lib</samp> and
+<samp>--with-zstd-include=<var>zstdinstalldir</var>/include</samp>. If this
+shorthand assumption is not correct, you can use the explicit
+include and lib options directly.
+</p>
+<p>These flags are applicable to the host platform only.  When building
+a cross compiler, they will not be used to configure target libraries.
 </p></dd>
 </dl>
 
-<span id="Cross-Compiler-Specific-Options"></span><h4 class="subheading">Cross-Compiler-Specific Options</h4>
+<a name="Cross-Compiler-Specific-Options"></a>
+<h4 class="subheading">Cross-Compiler-Specific Options</h4>
 <p>The following options only apply to building cross compilers.
 </p>
 <dl compact="compact">
@@ -2135,7 +2164,8 @@ tools.
 </p></dd>
 </dl>
 
-<span id="Overriding-configure-test-results"></span><h4 class="subsubheading">Overriding <code>configure</code> test results</h4>
+<a name="Overriding-configure-test-results"></a>
+<h4 class="subsubheading">Overriding <code>configure</code> test results</h4>
 
 <p>Sometimes, it might be necessary to override the result of some
 <code>configure</code> test, for example in order to ease porting to a new
@@ -2144,19 +2174,19 @@ script provides three variables for this:
 </p>
 <dl compact="compact">
 <dt><code>build_configargs</code></dt>
-<dd><span id="index-build_005fconfigargs"></span>
+<dd><a name="index-build_005fconfigargs"></a>
 <p>The contents of this variable is passed to all build <code>configure</code>
 scripts.
 </p>
 </dd>
 <dt><code>host_configargs</code></dt>
-<dd><span id="index-host_005fconfigargs"></span>
+<dd><a name="index-host_005fconfigargs"></a>
 <p>The contents of this variable is passed to all host <code>configure</code>
 scripts.
 </p>
 </dd>
 <dt><code>target_configargs</code></dt>
-<dd><span id="index-target_005fconfigargs"></span>
+<dd><a name="index-target_005fconfigargs"></a>
 <p>The contents of this variable is passed to all target <code>configure</code>
 scripts.
 </p>
@@ -2167,7 +2197,8 @@ scripts.
 overrides, you can pass a setting for <code>CONFIG_SITE</code> and set
 variables in the site file.
 </p>
-<span id="Objective-C-Specific-Options"></span><h4 class="subheading">Objective-C-Specific Options</h4>
+<a name="Objective-C-Specific-Options"></a>
+<h4 class="subheading">Objective-C-Specific Options</h4>
 
 <p>The following options apply to the build of the Objective-C runtime library.
 </p>
@@ -2203,7 +2234,8 @@ default locations.
 </p></dd>
 </dl>
 
-<span id="D-Specific-Options"></span><h4 class="subheading">D-Specific Options</h4>
+<a name="D-Specific-Options"></a>
+<h4 class="subheading">D-Specific Options</h4>
 
 <p>The following options apply to the build of the D runtime library.
 </p>

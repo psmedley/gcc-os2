@@ -1,4 +1,4 @@
-This is libitm.info, produced by makeinfo version 6.7 from libitm.texi.
+This is libitm.info, produced by makeinfo version 6.5 from libitm.texi.
 
 Copyright (C) 2011-2022 Free Software Foundation, Inc.
 
@@ -1306,8 +1306,3 @@ Node: GNU Free Documentation License35891
 Node: Library Index61023
 
 End Tag Table
-
-
-Local Variables:
-coding: utf-8
-End:
