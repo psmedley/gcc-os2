@@ -453,7 +453,7 @@ _GLIBCXX_BEGIN_NAMESPACE_FILESYSTEM
     };
 
     int iflag = O_RDONLY;
-#ifdef _GLIBCXX_FILESYSTEM_IS_WINDOWS
+#if defined(_GLIBCXX_FILESYSTEM_IS_WINDOWS) || defined(__OS2__)
     iflag |= O_BINARY;
 #endif
 
@@ -468,7 +468,7 @@ _GLIBCXX_BEGIN_NAMESPACE_FILESYSTEM
       oflag |= O_TRUNC;
     else
       oflag |= O_EXCL;
-#ifdef _GLIBCXX_FILESYSTEM_IS_WINDOWS
+#if defined(_GLIBCXX_FILESYSTEM_IS_WINDOWS) || defined(__OS2__)
     oflag |= O_BINARY;
 #endif
     CloseFD out = { posix::open(to, oflag, S_IWUSR) };

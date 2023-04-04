@@ -53,6 +53,11 @@ static inline bool is_disk_designator(std::wstring_view s)
 {
   return s.length() == 2 && s[1] == L':';
 }
+#elif defined(__OS2__)
+static inline bool is_disk_designator(std::basic_string_view<char> s)
+{
+  return s.length() == 2 && s[1] == ':';
+}
 #endif
 
 struct path::_Parser
@@ -124,7 +129,7 @@ struct path::_Parser
 	while (pos < len && is_dir_sep(input[pos]))
 	  ++pos;
       }
-#ifdef _GLIBCXX_FILESYSTEM_IS_WINDOWS
+#if defined(_GLIBCXX_FILESYSTEM_IS_WINDOWS) || defined(__OS2__)
     else if (is_disk_designator(input.substr(0, 2)))
       {
 	// got disk designator
@@ -135,7 +140,11 @@ struct path::_Parser
 	    root.second.str = input.substr(2, 1);
 	    root.second.type = _Type::_Root_dir;
 	  }
+#ifndef __OS2__
 	pos = input.find_first_not_of(L"/\\", 2);
+#else
+	pos = input.find_first_not_of("/\\", 2);
+#endif
       }
 #endif
 
@@ -464,7 +473,7 @@ path::operator=(const path& p)
 path&
 path::operator/=(const path& __p)
 {
-#ifdef _GLIBCXX_FILESYSTEM_IS_WINDOWS
+#if defined(_GLIBCXX_FILESYSTEM_IS_WINDOWS) || defined(__OS2__)
   if (__p.is_absolute()
       || (__p.has_root_name() && __p.root_name() != root_name()))
     return operator=(__p);
@@ -656,7 +665,7 @@ path::_M_append(basic_string_view<value_type> s)
   _Parser parser(s);
   auto root_path = parser.root_path();
 
-#ifdef _GLIBCXX_FILESYSTEM_IS_WINDOWS
+#if defined(_GLIBCXX_FILESYSTEM_IS_WINDOWS) || defined(__OS2__)
   bool is_absolute = root_path.second.type == _Type::_Root_dir;
   bool has_root_name = root_path.first.type == _Type::_Root_name;
   if (is_absolute || (has_root_name && root_path.first.str != root_name()))
@@ -853,7 +862,7 @@ path::operator+=(const path& p)
       return *this;
     }
 
-#if _GLIBCXX_FILESYSTEM_IS_WINDOWS
+#if defined(_GLIBCXX_FILESYSTEM_IS_WINDOWS) || defined(__OS2__)
   if (_M_type() == _Type::_Root_name
       || (_M_type() == _Type::_Filename && _M_pathname.size() == 1))
     {
@@ -1059,7 +1068,7 @@ path::_M_concat(basic_string_view<value_type> s)
       return;
     }
 
-#if _GLIBCXX_FILESYSTEM_IS_WINDOWS
+#if defined(_GLIBCXX_FILESYSTEM_IS_WINDOWS) || defined(__OS2__)
   if (_M_type() == _Type::_Root_name
       || (_M_type() == _Type::_Filename && _M_pathname.size() == 1))
     {
@@ -1786,7 +1795,7 @@ path::lexically_relative(const path& base) const
   if (!has_root_directory() && base.has_root_directory())
     return ret;
   auto [a, b] = std::mismatch(begin(), end(), base.begin(), base.end());
-#ifdef _GLIBCXX_FILESYSTEM_IS_WINDOWS
+#if defined(_GLIBCXX_FILESYSTEM_IS_WINDOWS) || defined(__OS2__)
   // _GLIBCXX_RESOLVE_LIB_DEFECTS
   // 3070. path::lexically_relative causes surprising results if a filename
   // can also be a root-name

@@ -1058,7 +1058,7 @@ namespace __detail
   inline path&
   path::make_preferred()
   {
-#ifdef _GLIBCXX_FILESYSTEM_IS_WINDOWS
+#if defined(_GLIBCXX_FILESYSTEM_IS_WINDOWS) || defined(__OS2__)
     auto __pos = _M_pathname.find(L'/');
     while (__pos != _M_pathname.npos)
       {
@@ -1198,7 +1198,7 @@ namespace __detail
 	  bool __add_slash = false;
 	  for (auto& __elem : *this)
 	    {
-#ifdef _GLIBCXX_FILESYSTEM_IS_WINDOWS
+#if defined(_GLIBCXX_FILESYSTEM_IS_WINDOWS) || defined(__OS2__)
 	      if (__elem._M_type() == _Type::_Root_dir)
 		{
 		  __str += __slash;
@@ -1307,7 +1307,7 @@ namespace __detail
   inline bool
   path::is_absolute() const noexcept
   {
-#ifdef _GLIBCXX_FILESYSTEM_IS_WINDOWS
+#if defined(_GLIBCXX_FILESYSTEM_IS_WINDOWS) || defined(__OS2__)
     return has_root_name() && has_root_directory();
 #else
     return has_root_directory();

@@ -1221,7 +1221,7 @@ namespace __detail
   inline bool
   path::is_absolute() const
   {
-#ifdef _GLIBCXX_FILESYSTEM_IS_WINDOWS
+#if defined(_GLIBCXX_FILESYSTEM_IS_WINDOWS) || defined(__OS2__)
     return has_root_name() && has_root_directory();
 #else
     return has_root_directory();
