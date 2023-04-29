@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -23,6 +23,7 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
+with Ada.Unchecked_Conversion;
 with Aspects;              use Aspects;
 with Atree;                use Atree;
 with Debug;                use Debug;
@@ -49,7 +50,6 @@ with SCIL_LL;              use SCIL_LL;
 with Uintp;                use Uintp;
 with Urealp;               use Urealp;
 with Uname;                use Uname;
-with Unchecked_Conversion;
 
 package body Treepr is
 
@@ -132,12 +132,8 @@ package body Treepr is
    -- Local Procedures --
    ----------------------
 
-   function From_Union is new Unchecked_Conversion (Union_Id, Uint);
-   function From_Union is new Unchecked_Conversion (Union_Id, Ureal);
-
-   function To_Mixed (S : String) return String;
-   --  Turns an identifier into Mixed_Case. For bootstrap reasons, we cannot
-   --  use To_Mixed function from System.Case_Util.
+   function From_Union is new Ada.Unchecked_Conversion (Union_Id, Uint);
+   function From_Union is new Ada.Unchecked_Conversion (Union_Id, Ureal);
 
    function Image (F : Node_Or_Entity_Field) return String;
 
@@ -260,7 +256,7 @@ package body Treepr is
    ----------
 
    function Hash (Key : Int) return GNAT.Bucket_Range_Type is
-      function Cast is new Unchecked_Conversion
+      function Cast is new Ada.Unchecked_Conversion
         (Source => Int, Target => GNAT.Bucket_Range_Type);
    begin
       return Cast (Key);
@@ -273,8 +269,9 @@ package body Treepr is
    function Image (F : Node_Or_Entity_Field) return String is
    begin
       case F is
-         when F_Alloc_For_BIP_Return =>
-            return "Alloc_For_BIP_Return";
+         --  We special case the following; otherwise the compiler will use
+         --  the usual Mixed_Case convention.
+
          when F_Assignment_OK =>
             return "Assignment_OK";
          when F_Backwards_OK =>
@@ -371,8 +368,9 @@ package body Treepr is
 
          when others =>
             declare
-               Result : constant String := To_Mixed (F'Img);
+               Result : String := F'Img;
             begin
+               To_Mixed (Result);
                return Result (3 .. Result'Last); -- Remove "F_"
             end;
       end case;
@@ -539,7 +537,7 @@ package body Treepr is
          return;
       end if;
 
-      if E = No_Elist then
+      if No (E) then
          Write_Str ("<no elist>");
 
       elsif Is_Empty_Elmt_List (E) then
@@ -880,7 +878,7 @@ package body Treepr is
          when Uint_Field =>
             declare
                Val : constant Uint := Get_Uint (N, FD.Offset);
-               function Cast is new Unchecked_Conversion (Uint, Int);
+               function Cast is new Ada.Unchecked_Conversion (Uint, Int);
             begin
                if Present (Val) then
                   Print_Initial;
@@ -895,7 +893,7 @@ package body Treepr is
             | Nonzero_Uint_Field =>
             declare
                Val : constant Uint := Get_Valid_Uint (N, FD.Offset);
-               function Cast is new Unchecked_Conversion (Uint, Int);
+               function Cast is new Ada.Unchecked_Conversion (Uint, Int);
             begin
                Print_Initial;
                UI_Write (Val, Format);
@@ -916,7 +914,7 @@ package body Treepr is
          when Ureal_Field =>
             declare
                Val : constant Ureal := Get_Ureal (N, FD.Offset);
-               function Cast is new Unchecked_Conversion (Ureal, Int);
+               function Cast is new Ada.Unchecked_Conversion (Ureal, Int);
             begin
                if Val /= No_Ureal then
                   Print_Initial;
@@ -980,7 +978,8 @@ package body Treepr is
    exception
       when others =>
          declare
-            function Cast is new Unchecked_Conversion (Field_Size_32_Bit, Int);
+            function Cast is new
+              Ada.Unchecked_Conversion (Field_Size_32_Bit, Int);
          begin
             Write_Eol;
             Print_Initial;
@@ -1142,21 +1141,7 @@ package body Treepr is
    procedure Print_Name (N : Name_Id) is
    begin
       if Phase = Printing then
-         if N = No_Name then
-            Print_Str ("<No_Name>");
-
-         elsif N = Error_Name then
-            Print_Str ("<Error_Name>");
-
-         elsif Is_Valid_Name (N) then
-            Get_Name_String (N);
-            Print_Char ('"');
-            Write_Name (N);
-            Print_Char ('"');
-
-         else
-            Print_Str ("<invalid name>");
-         end if;
+         Write_Name_For_Debug (N, Quote => """");
       end if;
    end Print_Name;
 
@@ -1229,7 +1214,7 @@ package body Treepr is
 
          else
             Sfile := Get_Source_File_Index (Sloc (N));
-            Print_Int (Int (Sloc (N)) - Int (Source_Text (Sfile)'First));
+            Print_Int (Int (Sloc (N) - Source_Text (Sfile)'First));
             Write_Str ("  ");
             Write_Location (Sloc (N));
          end if;
@@ -1684,8 +1669,10 @@ package body Treepr is
    --------------------------
 
    procedure Print_Str_Mixed_Case (S : String) is
+      Tmp : String := S;
    begin
-      Print_Str (To_Mixed (S));
+      To_Mixed (Tmp);
+      Print_Str (Tmp);
    end Print_Str_Mixed_Case;
 
    ----------------
@@ -1819,17 +1806,6 @@ package body Treepr is
       Next_Serial_Number := Next_Serial_Number + 1;
    end Set_Serial_Number;
 
-   --------------
-   -- To_Mixed --
-   --------------
-
-   function To_Mixed (S : String) return String is
-   begin
-      return Result : String (S'Range) := S do
-         To_Mixed (Result);
-      end return;
-   end To_Mixed;
-
    ---------------
    -- Tree_Dump --
    ---------------
@@ -1878,7 +1854,7 @@ package body Treepr is
 
          Write_Eol;
          Write_Str ("Tree created for ");
-         Write_Unit_Name (Unit_Name (Main_Unit));
+         Write_Unit_Name_For_Debug (Unit_Name (Main_Unit));
          Underline;
          Print_Node_Subtree (Cunit (Main_Unit));
          Write_Eol;

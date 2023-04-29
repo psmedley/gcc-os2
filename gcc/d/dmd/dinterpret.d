@@ -3,7 +3,7 @@
  *
  * Specification: ($LINK2 https://dlang.org/spec/function.html#interpretation, Compile Time Function Execution (CTFE))
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/dinterpret.d, _dinterpret.d)
@@ -39,6 +39,7 @@ import dmd.id;
 import dmd.identifier;
 import dmd.init;
 import dmd.initsem;
+import dmd.location;
 import dmd.mtype;
 import dmd.printast;
 import dmd.root.rmem;
@@ -165,7 +166,7 @@ public Expression ctfeInterpretForPragmaMsg(Expression e)
     return e;
 }
 
-public extern (C++) Expression getValue(VarDeclaration vd)
+public Expression getValue(VarDeclaration vd)
 {
     return ctfeGlobals.stack.getValue(vd);
 }
@@ -280,25 +281,25 @@ private:
     Expression localThis;       // value of 'this', or NULL if none
 
 public:
-    extern (C++) size_t stackPointer()
+    size_t stackPointer()
     {
-        return values.dim;
+        return values.length;
     }
 
     // The current value of 'this', or NULL if none
-    extern (C++) Expression getThis()
+    Expression getThis()
     {
         return localThis;
     }
 
     // Largest number of stack positions we've used
-    extern (C++) size_t maxStackUsage()
+    size_t maxStackUsage()
     {
         return maxStackPointer;
     }
 
     // Start a new stack frame, using the provided 'this'.
-    extern (C++) void startFrame(Expression thisexp)
+    void startFrame(Expression thisexp)
     {
         frames.push(cast(void*)cast(size_t)framepointer);
         savedThis.push(localThis);
@@ -306,36 +307,36 @@ public:
         localThis = thisexp;
     }
 
-    extern (C++) void endFrame()
+    void endFrame()
     {
-        size_t oldframe = cast(size_t)frames[frames.dim - 1];
-        localThis = savedThis[savedThis.dim - 1];
+        size_t oldframe = cast(size_t)frames[frames.length - 1];
+        localThis = savedThis[savedThis.length - 1];
         popAll(framepointer);
         framepointer = oldframe;
-        frames.setDim(frames.dim - 1);
-        savedThis.setDim(savedThis.dim - 1);
+        frames.setDim(frames.length - 1);
+        savedThis.setDim(savedThis.length - 1);
     }
 
-    extern (C++) bool isInCurrentFrame(VarDeclaration v)
+    bool isInCurrentFrame(VarDeclaration v)
     {
         if (v.isDataseg() && !v.isCTFE())
             return false; // It's a global
         return v.ctfeAdrOnStack >= framepointer;
     }
 
-    extern (C++) Expression getValue(VarDeclaration v)
+    Expression getValue(VarDeclaration v)
     {
         //printf("getValue() %s\n", v.toChars());
         if ((v.isDataseg() || v.storage_class & STC.manifest) && !v.isCTFE())
         {
-            assert(v.ctfeAdrOnStack < globalValues.dim);
+            assert(v.ctfeAdrOnStack < globalValues.length);
             return globalValues[v.ctfeAdrOnStack];
         }
         assert(v.ctfeAdrOnStack < stackPointer());
         return values[v.ctfeAdrOnStack];
     }
 
-    extern (C++) void setValue(VarDeclaration v, Expression e)
+    void setValue(VarDeclaration v, Expression e)
     {
         //printf("setValue() %s : %s\n", v.toChars(), e.toChars());
         assert(!v.isDataseg() || v.isCTFE());
@@ -343,7 +344,7 @@ public:
         values[v.ctfeAdrOnStack] = e;
     }
 
-    extern (C++) void push(VarDeclaration v)
+    void push(VarDeclaration v)
     {
         //printf("push() %s\n", v.toChars());
         assert(!v.isDataseg() || v.isCTFE());
@@ -354,18 +355,18 @@ public:
             return;
         }
         savedId.push(cast(void*)cast(size_t)v.ctfeAdrOnStack);
-        v.ctfeAdrOnStack = cast(uint)values.dim;
+        v.ctfeAdrOnStack = cast(uint)values.length;
         vars.push(v);
         values.push(null);
     }
 
-    extern (C++) void pop(VarDeclaration v)
+    void pop(VarDeclaration v)
     {
         assert(!v.isDataseg() || v.isCTFE());
         assert(!v.isReference());
         const oldid = v.ctfeAdrOnStack;
         v.ctfeAdrOnStack = cast(uint)cast(size_t)savedId[oldid];
-        if (v.ctfeAdrOnStack == values.dim - 1)
+        if (v.ctfeAdrOnStack == values.length - 1)
         {
             values.pop();
             vars.pop();
@@ -373,12 +374,12 @@ public:
         }
     }
 
-    extern (C++) void popAll(size_t stackpointer)
+    void popAll(size_t stackpointer)
     {
         if (stackPointer() > maxStackPointer)
             maxStackPointer = stackPointer();
-        assert(values.dim >= stackpointer);
-        for (size_t i = stackpointer; i < values.dim; ++i)
+        assert(values.length >= stackpointer);
+        for (size_t i = stackpointer; i < values.length; ++i)
         {
             VarDeclaration v = vars[i];
             v.ctfeAdrOnStack = cast(uint)cast(size_t)savedId[i];
@@ -388,10 +389,10 @@ public:
         savedId.setDim(stackpointer);
     }
 
-    extern (C++) void saveGlobalConstant(VarDeclaration v, Expression e)
+    void saveGlobalConstant(VarDeclaration v, Expression e)
     {
         assert(v._init && (v.isConst() || v.isImmutable() || v.storage_class & STC.manifest) && !v.isCTFE());
-        v.ctfeAdrOnStack = cast(uint)globalValues.dim;
+        v.ctfeAdrOnStack = cast(uint)globalValues.length;
         globalValues.push(copyRegionExp(e));
     }
 }
@@ -444,7 +445,7 @@ private Expression interpretFunction(UnionExp* pue, FuncDeclaration fd, InterSta
 
     auto tf = fd.type.toBasetype().isTypeFunction();
     if (tf.parameterList.varargs != VarArg.none && arguments &&
-        ((fd.parameters && arguments.dim != fd.parameters.dim) || (!fd.parameters && arguments.dim)))
+        ((fd.parameters && arguments.length != fd.parameters.length) || (!fd.parameters && arguments.length)))
     {
         fd.error("C-style variadic functions are not yet implemented in CTFE");
         return CTFEExp.cantexp;
@@ -467,8 +468,8 @@ private Expression interpretFunction(UnionExp* pue, FuncDeclaration fd, InterSta
 
     // Place to hold all the arguments to the function while
     // we are evaluating them.
-    size_t dim = arguments ? arguments.dim : 0;
-    assert((fd.parameters ? fd.parameters.dim : 0) == dim);
+    size_t dim = arguments ? arguments.length : 0;
+    assert((fd.parameters ? fd.parameters.length : 0) == dim);
 
     /* Evaluate all the arguments to the function,
      * store the results in eargs[]
@@ -492,7 +493,7 @@ private Expression interpretFunction(UnionExp* pue, FuncDeclaration fd, InterSta
             if (CTFEExp.isCantExp(earg))
                 return earg;
         }
-        else if (fparam.storageClass & STC.lazy_)
+        else if (fparam.isLazy())
         {
         }
         else
@@ -746,7 +747,7 @@ public:
     Expression result;
     UnionExp* pue;              // storage for `result`
 
-    extern (D) this(UnionExp* pue, InterState* istate, CTFEGoal goal)
+    extern (D) this(UnionExp* pue, InterState* istate, CTFEGoal goal) scope
     {
         this.pue = pue;
         this.istate = istate;
@@ -827,7 +828,7 @@ public:
         if (istate.start == s)
             istate.start = null;
 
-        const dim = s.statements ? s.statements.dim : 0;
+        const dim = s.statements ? s.statements.length : 0;
         foreach (i; 0 .. dim)
         {
             Statement sx = (*s.statements)[i];
@@ -850,7 +851,7 @@ public:
         if (istate.start == s)
             istate.start = null;
 
-        const dim = s.statements ? s.statements.dim : 0;
+        const dim = s.statements ? s.statements.length : 0;
         foreach (i; 0 .. dim)
         {
             Statement sx = (*s.statements)[i];
@@ -1034,7 +1035,7 @@ public:
             result = interpret(pue, s.exp, istate, CTFEGoal.LValue);
             return;
         }
-        if (tf.next && tf.next.ty == Tdelegate && istate.fd.closureVars.dim > 0)
+        if (tf.next && tf.next.ty == Tdelegate && istate.fd.closureVars.length > 0)
         {
             // To support this, we need to copy all the closure vars
             // into the delegate literal.
@@ -1048,6 +1049,21 @@ public:
         Expression e = interpret(pue, s.exp, istate);
         if (exceptionOrCant(e))
             return;
+
+        /**
+         * Interpret `return a ~= b` (i.e. `return _d_arrayappendT{,Trace}(a, b)`) as:
+         *     a ~= b;
+         *     return a;
+         * This is needed because `a ~= b` has to be interpreted as an lvalue, in order to avoid
+         * assigning a larger array into a smaller one, such as:
+         *    `a = [1, 2], a ~= [3]` => `[1, 2] ~= [3]` => `[1, 2] = [1, 2, 3]`
+         */
+        if (isRuntimeHook(s.exp, Id._d_arrayappendT) || isRuntimeHook(s.exp, Id._d_arrayappendTTrace))
+        {
+            auto rs = new ReturnStatement(s.loc, e);
+            rs.accept(this);
+            return;
+        }
 
         // Disallow returning pointers to stack-allocated variables (bug 7876)
         if (!stopPointersEscaping(s.loc, e))
@@ -1506,11 +1522,6 @@ public:
         result = e;
     }
 
-    static bool isAnErrorException(ClassDeclaration cd)
-    {
-        return cd == ClassDeclaration.errorException || ClassDeclaration.errorException.isBaseOf(cd, null);
-    }
-
     static ThrownExceptionExp chainExceptions(ThrownExceptionExp oldest, ThrownExceptionExp newest)
     {
         debug (LOG)
@@ -1519,10 +1530,10 @@ public:
         }
         // Little sanity check to make sure it's really a Throwable
         ClassReferenceExp boss = oldest.thrown;
-        const next = 4;                         // index of Throwable.next
+        const next = 5;                         // index of Throwable.next
         assert((*boss.value.elements)[next].type.ty == Tclass); // Throwable.next
         ClassReferenceExp collateral = newest.thrown;
-        if (isAnErrorException(collateral.originalClass()) && !isAnErrorException(boss.originalClass()))
+        if (collateral.originalClass().isErrorException() && !boss.originalClass().isErrorException())
         {
             /* Find the index of the Error.bypassException field
              */
@@ -1632,8 +1643,15 @@ public:
         if (exceptionOrCant(e))
             return;
 
-        assert(e.op == EXP.classReference);
-        result = ctfeEmplaceExp!ThrownExceptionExp(loc, e.isClassReferenceExp());
+        if (e.op == EXP.classReference)
+        {
+            result = ctfeEmplaceExp!ThrownExceptionExp(loc, e.isClassReferenceExp());
+        }
+        else
+        {
+            exp.error("to be thrown `%s` must be non-null", exp.toChars());
+            result = ErrorExp.get();
+        }
     }
 
     override void visit(ScopeGuardStatement s)
@@ -1832,10 +1850,27 @@ public:
         {
             printf("%s StringExp::interpret() %s\n", e.loc.toChars(), e.toChars());
         }
-        /* Attempts to modify string literals are prevented
-         * in BinExp::interpretAssignCommon.
-         */
-        result = e;
+        if (e.ownedByCtfe >= OwnedBy.ctfe) // We've already interpreted the string
+        {
+            result = e;
+            return;
+        }
+
+        if (e.type.ty != Tsarray ||
+            (cast(TypeNext)e.type).next.mod & (MODFlags.const_ | MODFlags.immutable_))
+        {
+            // If it's immutable, we don't need to dup it. Attempts to modify
+            // string literals are prevented in BinExp::interpretAssignCommon.
+            result = e;
+        }
+        else
+        {
+            // https://issues.dlang.org/show_bug.cgi?id=20811
+            // Create a copy of mutable string literals, so that any change in
+            // value via an index or slice will not survive CTFE.
+            *pue = copyLiteral(e);
+            result = pue.exp();
+        }
     }
 
     override void visit(FuncExp e)
@@ -2001,7 +2036,7 @@ public:
         }
         auto er = interpret(e.e1, istate, CTFEGoal.LValue);
         if (auto ve = er.isVarExp())
-            if (ve.var == istate.fd.vthis)
+            if (istate && ve.var == istate.fd.vthis)
                 er = interpret(er, istate);
 
         if (exceptionOrCant(er))
@@ -2081,6 +2116,16 @@ public:
                 if (!e)
                     return CTFEExp.cantexp;
                 assert(e.type);
+
+                // There's a terrible hack in `dmd.dsymbolsem` that special case
+                // a struct with all zeros to an `ExpInitializer(BlitExp(IntegerExp(0)))`
+                // There's matching code for it in e2ir (toElem's visitAssignExp),
+                // so we need the same hack here.
+                // This does not trigger for global as they get a normal initializer.
+                if (auto ts = e.type.isTypeStruct())
+                    if (auto ae = e.isBlitExp())
+                        if (ae.e2.op == EXP.int64)
+                            e = ts.defaultInitLiteral(loc);
 
                 if (e.op == EXP.construct || e.op == EXP.blit)
                 {
@@ -2281,7 +2326,7 @@ public:
         while (s.isAttribDeclaration())
         {
             auto ad = cast(AttribDeclaration)s;
-            assert(ad.decl && ad.decl.dim == 1); // Currently, only one allowed when parsing
+            assert(ad.decl && ad.decl.length == 1); // Currently, only one allowed when parsing
             s = (*ad.decl)[0];
         }
         if (VarDeclaration v = s.isVarDeclaration())
@@ -2291,16 +2336,12 @@ public:
                 result = null;
 
                 // Reserve stack space for all tuple members
-                if (!td.objects)
-                    return;
-                foreach (o; *td.objects)
+                td.foreachVar((s)
                 {
-                    Expression ex = isExpression(o);
-                    DsymbolExp ds = ex ? ex.isDsymbolExp() : null;
-                    VarDeclaration v2 = ds ? ds.s.isVarDeclaration() : null;
+                    VarDeclaration v2 = s.isVarDeclaration();
                     assert(v2);
                     if (v2.isDataseg() && !v2.isCTFE())
-                        continue;
+                        return 0;
 
                     ctfeGlobals.stack.push(v2);
                     if (v2._init)
@@ -2310,7 +2351,7 @@ public:
                         {
                             einit = interpretRegion(ie.exp, istate, goal);
                             if (exceptionOrCant(einit))
-                                return;
+                                return 1;
                         }
                         else if (v2._init.isVoidInitializer())
                         {
@@ -2320,11 +2361,12 @@ public:
                         {
                             e.error("declaration `%s` is not yet implemented in CTFE", e.toChars());
                             result = CTFEExp.cantexp;
-                            return;
+                            return 1;
                         }
                         setValue(v2, einit);
                     }
-                }
+                    return 0;
+                });
                 return;
             }
             if (v.isStatic())
@@ -2340,6 +2382,7 @@ public:
                 if (ExpInitializer ie = v._init.isExpInitializer())
                 {
                     result = interpretRegion(ie.exp, istate, goal);
+                    return;
                 }
                 else if (v._init.isVoidInitializer())
                 {
@@ -2347,12 +2390,16 @@ public:
                     // There is no AssignExp for void initializers,
                     // so set it here.
                     setValue(v, result);
+                    return;
                 }
-                else
+                else if (v._init.isArrayInitializer())
                 {
-                    e.error("declaration `%s` is not yet implemented in CTFE", e.toChars());
-                    result = CTFEExp.cantexp;
+                    result = v._init.initializerToExpression(v.type);
+                    if (result !is null)
+                        return;
                 }
+                e.error("declaration `%s` is not yet implemented in CTFE", e.toChars());
+                result = CTFEExp.cantexp;
             }
             else if (v.type.size() == 0)
             {
@@ -2488,7 +2535,7 @@ public:
             return;
 
         auto expsx = e.elements;
-        size_t dim = expsx ? expsx.dim : 0;
+        size_t dim = expsx ? expsx.length : 0;
         for (size_t i = 0; i < dim; i++)
         {
             Expression exp = (*expsx)[i];
@@ -2527,7 +2574,7 @@ public:
         {
             // todo: all tuple expansions should go in semantic phase.
             expandTuples(expsx);
-            if (expsx.dim != dim)
+            if (expsx.length != dim)
             {
                 e.error("CTFE internal error: invalid array literal");
                 result = CTFEExp.cantexp;
@@ -2590,7 +2637,7 @@ public:
             expandTuples(keysx);
         if (valuesx !is e.values)
             expandTuples(valuesx);
-        if (keysx.dim != valuesx.dim)
+        if (keysx.length != valuesx.length)
         {
             e.error("CTFE internal error: invalid AA");
             result = CTFEExp.cantexp;
@@ -2599,10 +2646,10 @@ public:
 
         /* Remove duplicate keys
          */
-        for (size_t i = 1; i < keysx.dim; i++)
+        for (size_t i = 1; i < keysx.length; i++)
         {
             auto ekey = (*keysx)[i - 1];
-            for (size_t j = i; j < keysx.dim; j++)
+            for (size_t j = i; j < keysx.length; j++)
             {
                 auto ekey2 = (*keysx)[j];
                 if (!ctfeEqual(e.loc, EXP.equal, ekey, ekey2))
@@ -2648,14 +2695,14 @@ public:
             return;
         }
 
-        size_t dim = e.elements ? e.elements.dim : 0;
+        size_t dim = e.elements ? e.elements.length : 0;
         auto expsx = e.elements;
 
-        if (dim != e.sd.fields.dim)
+        if (dim != e.sd.fields.length)
         {
             // guaranteed by AggregateDeclaration.fill and TypeStruct.defaultInitLiteral
-            const nvthis = e.sd.fields.dim - e.sd.nonHiddenFields();
-            assert(e.sd.fields.dim - dim == nvthis);
+            const nvthis = e.sd.fields.length - e.sd.nonHiddenFields();
+            assert(e.sd.fields.length - dim == nvthis);
 
             /* If a nested struct has no initialized hidden pointer,
              * set it to null to match the runtime behaviour.
@@ -2671,7 +2718,7 @@ public:
                 ++dim;
             }
         }
-        assert(dim == e.sd.fields.dim);
+        assert(dim == e.sd.fields.length);
 
         foreach (i; 0 .. dim)
         {
@@ -2711,7 +2758,7 @@ public:
         if (expsx !is e.elements)
         {
             expandTuples(expsx);
-            if (expsx.dim != e.sd.fields.dim)
+            if (expsx.length != e.sd.fields.length)
             {
                 e.error("CTFE internal error: invalid struct literal");
                 result = CTFEExp.cantexp;
@@ -2740,7 +2787,7 @@ public:
             return lenExpr;
         size_t len = cast(size_t)lenExpr.toInteger();
         Type elemType = (cast(TypeArray)newtype).next;
-        if (elemType.ty == Tarray && argnum < arguments.dim - 1)
+        if (elemType.ty == Tarray && argnum < arguments.length - 1)
         {
             Expression elem = recursivelyCreateArrayLiteral(pue, loc, elemType, istate, arguments, argnum + 1);
             if (exceptionOrCantInterpret(elem))
@@ -2754,7 +2801,7 @@ public:
             ae.ownedByCtfe = OwnedBy.ctfe;
             return ae;
         }
-        assert(argnum == arguments.dim - 1);
+        assert(argnum == arguments.length - 1);
         if (elemType.ty.isSomeChar)
         {
             const ch = cast(dchar)elemType.defaultInitLiteral(loc).toInteger();
@@ -2801,10 +2848,10 @@ public:
             {
                 StructDeclaration sd = ts.sym;
                 auto exps = new Expressions();
-                exps.reserve(sd.fields.dim);
+                exps.reserve(sd.fields.length);
                 if (e.arguments)
                 {
-                    exps.setDim(e.arguments.dim);
+                    exps.setDim(e.arguments.length);
                     foreach (i, ex; *e.arguments)
                     {
                         ex = interpretRegion(ex, istate);
@@ -2813,7 +2860,7 @@ public:
                         (*exps)[i] = ex;
                     }
                 }
-                sd.fill(e.loc, exps, false);
+                sd.fill(e.loc, *exps, false);
 
                 auto se = ctfeEmplaceExp!StructLiteralExp(e.loc, sd, exps, e.newtype);
                 se.origin = se;
@@ -2833,12 +2880,12 @@ public:
             ClassDeclaration cd = tc.sym;
             size_t totalFieldCount = 0;
             for (ClassDeclaration c = cd; c; c = c.baseClass)
-                totalFieldCount += c.fields.dim;
+                totalFieldCount += c.fields.length;
             auto elems = new Expressions(totalFieldCount);
             size_t fieldsSoFar = totalFieldCount;
             for (ClassDeclaration c = cd; c; c = c.baseClass)
             {
-                fieldsSoFar -= c.fields.dim;
+                fieldsSoFar -= c.fields.length;
                 foreach (i, v; c.fields)
                 {
                     if (v.inuse)
@@ -2854,6 +2901,12 @@ public:
                             m = voidInitLiteral(v.type, v).copy();
                         else
                             m = v.getConstInitializer(true);
+                    }
+                    else if (v.type.isTypeNoreturn())
+                    {
+                        // Noreturn field with default initializer
+                        (*elems)[fieldsSoFar + i] = null;
+                        continue;
                     }
                     else
                         m = v.type.defaultInitLiteral(e.loc);
@@ -2904,7 +2957,7 @@ public:
         if (e.newtype.toBasetype().isscalar())
         {
             Expression newval;
-            if (e.arguments && e.arguments.dim)
+            if (e.arguments && e.arguments.length)
                 newval = (*e.arguments)[0];
             else
                 newval = e.newtype.defaultInitLiteral(e.loc);
@@ -3827,7 +3880,7 @@ public:
                 e.error("CTFE internal error: cannot find field `%s` in `%s`", v.toChars(), ex.toChars());
                 return CTFEExp.cantexp;
             }
-            assert(0 <= fieldi && fieldi < sle.elements.dim);
+            assert(0 <= fieldi && fieldi < sle.elements.length);
 
             // If it's a union, set all other members of this union to void
             stompOverlappedFields(sle, v);
@@ -3935,7 +3988,7 @@ public:
 
             Expressions* oldelems = oldval.isArrayLiteralExp().elements;
             Expressions* newelems = newval.isArrayLiteralExp().elements;
-            assert(oldelems.dim == newelems.dim);
+            assert(oldelems.length == newelems.length);
 
             Type elemtype = oldval.type.nextOf();
             foreach (i, ref oldelem; *oldelems)
@@ -4026,7 +4079,7 @@ public:
             if (auto ale = e1.isArrayLiteralExp())
             {
                 lowerbound = 0;
-                upperbound = ale.elements.dim;
+                upperbound = ale.elements.length;
             }
             else if (auto se = e1.isStringExp())
             {
@@ -4262,12 +4315,12 @@ public:
                 bool needsPostblit;
                 bool needsDtor;
 
-                extern (C++) Expression assignTo(ArrayLiteralExp ae)
+                Expression assignTo(ArrayLiteralExp ae)
                 {
-                    return assignTo(ae, 0, ae.elements.dim);
+                    return assignTo(ae, 0, ae.elements.length);
                 }
 
-                extern (C++) Expression assignTo(ArrayLiteralExp ae, size_t lwr, size_t upr)
+                Expression assignTo(ArrayLiteralExp ae, size_t lwr, size_t upr)
                 {
                     Expressions* w = ae.elements;
                     assert(ae.type.ty == Tsarray || ae.type.ty == Tarray);
@@ -4763,7 +4816,7 @@ public:
 
             if (fd.ident == Id.__ArrayPostblit || fd.ident == Id.__ArrayDtor)
             {
-                assert(e.arguments.dim == 1);
+                assert(e.arguments.length == 1);
                 Expression ea = (*e.arguments)[0];
                 // printf("1 ea = %s %s\n", ea.type.toChars(), ea.toChars());
                 if (auto se = ea.isSliceExp())
@@ -4799,7 +4852,7 @@ public:
             {
                 // In expressionsem.d `ea.length = eb;` got lowered to `_d_arraysetlengthT(ea, eb);`.
                 // The following code will rewrite it back to `ea.length = eb` and then interpret that expression.
-                assert(e.arguments.dim == 2);
+                assert(e.arguments.length == 2);
 
                 Expression ea = (*e.arguments)[0];
                 Expression eb = (*e.arguments)[1];
@@ -4814,29 +4867,65 @@ public:
                 result = interpretRegion(ae, istate);
                 return;
             }
-            else if (fd.ident == Id._d_arrayctor || fd.ident == Id._d_arraysetctor)
+            else if (isArrayConstructionOrAssign(fd.ident))
             {
-                // In expressionsem.d `T[x] ea = eb;` was lowered to `_d_array{,set}ctor(ea[], eb[]);`.
-                // The following code will rewrite it back to `ea = eb` and then interpret that expression.
-                if (fd.ident == Id._d_arraysetctor)
-                    assert(e.arguments.dim == 2);
+                // In expressionsem.d, the following lowerings were performed:
+                // * `T[x] ea = eb;` to `_d_array{,set}ctor(ea[], eb[]);`.
+                // * `ea = eb` to `_d_array{,setassign,assign_l,assign_r}(ea[], eb)`.
+                // The following code will rewrite them back to `ea = eb` and
+                // then interpret that expression.
+
+                if (fd.ident == Id._d_arrayctor)
+                    assert(e.arguments.length == 3);
                 else
-                    assert(e.arguments.dim == 3);
+                    assert(e.arguments.length == 2);
 
                 Expression ea = (*e.arguments)[0];
                 if (ea.isCastExp)
                     ea = ea.isCastExp.e1;
 
                 Expression eb = (*e.arguments)[1];
-                if (eb.isCastExp && fd.ident == Id._d_arrayctor)
+                if (eb.isCastExp() && fd.ident != Id._d_arraysetctor)
                     eb = eb.isCastExp.e1;
 
-                ConstructExp ce = new ConstructExp(e.loc, ea, eb);
-                ce.type = ea.type;
+                Expression rewrittenExp;
+                if (fd.ident == Id._d_arrayctor || fd.ident == Id._d_arraysetctor)
+                    rewrittenExp = new ConstructExp(e.loc, ea, eb);
+                else
+                    rewrittenExp = new AssignExp(e.loc, ea, eb);
 
-                result = interpret(ce, istate);
+                rewrittenExp.type = ea.type;
+                result = interpret(rewrittenExp, istate);
+
                 return;
             }
+            else if (fd.ident == Id._d_arrayappendT || fd.ident == Id._d_arrayappendTTrace)
+            {
+                // In expressionsem.d `ea ~= eb` was lowered to `_d_arrayappendT{,Trace}({file, line, funcname}, ea, eb);`.
+                // The following code will rewrite it back to `ea ~= eb` and then interpret that expression.
+                Expression lhs, rhs;
+
+                if (fd.ident == Id._d_arrayappendT)
+                {
+                    assert(e.arguments.length == 2);
+                    lhs = (*e.arguments)[0];
+                    rhs = (*e.arguments)[1];
+                }
+                else
+                {
+                    assert(e.arguments.length == 5);
+                    lhs = (*e.arguments)[3];
+                    rhs = (*e.arguments)[4];
+                }
+
+                auto cae = new CatAssignExp(e.loc, lhs, rhs);
+                cae.type = e.type;
+
+                result = interpretRegion(cae, istate, CTFEGoal.LValue);
+                return;
+            }
+            else if (fd.ident == Id._d_arrayappendcTX)
+                assert(0, "CTFE cannot interpret _d_arrayappendcTX!");
         }
         else if (auto soe = ecall.isSymOffExp())
         {
@@ -4956,6 +5045,61 @@ public:
         debug (LOG)
         {
             printf("%s CommaExp::interpret() %s\n", e.loc.toChars(), e.toChars());
+        }
+
+        bool isNewThrowableHook()
+        {
+            auto de = e.e1.isDeclarationExp();
+            if (de is null)
+                return false;
+
+            auto vd = de.declaration.isVarDeclaration();
+            if (vd is null)
+                return false;
+
+            auto ei = vd._init.isExpInitializer();
+            if (ei is null)
+                return false;
+
+            auto ce = ei.exp.isConstructExp();
+            if (ce is null)
+                return false;
+
+            return isRuntimeHook(ce.e2, Id._d_newThrowable) !is null;
+        }
+
+        if (auto ce = isRuntimeHook(e.e1, Id._d_arrayappendcTX))
+        {
+            // In expressionsem.d `arr ~= elem` was lowered to
+            // `_d_arrayappendcTX(arr, elem), arr[arr.length - 1] = elem, elem;`.
+            // The following code will rewrite it back to `arr ~= elem`
+            // and then interpret that expression.
+            assert(ce.arguments.length == 2);
+
+            auto arr = (*ce.arguments)[0];
+            auto elem = e.e2.isConstructExp().e2;
+            assert(elem);
+
+            auto cae = new CatAssignExp(e.loc, arr, elem);
+            cae.type = arr.type;
+
+            result = interpret(cae, istate);
+            return;
+        }
+        else if (isNewThrowableHook())
+        {
+            // In expressionsem.d `throw new Exception(args)` was lowered to
+            // `throw (tmp = _d_newThrowable!Exception(), tmp.ctor(args), tmp)`.
+            // The following code will rewrite it back to `throw new Exception(args)`
+            // and then interpret this expression instead.
+            auto ce = e.e2.isCallExp();
+            assert(ce);
+
+            auto ne = new NewExp(e.loc, null, e.type, ce.arguments);
+            ne.type = e.e1.type;
+
+            result = interpret(ne, istate);
+            return;
         }
 
         // If it creates a variable, and there's no context for
@@ -5885,7 +6029,7 @@ public:
                     {
                         ArrayLiteralExp ale = ie.e1.isArrayLiteralExp();
                         const indx = cast(size_t)ie.e2.toInteger();
-                        if (indx < ale.elements.dim)
+                        if (indx < ale.elements.length)
                         {
                             if (Expression xx = (*ale.elements)[indx])
                             {
@@ -6062,7 +6206,7 @@ public:
     {
         debug (LOG)
         {
-            printf("%s ThrowExpression::interpret()\n", e.loc.toChars());
+            printf("%s ThrowExpression::interpret()\n", te.loc.toChars());
         }
         interpretThrow(te.e1, te.loc);
     }
@@ -6130,7 +6274,7 @@ public:
             return;
         }
 
-        if (result.isStringExp())
+        if (result.isStringExp() || result.isArrayLiteralExp())
             return;
 
         if (result.op != EXP.address)
@@ -6279,7 +6423,7 @@ public:
         result = (*se.elements)[i];
         if (!result)
         {
-            e.error("Internal Compiler Error: null field `%s`", v.toChars());
+            e.error("internal compiler error: null field `%s`", v.toChars());
             result = CTFEExp.cantexp;
             return;
         }
@@ -6349,8 +6493,8 @@ public:
                 (*valuesx)[j - removed] = evalue;
             }
         }
-        valuesx.dim = valuesx.dim - removed;
-        keysx.dim = keysx.dim - removed;
+        valuesx.length = valuesx.length - removed;
+        keysx.length = keysx.length - removed;
         result = IntegerExp.createBool(removed != 0);
     }
 
@@ -6369,6 +6513,33 @@ public:
     override void visit(ThrownExceptionExp e)
     {
         assert(0); // This should never be interpreted
+    }
+
+    /*********************************************
+     * Checks if the given expresion is a call to the runtime hook `id`.
+     * Params:
+     *    e = the expression to check
+     *    id = the identifier of the runtime hook
+     * Returns:
+     *    `e` cast to `CallExp` if it's the hook, `null` otherwise
+     */
+    private CallExp isRuntimeHook(Expression e, Identifier id)
+    {
+        if (auto ce = e.isCallExp())
+        {
+            if (auto ve = ce.e1.isVarExp())
+            {
+                if (auto fd = ve.var.isFuncDeclaration())
+                {
+                    // If `_d_HookTraceImpl` is found, resolve the underlying
+                    // hook and replace `e` and `fd` with it.
+                    removeHookTraceImpl(ce, fd);
+                    return fd.ident == id ? ce : null;
+                }
+            }
+        }
+
+        return null;
     }
 }
 
@@ -6837,7 +7008,7 @@ private Expression interpret_length(UnionExp* pue, InterState* istate, Expressio
         return earg;
     dinteger_t len = 0;
     if (auto aae = earg.isAssocArrayLiteralExp())
-        len = aae.keys.dim;
+        len = aae.keys.length;
     else
         assert(earg.op == EXP.null_);
     emplaceExp!(IntegerExp)(pue, earg.loc, len, Type.tsize_t);
@@ -6908,7 +7079,7 @@ private Expression interpret_dup(UnionExp* pue, InterState* istate, Expression e
     if (earg.op != EXP.assocArrayLiteral && earg.type.toBasetype().ty != Taarray)
         return null;
     auto aae = copyLiteral(earg).copy().isAssocArrayLiteralExp();
-    for (size_t i = 0; i < aae.keys.dim; i++)
+    for (size_t i = 0; i < aae.keys.length; i++)
     {
         if (Expression e = evaluatePostblit(istate, (*aae.keys)[i]))
             return e;
@@ -6944,7 +7115,7 @@ private Expression interpret_aaApply(UnionExp* pue, InterState* istate, Expressi
 
     assert(fd && fd.fbody);
     assert(fd.parameters);
-    size_t numParams = fd.parameters.dim;
+    size_t numParams = fd.parameters.length;
     assert(numParams == 1 || numParams == 2);
 
     Parameter fparam = fd.type.isTypeFunction().parameterList[numParams - 1];
@@ -6953,11 +7124,11 @@ private Expression interpret_aaApply(UnionExp* pue, InterState* istate, Expressi
     Expressions args = Expressions(numParams);
 
     AssocArrayLiteralExp ae = aa.isAssocArrayLiteralExp();
-    if (!ae.keys || ae.keys.dim == 0)
+    if (!ae.keys || ae.keys.length == 0)
         return ctfeEmplaceExp!IntegerExp(deleg.loc, 0, Type.tsize_t);
     Expression eresult;
 
-    for (size_t i = 0; i < ae.keys.dim; ++i)
+    for (size_t i = 0; i < ae.keys.length; ++i)
     {
         Expression ekey = (*ae.keys)[i];
         Expression evalue = (*ae.values)[i];
@@ -7005,7 +7176,7 @@ private Expression foreachApplyUtf(UnionExp* pue, InterState* istate, Expression
 
     assert(fd && fd.fbody);
     assert(fd.parameters);
-    size_t numParams = fd.parameters.dim;
+    size_t numParams = fd.parameters.length;
     assert(numParams == 1 || numParams == 2);
     Type charType = (*fd.parameters)[numParams - 1].type;
     Type indexType = numParams == 2 ? (*fd.parameters)[0].type : Type.tsize_t;
@@ -7248,7 +7419,7 @@ private Expression foreachApplyUtf(UnionExp* pue, InterState* istate, Expression
 private Expression evaluateIfBuiltin(UnionExp* pue, InterState* istate, const ref Loc loc, FuncDeclaration fd, Expressions* arguments, Expression pthis)
 {
     Expression e = null;
-    size_t nargs = arguments ? arguments.dim : 0;
+    size_t nargs = arguments ? arguments.length : 0;
     if (!pthis)
     {
         if (isBuiltin(fd) != BUILTIN.unimp)
@@ -7312,7 +7483,7 @@ private Expression evaluateIfBuiltin(UnionExp* pue, InterState* istate, const re
             // At present, the constructors just copy their arguments into the struct.
             // But we might need some magic if stack tracing gets added to druntime.
             StructLiteralExp se = pthis.isClassReferenceExp().value;
-            assert(arguments.dim <= se.elements.dim);
+            assert(arguments.length <= se.elements.length);
             foreach (i, arg; *arguments)
             {
                 auto elem = interpret(arg, istate);
@@ -7474,7 +7645,7 @@ private void removeHookTraceImpl(ref CallExp ce, ref FuncDeclaration fd)
 
     // Remove the first three trace parameters
     auto arguments = new Expressions();
-    arguments.reserve(ce.arguments.dim - 3);
+    arguments.reserve(ce.arguments.length - 3);
     arguments.pushSlice((*ce.arguments)[3 .. $]);
 
     ce = ctfeEmplaceExp!CallExp(ce.loc, ctfeEmplaceExp!VarExp(ce.loc, fd, false), arguments);

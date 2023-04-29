@@ -1,5 +1,5 @@
 /* Optimize by combining instructions for GNU compiler.
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -1416,6 +1416,7 @@ combine_instructions (rtx_insn *f, unsigned int nregs)
 		      statistics_counter_event (cfun, "insn-with-note combine", 1);
 		      goto retry;
 		    }
+		  INSN_CODE (temp) = -1;
 		  SET_SRC (set) = orig_src;
 		  SET_DEST (set) = orig_dest;
 		}
@@ -10054,9 +10055,12 @@ simplify_and_const_int_1 (scalar_int_mode mode, rtx varop,
 
   /* See what bits may be nonzero in VAROP.  Unlike the general case of
      a call to nonzero_bits, here we don't care about bits outside
-     MODE.  */
+     MODE unless WORD_REGISTER_OPERATIONS is true.  */
 
-  nonzero = nonzero_bits (varop, mode) & GET_MODE_MASK (mode);
+  scalar_int_mode tmode = mode;
+  if (WORD_REGISTER_OPERATIONS && GET_MODE_BITSIZE (mode) < BITS_PER_WORD)
+    tmode = word_mode;
+  nonzero = nonzero_bits (varop, tmode) & GET_MODE_MASK (tmode);
 
   /* Turn off all bits in the constant that are known to already be zero.
      Thus, if the AND isn't needed at all, we will have CONSTOP == NONZERO_BITS
@@ -10070,7 +10074,7 @@ simplify_and_const_int_1 (scalar_int_mode mode, rtx varop,
 
   /* If VAROP is a NEG of something known to be zero or 1 and CONSTOP is
      a power of two, we can replace this with an ASHIFT.  */
-  if (GET_CODE (varop) == NEG && nonzero_bits (XEXP (varop, 0), mode) == 1
+  if (GET_CODE (varop) == NEG && nonzero_bits (XEXP (varop, 0), tmode) == 1
       && (i = exact_log2 (constop)) >= 0)
     return simplify_shift_const (NULL_RTX, ASHIFT, mode, XEXP (varop, 0), i);
 
@@ -14218,8 +14222,10 @@ distribute_notes (rtx notes, rtx_insn *from_insn, rtx_insn *i3, rtx_insn *i2,
 	      gcc_assert (from_insn == i3);
 	    /* We are making sure there is a single effective REG_EH_REGION
 	       note and it's valid to put it on i3.  */
-	    if (!insn_could_throw_p (from_insn))
-	      /* Throw away stra notes on insns that can never throw.  */
+	    if (!insn_could_throw_p (from_insn)
+		&& !(lp_nr == INT_MIN && can_nonlocal_goto (from_insn)))
+	      /* Throw away stray notes on insns that can never throw or
+		 make a nonlocal goto.  */
 	      ;
 	    else
 	      {
@@ -15015,8 +15021,8 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return (optimize > 0); }
-  virtual unsigned int execute (function *)
+  bool gate (function *) final override { return (optimize > 0); }
+  unsigned int execute (function *) final override
     {
       return rest_of_handle_combine ();
     }

@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---           Copyright (C) 2020-2022, Free Software Foundation, Inc.        --
+--           Copyright (C) 2020-2023, Free Software Foundation, Inc.        --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -441,6 +441,9 @@ begin -- Gen_IL.Gen.Gen_Nodes
         Sm (Has_Wide_Character, Flag),
         Sm (Has_Wide_Wide_Character, Flag)));
 
+   Cc (N_Interpolated_String_Literal, N_Numeric_Or_String_Literal,
+       (Sy (Expressions, List_Id, Default_No_List)));
+
    Cc (N_Explicit_Dereference, N_Subexpr,
        (Sy (Prefix, Node_Id),
         Sm (Actual_Designated_Subtype, Node_Id),
@@ -494,7 +497,7 @@ begin -- Gen_IL.Gen.Gen_Nodes
        (Sy (Expression, Node_Id, Default_Empty),
         Sy (Subpool_Handle_Name, Node_Id, Default_Empty),
         Sy (Null_Exclusion_Present, Flag, Default_False),
-        Sm (Alloc_For_BIP_Return, Flag),
+        Sm (For_Special_Return_Object, Flag),
         Sm (Do_Storage_Check, Flag),
         Sm (Is_Dynamic_Coextension, Flag),
         Sm (Is_Static_Coextension, Flag),
@@ -509,6 +512,7 @@ begin -- Gen_IL.Gen.Gen_Nodes
 
    Cc (N_Delta_Aggregate, N_Subexpr,
        (Sy (Expression, Node_Id, Default_Empty),
+        Sy (Is_Homogeneous_Aggregate, Flag),
         Sy (Component_Associations, List_Id, Default_No_List)));
 
    Cc (N_Extension_Aggregate, N_Subexpr,
@@ -522,8 +526,7 @@ begin -- Gen_IL.Gen.Gen_Nodes
 
    Cc (N_Raise_Expression, N_Subexpr,
        (Sy (Name, Node_Id, Default_Empty),
-        Sy (Expression, Node_Id, Default_Empty),
-        Sm (Convert_To_Return_False, Flag)));
+        Sy (Expression, Node_Id, Default_Empty)));
 
    Cc (N_Range, N_Subexpr,
        (Sy (Low_Bound, Node_Id),
@@ -804,13 +807,15 @@ begin -- Gen_IL.Gen.Gen_Nodes
    Cc (N_Package_Body, N_Unit_Body,
        (Sy (Defining_Unit_Name, Node_Id),
         Sy (Declarations, List_Id, Default_No_List),
-        Sy (Handled_Statement_Sequence, Node_Id, Default_Empty)));
+        Sy (Handled_Statement_Sequence, Node_Id, Default_Empty),
+        Sy (At_End_Proc, Node_Id, Default_Empty)));
 
    Cc (N_Subprogram_Body, N_Unit_Body,
        (Sy (Specification, Node_Id),
         Sy (Declarations, List_Id, Default_No_List),
         Sy (Handled_Statement_Sequence, Node_Id, Default_Empty),
         Sy (Bad_Is_Detected, Flag),
+        Sy (At_End_Proc, Node_Id, Default_Empty),
         Sm (Activation_Chain_Entity, Node_Id),
         Sm (Acts_As_Spec, Flag),
         Sm (Corresponding_Entry_Body, Node_Id),
@@ -832,6 +837,7 @@ begin -- Gen_IL.Gen.Gen_Nodes
        (Sy (Defining_Identifier, Node_Id),
         Sy (Declarations, List_Id, Default_No_List),
         Sy (Handled_Statement_Sequence, Node_Id, Default_Empty),
+        Sy (At_End_Proc, Node_Id, Default_Empty),
         Sm (Activation_Chain_Entity, Node_Id),
         Sm (Is_Task_Master, Flag)));
 
@@ -903,6 +909,7 @@ begin -- Gen_IL.Gen.Gen_Nodes
         Sy (Subtype_Mark, Node_Id, Default_Empty),
         Sy (Access_Definition, Node_Id, Default_Empty),
         Sy (Name, Node_Id, Default_Empty),
+        Sm (Comes_From_Iterator, Flag),
         Sm (Corresponding_Generic_Association, Node_Id)));
 
    Cc (N_Package_Renaming_Declaration, N_Renaming_Declaration,
@@ -975,6 +982,7 @@ begin -- Gen_IL.Gen.Gen_Nodes
         Sy (Has_Created_Identifier, Flag),
         Sy (Is_Asynchronous_Call_Block, Flag),
         Sy (Is_Task_Allocation_Block, Flag),
+        Sy (At_End_Proc, Node_Id, Default_Empty),
         Sm (Activation_Chain_Entity, Node_Id),
         Sm (Cleanup_Actions, List_Id),
         Sm (Exception_Junk, Flag),
@@ -1043,8 +1051,7 @@ begin -- Gen_IL.Gen.Gen_Nodes
 
    Cc (N_Raise_Statement, N_Statement_Other_Than_Procedure_Call,
        (Sy (Name, Node_Id, Default_Empty),
-        Sy (Expression, Node_Id, Default_Empty),
-        Sm (From_At_End, Flag)));
+        Sy (Expression, Node_Id, Default_Empty)));
 
    Cc (N_Raise_When_Statement, N_Statement_Other_Than_Procedure_Call,
        (Sy (Name, Node_Id, Default_Empty),
@@ -1060,7 +1067,6 @@ begin -- Gen_IL.Gen.Gen_Nodes
 
    Cc (N_Simple_Return_Statement, N_Statement_Other_Than_Procedure_Call,
        (Sy (Expression, Node_Id, Default_Empty),
-        Sm (By_Ref, Flag),
         Sm (Comes_From_Extended_Return_Statement, Flag),
         Sm (Procedure_To_Call, Node_Id),
         Sm (Return_Statement_Entity, Node_Id),
@@ -1069,7 +1075,6 @@ begin -- Gen_IL.Gen.Gen_Nodes
    Cc (N_Extended_Return_Statement, N_Statement_Other_Than_Procedure_Call,
        (Sy (Return_Object_Declarations, List_Id),
         Sy (Handled_Statement_Sequence, Node_Id, Default_Empty),
-        Sm (By_Ref, Flag),
         Sm (Procedure_To_Call, Node_Id),
         Sm (Return_Statement_Entity, Node_Id),
         Sm (Storage_Pool, Node_Id)));
@@ -1097,7 +1102,8 @@ begin -- Gen_IL.Gen.Gen_Nodes
         Sy (Elsif_Parts, List_Id, Default_No_List),
         Sy (Else_Statements, List_Id, Default_No_List),
         Sy (End_Span, Unat, Default_Uint_0),
-        Sm (From_Conditional_Expression, Flag)));
+        Sm (From_Conditional_Expression, Flag),
+        Sm (Comes_From_Check_Or_Contract, Flag)));
 
    Cc (N_Accept_Alternative, Node_Kind,
        (Sy (Accept_Statement, Node_Id),
@@ -1337,6 +1343,7 @@ begin -- Gen_IL.Gen.Gen_Nodes
         Sy (Entry_Body_Formal_Part, Node_Id),
         Sy (Declarations, List_Id, Default_No_List),
         Sy (Handled_Statement_Sequence, Node_Id, Default_Empty),
+        Sy (At_End_Proc, Node_Id, Default_Empty),
         Sm (Activation_Chain_Entity, Node_Id)));
 
    Cc (N_Entry_Call_Alternative, Node_Kind,
@@ -1424,8 +1431,7 @@ begin -- Gen_IL.Gen.Gen_Nodes
        (Sy (Statements, List_Id, Default_Empty_List),
         Sy (End_Label, Node_Id, Default_Empty),
         Sy (Exception_Handlers, List_Id, Default_No_List),
-        Sy (At_End_Proc, Node_Id, Default_Empty),
-        Sm (First_Real_Statement, Node_Id)));
+        Sy (At_End_Proc, Node_Id, Default_Empty)));
 
    Cc (N_Index_Or_Discriminant_Constraint, Node_Kind,
        (Sy (Constraints, List_Id)));

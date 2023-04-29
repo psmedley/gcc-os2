@@ -1,5 +1,5 @@
 ; lang.opt -- Options for the D front end.
-; Copyright (C) 2006-2022 Free Software Foundation, Inc.
+; Copyright (C) 2006-2023 Free Software Foundation, Inc.
 ;
 ; GCC is free software; you can redistribute it and/or modify it under
 ; the terms of the GNU General Public License as published by the Free
@@ -115,6 +115,10 @@ D
 ; Documented in C
 
 Wno-alloca-larger-than
+D
+; Documented in C
+
+Wbuiltin-declaration-mismatch
 D
 ; Documented in C
 
@@ -245,7 +249,7 @@ Compile in debug code.
 
 fdebug=
 D Joined RejectNegative
--fdebug=<level|ident>	Compile in debug code, code <= <level>, or code identified by <ident>.
+-fdebug=<ident>	Compile in debug code identified by <ident>.
 
 fdoc
 D
@@ -340,6 +344,10 @@ fpreview=all
 D RejectNegative
 Turn on all upcoming D language features.
 
+fpreview=bitfields
+D RejectNegative
+Implement D bit-fields.
+
 fpreview=dip1000
 D RejectNegative
 Implement DIP1000: Scoped pointers.
@@ -352,10 +360,6 @@ fpreview=dip1021
 D RejectNegative
 Implement DIP1021: Mutable function arguments.
 
-fpreview=dip25
-D RejectNegative
-Implement DIP25: Sealed references.
-
 fpreview=dtorfields
 D RejectNegative
 Destruct fields of partially constructed objects.
@@ -367,6 +371,10 @@ Use field-wise comparisons for struct equality.
 fpreview=fixaliasthis
 D RejectNegative
 When a symbol is resolved, check `alias this' scope before going to upper scopes.
+
+fpreview=fiximmutableconv
+D RejectNegative
+Disallow unsound immutable conversions that were formerly incorrectly permitted.
 
 fpreview=in
 D RejectNegative
@@ -384,9 +392,9 @@ fpreview=rvaluerefparam
 D RejectNegative
 Enable rvalue arguments to ref parameters.
 
-fpreview=shortenedmethods
+fpreview=systemvariables
 D RejectNegative
-Allow use of '=>' for methods and top-level functions in addition to lambdas.
+Disable access to variables marked `@system' from @safe code.
 
 frelease
 D
@@ -400,21 +408,13 @@ frevert=dip1000
 D RejectNegative
 Revert DIP1000: Scoped pointers.
 
-frevert=dip25
-D RejectNegative
-Revert DIP25: Sealed references.
-
 frevert=dtorfields
 D RejectNegative
 Don't destruct fields of partially constructed objects.
 
 frevert=intpromote
 D RejectNegative
-Use C-style integral promotion for unary '+', '-' and '~'.
-
-frevert=markdown
-D RejectNegative
-Disable Markdown replacements in Ddoc.
+Don't use C-style integral promotion for unary '+', '-' and '~'.
 
 frtti
 D
@@ -452,17 +452,13 @@ ftransition=tls
 D RejectNegative
 List all variables going into thread local storage.
 
-ftransition=vmarkdown
-D RejectNegative
-List instances of Markdown replacements in Ddoc.
-
 funittest
 D
 Compile in unittest code.
 
 fversion=
 D Joined RejectNegative
--fversion=<level|ident>	Compile in version code >= <level> or identified by <ident>.
+-fversion=<ident>	Compile in version code identified by <ident>.
 
 fweak-templates
 D Var(flag_weak_templates) Init(1)

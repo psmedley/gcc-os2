@@ -1,5 +1,5 @@
 /* Loop splitting.
-   Copyright (C) 2015-2022 Free Software Foundation, Inc.
+   Copyright (C) 2015-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -491,8 +491,6 @@ static void
 fix_loop_bb_probability (class loop *loop1, class loop *loop2, edge true_edge,
 			 edge false_edge)
 {
-  update_ssa (TODO_update_ssa);
-
   /* Proportion first loop's bb counts except those dominated by true
      branch to avoid drop 1s down.  */
   basic_block *bbs1, *bbs2;
@@ -533,16 +531,17 @@ split_loop (class loop *loop1)
   tree guard_iv;
   tree border = NULL_TREE;
   affine_iv iv;
+  edge exit1;
 
-  if (!single_exit (loop1)
+  if (!(exit1 = single_exit (loop1))
+      || EDGE_COUNT (exit1->src->succs) != 2
       /* ??? We could handle non-empty latches when we split the latch edge
 	 (not the exit edge), and put the new exit condition in the new block.
 	 OTOH this executes some code unconditionally that might have been
 	 skipped by the original exit before.  */
       || !empty_block_p (loop1->latch)
       || !easy_exit_values (loop1)
-      || !number_of_iterations_exit (loop1, single_exit (loop1), &niter,
-				     false, true)
+      || !number_of_iterations_exit (loop1, exit1, &niter, false, true)
       || niter.cmp == ERROR_MARK
       /* We can't yet handle loops controlled by a != predicate.  */
       || niter.cmp == NE_EXPR)
@@ -646,10 +645,13 @@ split_loop (class loop *loop1)
 	fix_loop_bb_probability (loop1, loop2, true_edge, false_edge);
 
 	/* Fix first loop's exit probability after scaling.  */
-	edge exit_to_latch1 = single_pred_edge (loop1->latch);
+	edge exit_to_latch1;
+	if (EDGE_SUCC (exit1->src, 0) == exit1)
+	  exit_to_latch1 = EDGE_SUCC (exit1->src, 1);
+	else
+	  exit_to_latch1 = EDGE_SUCC (exit1->src, 0);
 	exit_to_latch1->probability *= true_edge->probability;
-	single_exit (loop1)->probability
-	  = exit_to_latch1->probability.invert ();
+	exit1->probability = exit_to_latch1->probability.invert ();
 
 	/* Finally patch out the two copies of the condition to be always
 	   true/false (or opposite).  */
@@ -1668,7 +1670,8 @@ tree_ssa_split_loops (void)
       if (loop->aux)
 	{
 	  /* If any of our inner loops was split, don't split us,
-	     and mark our containing loop as having had splits as well.  */
+	     and mark our containing loop as having had splits as well.
+	     This allows for delaying SSA update.  */
 	  loop_outer (loop)->aux = loop;
 	  continue;
 	}
@@ -1724,8 +1727,8 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return flag_split_loops != 0; }
-  virtual unsigned int execute (function *);
+  bool gate (function *) final override { return flag_split_loops != 0; }
+  unsigned int execute (function *) final override;
 
 }; // class pass_loop_split
 

@@ -1,6 +1,6 @@
 // class template regex -*- C++ -*-
 
-// Copyright (C) 2013-2022 Free Software Foundation, Inc.
+// Copyright (C) 2013-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -583,10 +583,12 @@ namespace __detail
     _Compiler<_TraitsT>::
     _M_cur_int_value(int __radix)
     {
-      long __v = 0;
-      for (typename _StringT::size_type __i = 0;
-	   __i < _M_value.length(); ++__i)
-	__v =__v * __radix + _M_traits.value(_M_value[__i], __radix);
+      int __v = 0;
+      for (_CharT __c : _M_value)
+	if (__builtin_mul_overflow(__v, __radix, &__v)
+	    || __builtin_add_overflow(__v, _M_traits.value(__c, __radix), &__v))
+	    std::__throw_regex_error(regex_constants::error_backref,
+				     "invalid back reference");
       return __v;
     }
 

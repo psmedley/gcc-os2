@@ -1,7 +1,7 @@
 /* Language-independent diagnostic subroutines for the GNU Compiler
    Collection that are only for use in the compilers proper and not
    the driver or other programs.
-   Copyright (C) 1999-2022 Free Software Foundation, Inc.
+   Copyright (C) 1999-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -27,6 +27,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-pretty-print.h"
 #include "gimple-pretty-print.h"
 #include "tree-diagnostic.h"
+#include "diagnostic-client-data-hooks.h"
 #include "langhooks.h"
 #include "intl.h"
 
@@ -189,14 +190,17 @@ maybe_unwind_expanded_macro_loc (diagnostic_context *context,
         location_t l = 
           linemap_resolve_location (line_table, resolved_def_loc,
                                     LRK_SPELLING_LOCATION,  &m);
-        if (l < RESERVED_LOCATION_COUNT || LINEMAP_SYSP (m))
+	location_t l0 = l;
+	if (IS_ADHOC_LOC (l0))
+	  l0 = get_location_from_adhoc_loc (line_table, l0);
+	if (l0 < RESERVED_LOCATION_COUNT || LINEMAP_SYSP (m))
           continue;
         
 	/* We need to print the context of the macro definition only
 	   when the locus of the first displayed diagnostic (displayed
 	   before this trace) was inside the definition of the
 	   macro.  */
-        int resolved_def_loc_line = SOURCE_LINE (m, l);
+	const int resolved_def_loc_line = SOURCE_LINE (m, l0);
         if (ix == 0 && saved_location_line != resolved_def_loc_line)
           {
             diagnostic_append_note (context, resolved_def_loc, 
@@ -373,4 +377,5 @@ tree_diagnostics_defaults (diagnostic_context *context)
   context->print_path = default_tree_diagnostic_path_printer;
   context->make_json_for_path = default_tree_make_json_for_path;
   context->set_locations_cb = set_inlining_locations;
+  context->m_client_data_hooks = make_compiler_data_hooks ();
 }

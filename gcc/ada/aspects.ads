@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 2010-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 2010-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -441,7 +441,7 @@ package Aspects is
       Aspect_SPARK_Mode                 => Optional_Name,
       Aspect_Stable_Properties          => Expression,
       Aspect_Static_Predicate           => Expression,
-      Aspect_Storage_Model_Type         => Expression,
+      Aspect_Storage_Model_Type         => Optional_Expression,
       Aspect_Storage_Pool               => Name,
       Aspect_Storage_Size               => Expression,
       Aspect_Stream_Size                => Expression,
@@ -822,11 +822,11 @@ package Aspects is
    --  set on the parent type if it has delayed representation aspects. This
    --  flag Has_Delayed_Rep_Aspects indicates that if we derive from this type
    --  we have to worry about making sure we inherit any delayed aspects. The
-   --  second flag is set on a derived type: May_Have_Inherited_Rep_Aspects
+   --  second flag is set on a derived type: May_Inherit_Delayed_Rep_Aspects
    --  is set if the parent type has Has_Delayed_Rep_Aspects set.
 
-   --  When we freeze a derived type, if the May_Have_Inherited_Rep_Aspects
-   --  flag is set, then we call Freeze.Inherit_Delayed_Rep_Aspects when
+   --  When we freeze a derived type, if the May_Inherit_Delayed_Rep_Aspects
+   --  flag is set, then we call Sem_Ch13.Inherit_Delayed_Rep_Aspects when
    --  the derived type is frozen, which deals with the necessary copying of
    --  information from the parent type, which must be frozen at that point
    --  (since freezing the derived type first freezes the parent type).

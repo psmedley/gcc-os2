@@ -1,5 +1,5 @@
 /* Character scanner.
-   Copyright (C) 2000-2022 Free Software Foundation, Inc.
+   Copyright (C) 2000-2023 Free Software Foundation, Inc.
    Contributed by Andy Vaught
 
 This file is part of GCC.
@@ -982,8 +982,9 @@ static bool
 skip_fixed_omp_sentinel (locus *start)
 {
   gfc_char_t c;
-  if (((c = next_char ()) == 'm' || c == 'M')
-      && ((c = next_char ()) == 'p' || c == 'P'))
+  if ((c = next_char ()) != 'm' && c != 'M')
+    return false;
+  if ((c = next_char ()) == 'p' || c == 'P')
     {
       c = next_char ();
       if (c != '\n'
@@ -1005,6 +1006,9 @@ skip_fixed_omp_sentinel (locus *start)
 	    }
 	}
     }
+  else if (UNLIKELY (c == 'x' || c == 'X'))
+    gfc_warning_now (OPT_Wsurprising,
+		     "Ignoring '!$omx' vendor-extension sentinel at %C");
   return false;
 }
 

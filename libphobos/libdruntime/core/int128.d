@@ -18,8 +18,23 @@ alias I = long;
 alias U = ulong;
 enum Ubits = uint(U.sizeof * 8);
 
-version (X86_64) private enum Cent_alignment = 16;
-else             private enum Cent_alignment = (size_t.sizeof * 2);
+version (DigitalMars)
+{
+    /* The alignment should follow target.stackAlign(),
+     * which is `isXmmSupported() ? 16 : (is64bit ? 8 : 4)
+     */
+    version (D_SIMD)
+        private enum Cent_alignment = 16;
+    else version (X86_64)
+        private enum Cent_alignment = 8;
+    else
+        private enum Cent_alignment = 4;
+}
+else
+{
+    version (X86_64) private enum Cent_alignment = 16;
+    else             private enum Cent_alignment = (size_t.sizeof * 2);
+}
 
 align(Cent_alignment) struct Cent
 {
@@ -943,5 +958,3 @@ unittest
     assert(rol(C7_9, 1) == rol1(C7_9));
     assert(ror(C7_9, 1) == ror1(C7_9));
 }
-
-

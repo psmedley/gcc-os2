@@ -4,6 +4,7 @@ TEST_OUTPUT:
 true
 g
 &Test109S(&Test109S(<recursion>))
+runnable/interpret.d(3742): Deprecation: alias this for classes/interfaces is deprecated
 tfoo
 tfoo
 Crash!
@@ -3454,6 +3455,21 @@ void test113()
 }
 
 /************************************************/
+
+bool test114()
+{
+    string fizzBuzz()
+    {
+        string result = "fizz ";
+        return result ~= "buzz";
+    }
+
+    assert(fizzBuzz() == "fizz buzz");
+    return true;
+}
+static assert(test114());
+
+/************************************************/
 // https://issues.dlang.org/show_bug.cgi?id=14140
 
 struct S14140
@@ -3852,6 +3868,7 @@ int main()
     test109();
     test112();
     test113();
+    test114();
     test6439();
     test6504();
     test8818();

@@ -1,5 +1,5 @@
 /* Map (unsigned int) keys to (source file, line, column) triples.
-   Copyright (C) 2001-2022 Free Software Foundation, Inc.
+   Copyright (C) 2001-2023 Free Software Foundation, Inc.
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of the GNU General Public License as published by the
@@ -21,6 +21,8 @@ along with this program; see the file COPYING3.  If not see
 
 #ifndef LIBCPP_LINE_MAP_H
 #define LIBCPP_LINE_MAP_H
+
+#include <utility>
 
 #ifndef GTY
 #define GTY(x) /* nothing */
@@ -755,6 +757,7 @@ struct GTY(()) location_adhoc_data {
   location_t locus;
   source_range src_range;
   void * GTY((skip)) data;
+  unsigned discriminator;
 };
 
 struct htab;
@@ -1032,12 +1035,14 @@ LINEMAPS_LAST_ALLOCATED_MACRO_MAP (const line_maps *set)
 }
 
 extern location_t get_combined_adhoc_loc (line_maps *, location_t,
-					  source_range, void *);
+					  source_range, void *, unsigned);
 extern void *get_data_from_adhoc_loc (const line_maps *, location_t);
+extern unsigned get_discriminator_from_adhoc_loc (const line_maps *, location_t);
 extern location_t get_location_from_adhoc_loc (const line_maps *,
 					       location_t);
 
 extern source_range get_range_from_loc (line_maps *set, location_t loc);
+extern unsigned get_discriminator_from_loc (line_maps *set, location_t loc);
 
 /* Get whether location LOC is a "pure" location, or
    whether it is an ad-hoc location, or embeds range information.  */
@@ -1056,9 +1061,10 @@ inline location_t
 COMBINE_LOCATION_DATA (class line_maps *set,
 		       location_t loc,
 		       source_range src_range,
-		       void *block)
+		       void *block,
+		       unsigned discriminator)
 {
-  return get_combined_adhoc_loc (set, loc, src_range, block);
+  return get_combined_adhoc_loc (set, loc, src_range, block, discriminator);
 }
 
 extern void rebuild_location_adhoc_htab (class line_maps *);
@@ -1836,14 +1842,36 @@ class label_text
 {
 public:
   label_text ()
-  : m_buffer (NULL), m_caller_owned (false)
+  : m_buffer (NULL), m_owned (false)
   {}
 
-  void maybe_free ()
+  ~label_text ()
   {
-    if (m_caller_owned)
+    if (m_owned)
       free (m_buffer);
   }
+
+  /* Move ctor.  */
+  label_text (label_text &&other)
+  : m_buffer (other.m_buffer), m_owned (other.m_owned)
+  {
+    other.release ();
+  }
+
+  /* Move assignment.  */
+  label_text & operator= (label_text &&other)
+  {
+    if (m_owned)
+      free (m_buffer);
+    m_buffer = other.m_buffer;
+    m_owned = other.m_owned;
+    other.release ();
+    return *this;
+  }
+
+  /* Delete the copy ctor and copy-assignment operator.  */
+  label_text (const label_text &) = delete;
+  label_text & operator= (const label_text &) = delete;
 
   /* Create a label_text instance that borrows BUFFER from a
      longer-lived owner.  */
@@ -1858,21 +1886,28 @@ public:
     return label_text (buffer, true);
   }
 
-  /* Take ownership of the buffer, copying if necessary.  */
-  char *take_or_copy ()
+  void release ()
   {
-    if (m_caller_owned)
-      return m_buffer;
-    else
-      return xstrdup (m_buffer);
+    m_buffer = NULL;
+    m_owned = false;
   }
 
-  char *m_buffer;
-  bool m_caller_owned;
+  const char *get () const
+  {
+    return m_buffer;
+  }
+
+  bool is_owner () const
+  {
+    return m_owned;
+  }
 
 private:
+  char *m_buffer;
+  bool m_owned;
+
   label_text (char *buffer, bool owned)
-  : m_buffer (buffer), m_caller_owned (owned)
+  : m_buffer (buffer), m_owned (owned)
   {}
 };
 

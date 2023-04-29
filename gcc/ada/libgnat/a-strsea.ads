@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -52,6 +52,7 @@ with Ada.Strings.Maps; use type Ada.Strings.Maps.Character_Mapping_Function;
 
 package Ada.Strings.Search with SPARK_Mode is
    pragma Preelaborate;
+   pragma Annotate (GNATprove, Always_Return, Search);
 
    --  The ghost function Match tells whether the slice of Source starting at
    --  From and of length Pattern'Length matches with Pattern with respect to

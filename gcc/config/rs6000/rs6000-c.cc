@@ -1,5 +1,5 @@
 /* Subroutines for the C front end on the PowerPC architecture.
-   Copyright (C) 2002-2022 Free Software Foundation, Inc.
+   Copyright (C) 2002-2023 Free Software Foundation, Inc.
 
    Contributed by Zack Weinberg <zack@codesourcery.com>
    and Paolo Bonzini <bonzini@gnu.org>
@@ -178,9 +178,8 @@ rid_int128(void)
   return RID_MAX + 1;
 }
 
-/* Called to decide whether a conditional macro should be expanded.
-   Since we have exactly one such macro (i.e, 'vector'), we do not
-   need to examine the 'tok' parameter.  */
+/* Called to decide whether a conditional macro should be expanded
+   by peeking two or more tokens(_bool/_pixel/int/long/double/...).  */
 
 static cpp_hashnode *
 rs6000_macro_to_expand (cpp_reader *pfile, const cpp_token *tok)
@@ -282,7 +281,9 @@ rs6000_macro_to_expand (cpp_reader *pfile, const cpp_token *tok)
 		expand_bool_pixel = __pixel_keyword;
 	      else if (ident == C_CPP_HASHNODE (__bool_keyword))
 		expand_bool_pixel = __bool_keyword;
-	      else
+
+	      /* If there are more tokens to check.  */
+	      else if (ident)
 		{
 		  /* Try two tokens down, too.  */
 		  do
@@ -334,20 +335,16 @@ rs6000_define_or_undefine_macro (bool define_p, const char *name)
 }
 
 /* Define or undefine macros based on the current target.  If the user does
-   #pragma GCC target, we need to adjust the macros dynamically.  Note, some of
-   the options needed for builtins have been moved to separate variables, so
-   have both the target flags and the builtin flags as arguments.  */
+   #pragma GCC target, we need to adjust the macros dynamically.  */
 
 void
-rs6000_target_modify_macros (bool define_p, HOST_WIDE_INT flags,
-			     HOST_WIDE_INT bu_mask)
+rs6000_target_modify_macros (bool define_p, HOST_WIDE_INT flags)
 {
   if (TARGET_DEBUG_BUILTIN || TARGET_DEBUG_TARGET)
     fprintf (stderr,
-	     "rs6000_target_modify_macros (%s, " HOST_WIDE_INT_PRINT_HEX
-	     ", " HOST_WIDE_INT_PRINT_HEX ")\n",
+	     "rs6000_target_modify_macros (%s, " HOST_WIDE_INT_PRINT_HEX ")\n",
 	     (define_p) ? "define" : "undef",
-	     flags, bu_mask);
+	     flags);
 
   /* Each of the flags mentioned below controls whether certain
      preprocessor macros will be automatically defined when
@@ -383,7 +380,7 @@ rs6000_target_modify_macros (bool define_p, HOST_WIDE_INT flags,
 	TARGET_DEFAULT macro is defined to equal zero, and
 	TARGET_POWERPC64 and
 	a) BYTES_BIG_ENDIAN and the flag to be enabled is either
-	   MASK_PPC_GFXOPT or MASK_POWERPC64 (flags for "powerpc64"
+	   OPTION_MASK_PPC_GFXOPT or MASK_POWERPC64 (flags for "powerpc64"
 	   target), or
 	b) !BYTES_BIG_ENDIAN and the flag to be enabled is either
 	   MASK_POWERPC64 or it is one of the flags included in
@@ -594,10 +591,8 @@ rs6000_target_modify_macros (bool define_p, HOST_WIDE_INT flags,
   if ((flags & OPTION_MASK_FLOAT128_HW) != 0)
     rs6000_define_or_undefine_macro (define_p, "__FLOAT128_HARDWARE__");
 
-  /* options from the builtin masks.  */
-  /* Note that RS6000_BTM_CELL is enabled only if (rs6000_cpu ==
-     PROCESSOR_CELL) (e.g. -mcpu=cell).  */
-  if ((bu_mask & RS6000_BTM_CELL) != 0)
+  /* Tell the user if we are targeting CELL.  */
+  if (rs6000_cpu == PROCESSOR_CELL)
     rs6000_define_or_undefine_macro (define_p, "__PPU__");
 
   /* Tell the user if we support the MMA instructions.  */
@@ -615,8 +610,7 @@ void
 rs6000_cpu_cpp_builtins (cpp_reader *pfile)
 {
   /* Define all of the common macros.  */
-  rs6000_target_modify_macros (true, rs6000_isa_flags,
-			       rs6000_builtin_mask_calculate ());
+  rs6000_target_modify_macros (true, rs6000_isa_flags);
 
   if (TARGET_FRE)
     builtin_define ("__RECIP__");
@@ -814,6 +808,7 @@ static inline bool
 is_float128_p (tree t)
 {
   return (t == float128_type_node
+	  || (t && t == float128t_type_node)
 	  || (TARGET_IEEEQUAD
 	      && TARGET_LONG_DOUBLE_128
 	      && t == long_double_type_node));
@@ -1755,6 +1750,36 @@ altivec_resolve_overloaded_builtin (location_t loc, tree fndecl,
   vec<tree, va_gc> *arglist = static_cast<vec<tree, va_gc> *> (passed_arglist);
   unsigned int nargs = vec_safe_length (arglist);
 
+  /* If the number of arguments did not match the prototype, return NULL
+     and the generic code will issue the appropriate error message.  Skip
+     this test for functions where we don't fully describe all the possible
+     overload signatures in rs6000-overload.def (because they aren't relevant
+     to the expansion here).  If we don't, we get confusing error messages.  */
+  /* As an example, for vec_splats we have:
+
+; There are no actual builtins for vec_splats.  There is special handling for
+; this in altivec_resolve_overloaded_builtin in rs6000-c.cc, where the call
+; is replaced by a constructor.  The single overload here causes
+; __builtin_vec_splats to be registered with the front end so that can happen.
+[VEC_SPLATS, vec_splats, __builtin_vec_splats]
+  vsi __builtin_vec_splats (vsi);
+    ABS_V4SI SPLATS_FAKERY
+
+    So even though __builtin_vec_splats accepts all vector types, the
+    infrastructure cheats and just records one prototype.  We end up getting
+    an error message that refers to this specific prototype even when we
+    are handling a different argument type.  That is completely confusing
+    to the user, so it's best to let these cases be handled individually
+    in the resolve_vec_splats, etc., helper functions.  */
+
+  if (expected_args != nargs
+      && !(fcode == RS6000_OVLD_VEC_PROMOTE
+	   || fcode == RS6000_OVLD_VEC_SPLATS
+	   || fcode == RS6000_OVLD_VEC_EXTRACT
+	   || fcode == RS6000_OVLD_VEC_INSERT
+	   || fcode == RS6000_OVLD_VEC_STEP))
+    return NULL;
+
   for (n = 0;
        !VOID_TYPE_P (TREE_VALUE (fnargs)) && n < nargs;
        fnargs = TREE_CHAIN (fnargs), n++)
@@ -1814,36 +1839,6 @@ altivec_resolve_overloaded_builtin (location_t loc, tree fndecl,
       args[n] = arg;
       types[n] = type;
     }
-
-  /* If the number of arguments did not match the prototype, return NULL
-     and the generic code will issue the appropriate error message.  Skip
-     this test for functions where we don't fully describe all the possible
-     overload signatures in rs6000-overload.def (because they aren't relevant
-     to the expansion here).  If we don't, we get confusing error messages.  */
-  /* As an example, for vec_splats we have:
-
-; There are no actual builtins for vec_splats.  There is special handling for
-; this in altivec_resolve_overloaded_builtin in rs6000-c.cc, where the call
-; is replaced by a constructor.  The single overload here causes
-; __builtin_vec_splats to be registered with the front end so that can happen.
-[VEC_SPLATS, vec_splats, __builtin_vec_splats]
-  vsi __builtin_vec_splats (vsi);
-    ABS_V4SI SPLATS_FAKERY
-
-    So even though __builtin_vec_splats accepts all vector types, the
-    infrastructure cheats and just records one prototype.  We end up getting
-    an error message that refers to this specific prototype even when we
-    are handling a different argument type.  That is completely confusing
-    to the user, so it's best to let these cases be handled individually
-    in the resolve_vec_splats, etc., helper functions.  */
-
-  if (n != expected_args
-      && !(fcode == RS6000_OVLD_VEC_PROMOTE
-	   || fcode == RS6000_OVLD_VEC_SPLATS
-	   || fcode == RS6000_OVLD_VEC_EXTRACT
-	   || fcode == RS6000_OVLD_VEC_INSERT
-	   || fcode == RS6000_OVLD_VEC_STEP))
-    return NULL;
 
   /* Some overloads require special handling.  */
   tree returned_expr = NULL;

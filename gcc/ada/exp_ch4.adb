@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -23,6 +23,7 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
+with Accessibility;  use Accessibility;
 with Aspects;        use Aspects;
 with Atree;          use Atree;
 with Checks;         use Checks;
@@ -33,7 +34,6 @@ with Einfo.Utils;    use Einfo.Utils;
 with Elists;         use Elists;
 with Errout;         use Errout;
 with Exp_Aggr;       use Exp_Aggr;
-with Exp_Atag;       use Exp_Atag;
 with Exp_Ch3;        use Exp_Ch3;
 with Exp_Ch6;        use Exp_Ch6;
 with Exp_Ch7;        use Exp_Ch7;
@@ -46,6 +46,7 @@ with Exp_Tss;        use Exp_Tss;
 with Exp_Util;       use Exp_Util;
 with Freeze;         use Freeze;
 with Inline;         use Inline;
+with Lib;            use Lib;
 with Namet;          use Namet;
 with Nlists;         use Nlists;
 with Nmake;          use Nmake;
@@ -79,6 +80,10 @@ with Validsw;        use Validsw;
 with Warnsw;         use Warnsw;
 
 package body Exp_Ch4 is
+
+   Too_Large_Length_For_Array : constant Unat := Uint_256;
+   --  Threshold from which we do not try to create static array temporaries in
+   --  order to eliminate dynamic stack allocations.
 
    -----------------------
    -- Local Subprograms --
@@ -146,14 +151,17 @@ package body Exp_Ch4 is
    --  where we allow comparison of "out of range" values.
 
    function Expand_Composite_Equality
-     (Nod : Node_Id;
-      Typ : Entity_Id;
-      Lhs : Node_Id;
-      Rhs : Node_Id) return Node_Id;
+     (Outer_Type : Entity_Id;
+      Nod        : Node_Id;
+      Comp_Type  : Entity_Id;
+      Lhs        : Node_Id;
+      Rhs        : Node_Id) return Node_Id;
    --  Local recursive function used to expand equality for nested composite
    --  types. Used by Expand_Record/Array_Equality. Nod provides the Sloc value
    --  for generated code. Lhs and Rhs are the left and right sides for the
-   --  comparison, and Typ is the type of the objects to compare.
+   --  comparison, and Comp_Typ is the type of the objects to compare.
+   --  Outer_Type is the composite type containing a component of type
+   --  Comp_Type -- used for printing messages.
 
    procedure Expand_Concatenate (Cnode : Node_Id; Opnds : List_Id);
    --  Routine to expand concatenation of a sequence of two or more operands
@@ -172,6 +180,10 @@ package body Exp_Ch4 is
    --  fixed. We do not have such a type at runtime, so the purpose of this
    --  routine is to find the real type by looking up the tree. We also
    --  determine if the operation must be rounded.
+
+   procedure Get_First_Index_Bounds (T : Entity_Id; Lo, Hi : out Uint);
+   --  T is an array whose index bounds are all known at compile time. Return
+   --  the value of the low and high bounds of the first index of T.
 
    function Get_Size_For_Range (Lo, Hi : Uint) return Uint;
    --  Return the size of a small signed integer type covering Lo .. Hi, the
@@ -425,36 +437,21 @@ package body Exp_Ch4 is
       Lhs : Node_Id;
       Rhs : Node_Id) return Node_Id
    is
-      Prim   : Node_Id;
-      Prim_E : Elmt_Id;
+      Eq : constant Entity_Id := Get_User_Defined_Equality (Typ);
 
    begin
-      Prim_E := First_Elmt (Collect_Primitive_Operations (Typ));
-      while Present (Prim_E) loop
-         Prim := Node (Prim_E);
+      if Present (Eq) then
+         if Is_Abstract_Subprogram (Eq) then
+            return Make_Raise_Program_Error (Loc,
+               Reason =>  PE_Explicit_Raise);
 
-         --  Locate primitive equality with the right signature
-
-         if Chars (Prim) = Name_Op_Eq
-           and then Etype (First_Formal (Prim)) =
-                    Etype (Next_Formal (First_Formal (Prim)))
-           and then Etype (Prim) = Standard_Boolean
-         then
-            if Is_Abstract_Subprogram (Prim) then
-               return
-                 Make_Raise_Program_Error (Loc,
-                   Reason => PE_Explicit_Raise);
-
-            else
-               return
-                 Make_Function_Call (Loc,
-                   Name                   => New_Occurrence_Of (Prim, Loc),
-                   Parameter_Associations => New_List (Lhs, Rhs));
-            end if;
+         else
+            return
+              Make_Function_Call (Loc,
+                Name                   => New_Occurrence_Of (Eq, Loc),
+                Parameter_Associations => New_List (Lhs, Rhs));
          end if;
-
-         Next_Elmt (Prim_E);
-      end loop;
+      end if;
 
       --  If not found, predefined operation will be used
 
@@ -563,219 +560,6 @@ package body Exp_Ch4 is
       PtrT   : constant Entity_Id  := Etype (N);
       DesigT : constant Entity_Id  := Designated_Type (PtrT);
 
-      procedure Apply_Accessibility_Check
-        (Ref            : Node_Id;
-         Built_In_Place : Boolean := False);
-      --  Ada 2005 (AI-344): For an allocator with a class-wide designated
-      --  type, generate an accessibility check to verify that the level of the
-      --  type of the created object is not deeper than the level of the access
-      --  type. If the type of the qualified expression is class-wide, then
-      --  always generate the check (except in the case where it is known to be
-      --  unnecessary, see comment below). Otherwise, only generate the check
-      --  if the level of the qualified expression type is statically deeper
-      --  than the access type.
-      --
-      --  Although the static accessibility will generally have been performed
-      --  as a legality check, it won't have been done in cases where the
-      --  allocator appears in generic body, so a run-time check is needed in
-      --  general. One special case is when the access type is declared in the
-      --  same scope as the class-wide allocator, in which case the check can
-      --  never fail, so it need not be generated.
-      --
-      --  As an open issue, there seem to be cases where the static level
-      --  associated with the class-wide object's underlying type is not
-      --  sufficient to perform the proper accessibility check, such as for
-      --  allocators in nested subprograms or accept statements initialized by
-      --  class-wide formals when the actual originates outside at a deeper
-      --  static level. The nested subprogram case might require passing
-      --  accessibility levels along with class-wide parameters, and the task
-      --  case seems to be an actual gap in the language rules that needs to
-      --  be fixed by the ARG. ???
-
-      -------------------------------
-      -- Apply_Accessibility_Check --
-      -------------------------------
-
-      procedure Apply_Accessibility_Check
-        (Ref            : Node_Id;
-         Built_In_Place : Boolean := False)
-      is
-         Pool_Id   : constant Entity_Id := Associated_Storage_Pool (PtrT);
-         Cond      : Node_Id;
-         Fin_Call  : Node_Id;
-         Free_Stmt : Node_Id;
-         Obj_Ref   : Node_Id;
-         Stmts     : List_Id;
-
-      begin
-         if Ada_Version >= Ada_2005
-           and then Is_Class_Wide_Type (DesigT)
-           and then Tagged_Type_Expansion
-           and then not Scope_Suppress.Suppress (Accessibility_Check)
-           and then not No_Dynamic_Accessibility_Checks_Enabled (Ref)
-           and then
-             (Type_Access_Level (Etype (Exp)) > Type_Access_Level (PtrT)
-               or else
-                 (Is_Class_Wide_Type (Etype (Exp))
-                   and then Scope (PtrT) /= Current_Scope))
-         then
-            --  If the allocator was built in place, Ref is already a reference
-            --  to the access object initialized to the result of the allocator
-            --  (see Exp_Ch6.Make_Build_In_Place_Call_In_Allocator). We call
-            --  Remove_Side_Effects for cases where the build-in-place call may
-            --  still be the prefix of the reference (to avoid generating
-            --  duplicate calls). Otherwise, it is the entity associated with
-            --  the object containing the address of the allocated object.
-
-            if Built_In_Place then
-               Remove_Side_Effects (Ref);
-               Obj_Ref := New_Copy_Tree (Ref);
-            else
-               Obj_Ref := New_Occurrence_Of (Ref, Loc);
-            end if;
-
-            --  For access to interface types we must generate code to displace
-            --  the pointer to the base of the object since the subsequent code
-            --  references components located in the TSD of the object (which
-            --  is associated with the primary dispatch table --see a-tags.ads)
-            --  and also generates code invoking Free, which requires also a
-            --  reference to the base of the unallocated object.
-
-            if Is_Interface (DesigT) and then Tagged_Type_Expansion then
-               Obj_Ref :=
-                 Unchecked_Convert_To (Etype (Obj_Ref),
-                   Make_Function_Call (Loc,
-                     Name                   =>
-                       New_Occurrence_Of (RTE (RE_Base_Address), Loc),
-                     Parameter_Associations => New_List (
-                       Unchecked_Convert_To (RTE (RE_Address),
-                         New_Copy_Tree (Obj_Ref)))));
-            end if;
-
-            --  Step 1: Create the object clean up code
-
-            Stmts := New_List;
-
-            --  Deallocate the object if the accessibility check fails. This
-            --  is done only on targets or profiles that support deallocation.
-
-            --    Free (Obj_Ref);
-
-            if RTE_Available (RE_Free) then
-               Free_Stmt := Make_Free_Statement (Loc, New_Copy_Tree (Obj_Ref));
-               Set_Storage_Pool (Free_Stmt, Pool_Id);
-
-               Append_To (Stmts, Free_Stmt);
-
-            --  The target or profile cannot deallocate objects
-
-            else
-               Free_Stmt := Empty;
-            end if;
-
-            --  Finalize the object if applicable. Generate:
-
-            --    [Deep_]Finalize (Obj_Ref.all);
-
-            if Needs_Finalization (DesigT)
-              and then not No_Heap_Finalization (PtrT)
-            then
-               Fin_Call :=
-                 Make_Final_Call
-                   (Obj_Ref =>
-                      Make_Explicit_Dereference (Loc, New_Copy (Obj_Ref)),
-                    Typ     => DesigT);
-
-               --  Guard against a missing [Deep_]Finalize when the designated
-               --  type was not properly frozen.
-
-               if No (Fin_Call) then
-                  Fin_Call := Make_Null_Statement (Loc);
-               end if;
-
-               --  When the target or profile supports deallocation, wrap the
-               --  finalization call in a block to ensure proper deallocation
-               --  even if finalization fails. Generate:
-
-               --    begin
-               --       <Fin_Call>
-               --    exception
-               --       when others =>
-               --          <Free_Stmt>
-               --          raise;
-               --    end;
-
-               if Present (Free_Stmt) then
-                  Fin_Call :=
-                    Make_Block_Statement (Loc,
-                      Handled_Statement_Sequence =>
-                        Make_Handled_Sequence_Of_Statements (Loc,
-                          Statements => New_List (Fin_Call),
-
-                        Exception_Handlers => New_List (
-                          Make_Exception_Handler (Loc,
-                            Exception_Choices => New_List (
-                              Make_Others_Choice (Loc)),
-                            Statements        => New_List (
-                              New_Copy_Tree (Free_Stmt),
-                              Make_Raise_Statement (Loc))))));
-               end if;
-
-               Prepend_To (Stmts, Fin_Call);
-            end if;
-
-            --  Signal the accessibility failure through a Program_Error
-
-            Append_To (Stmts,
-              Make_Raise_Program_Error (Loc,
-                Reason => PE_Accessibility_Check_Failed));
-
-            --  Step 2: Create the accessibility comparison
-
-            --  Generate:
-            --    Ref'Tag
-
-            Obj_Ref :=
-              Make_Attribute_Reference (Loc,
-                Prefix         => Obj_Ref,
-                Attribute_Name => Name_Tag);
-
-            --  For tagged types, determine the accessibility level by looking
-            --  at the type specific data of the dispatch table. Generate:
-
-            --    Type_Specific_Data (Address (Ref'Tag)).Access_Level
-
-            if Tagged_Type_Expansion then
-               Cond := Build_Get_Access_Level (Loc, Obj_Ref);
-
-            --  Use a runtime call to determine the accessibility level when
-            --  compiling on virtual machine targets. Generate:
-
-            --    Get_Access_Level (Ref'Tag)
-
-            else
-               Cond :=
-                 Make_Function_Call (Loc,
-                   Name                   =>
-                     New_Occurrence_Of (RTE (RE_Get_Access_Level), Loc),
-                   Parameter_Associations => New_List (Obj_Ref));
-            end if;
-
-            Cond :=
-              Make_Op_Gt (Loc,
-                Left_Opnd  => Cond,
-                Right_Opnd => Accessibility_Level (N, Dynamic_Level));
-
-            --  Due to the complexity and side effects of the check, utilize an
-            --  if statement instead of the regular Program_Error circuitry.
-
-            Insert_Action (N,
-              Make_Implicit_If_Statement (N,
-                Condition       => Cond,
-                Then_Statements => Stmts));
-         end if;
-      end Apply_Accessibility_Check;
-
       --  Local variables
 
       Indic         : constant Node_Id   := Subtype_Mark (Expression (N));
@@ -835,6 +619,7 @@ package body Exp_Ch4 is
               Make_Raise_Program_Error (Loc,
                 Reason => PE_Accessibility_Check_Failed));
 
+            Error_Msg_Warn := SPARK_Mode /= On;
             Error_Msg_N ("anonymous access discriminant is too deep for use"
                          & " in allocator<<", N);
             Error_Msg_N ("\Program_Error [<<", N);
@@ -886,7 +671,8 @@ package body Exp_Ch4 is
 
          if Is_Build_In_Place_Function_Call (Exp) then
             Make_Build_In_Place_Call_In_Allocator (N, Exp);
-            Apply_Accessibility_Check (N, Built_In_Place => True);
+            Apply_Accessibility_Check_For_Allocator
+              (N, Exp, N, Built_In_Place => True);
             return;
 
          --  Ada 2005 (AI-318-02): Specialization of the previous case for
@@ -898,7 +684,8 @@ package body Exp_Ch4 is
 
          elsif Present (Unqual_BIP_Iface_Function_Call (Exp)) then
             Make_Build_In_Place_Iface_Call_In_Allocator (N, Exp);
-            Apply_Accessibility_Check (N, Built_In_Place => True);
+            Apply_Accessibility_Check_For_Allocator
+              (N, Exp, N, Built_In_Place => True);
             return;
          end if;
 
@@ -911,11 +698,14 @@ package body Exp_Ch4 is
          --  recursion and inappropriate call to Initialize.
 
          --  We don't want to remove side effects when the expression must be
-         --  built in place. In the case of a build-in-place function call,
-         --  that could lead to a duplication of the call, which was already
-         --  substituted for the allocator.
+         --  built in place and we don't need it when there is no storage pool
+         --  or this is a return/secondary stack allocation.
 
-         if not Aggr_In_Place then
+         if not Aggr_In_Place
+           and then Present (Storage_Pool (N))
+           and then not Is_RTE (Storage_Pool (N), RE_RS_Pool)
+           and then not Is_RTE (Storage_Pool (N), RE_SS_Pool)
+         then
             Remove_Side_Effects (Exp);
          end if;
 
@@ -960,7 +750,7 @@ package body Exp_Ch4 is
 
          --  Processing for allocators returning non-interface types
 
-         if not Is_Interface (Directly_Designated_Type (PtrT)) then
+         if not Is_Interface (DesigT) then
             if Aggr_In_Place then
                Temp_Decl :=
                  Make_Object_Declaration (Loc,
@@ -1111,6 +901,11 @@ package body Exp_Ch4 is
                             (Directly_Designated_Type (Etype (N))));
             null;
 
+         --  Likewise if the allocator is made for a special return object
+
+         elsif For_Special_Return_Object (N) then
+            null;
+
          elsif Is_Tagged_Type (T) and then not Is_Class_Wide_Type (T) then
             TagT := T;
             TagR :=
@@ -1159,19 +954,19 @@ package body Exp_Ch4 is
          --  Adjust procedure, and the object is built in place. In Ada 95, the
          --  object can be limited but not inherently limited if this allocator
          --  came from a return statement (we're allocating the result on the
-         --  secondary stack). In that case, the object will be moved, so we do
-         --  want to Adjust. However, if it's a nonlimited build-in-place
-         --  function call, Adjust is not wanted.
-         --
-         --  Needs_Finalization (DesigT) can differ from Needs_Finalization (T)
+         --  secondary stack); in that case, the object will be moved, so we do
+         --  want to Adjust. But the call is always skipped if the allocator is
+         --  made for a special return object because it's generated elsewhere.
+
+         --  Needs_Finalization (DesigT) may differ from Needs_Finalization (T)
          --  if one of the two types is class-wide, and the other is not.
 
          if Needs_Finalization (DesigT)
            and then Needs_Finalization (T)
-           and then not Aggr_In_Place
            and then not Is_Limited_View (T)
-           and then not Alloc_For_BIP_Return (N)
-           and then not Is_Build_In_Place_Function_Call (Expression (N))
+           and then not Aggr_In_Place
+           and then Nkind (Exp) /= N_Function_Call
+           and then not For_Special_Return_Object (N)
          then
             --  An unchecked conversion is needed in the classwide case because
             --  the designated type can be an ancestor of the subtype mark of
@@ -1193,7 +988,7 @@ package body Exp_Ch4 is
          --  Note: the accessibility check must be inserted after the call to
          --  [Deep_]Adjust to ensure proper completion of the assignment.
 
-         Apply_Accessibility_Check (Temp);
+         Apply_Accessibility_Check_For_Allocator (N, Exp, Temp);
 
          Rewrite (N, New_Occurrence_Of (Temp, Loc));
          Analyze_And_Resolve (N, PtrT);
@@ -1202,7 +997,7 @@ package body Exp_Ch4 is
          --  component containing the secondary dispatch table of the interface
          --  type.
 
-         if Is_Interface (Directly_Designated_Type (PtrT)) then
+         if Is_Interface (DesigT) then
             Displace_Allocator_Pointer (N);
          end if;
 
@@ -1341,29 +1136,17 @@ package body Exp_Ch4 is
          if Ekind (Otyp) = E_String_Literal_Subtype then
             return String_Literal_Length (Otyp) < 4;
 
-         else
+         elsif Compile_Time_Known_Bounds (Otyp) then
             declare
-               Ityp : constant Entity_Id := Etype (First_Index (Otyp));
-               Lo   : constant Node_Id   := Type_Low_Bound (Ityp);
-               Hi   : constant Node_Id   := Type_High_Bound (Ityp);
-               Lov  : Uint;
-               Hiv  : Uint;
+               Lo, Hi : Uint;
 
             begin
-               if Compile_Time_Known_Value (Lo) then
-                  Lov := Expr_Value (Lo);
-               else
-                  return False;
-               end if;
-
-               if Compile_Time_Known_Value (Hi) then
-                  Hiv := Expr_Value (Hi);
-               else
-                  return False;
-               end if;
-
-               return Hiv < Lov + 3;
+               Get_First_Index_Bounds (Otyp, Lo, Hi);
+               return Hi < Lo + 3;
             end;
+
+         else
+            return False;
          end if;
       end Length_Less_Than_4;
 
@@ -1441,33 +1224,52 @@ package body Exp_Ch4 is
             Remove_Side_Effects (Op1, Name_Req => True);
             Remove_Side_Effects (Op2, Name_Req => True);
 
-            Rewrite (Op1,
-              Make_Function_Call (Sloc (Op1),
-                Name => New_Occurrence_Of (RTE (Comp), Loc),
+            declare
+               Comp_Call : constant Node_Id :=
+                 Make_Function_Call (Loc,
+                   Name => New_Occurrence_Of (RTE (Comp), Loc),
 
-                Parameter_Associations => New_List (
-                  Make_Attribute_Reference (Loc,
-                    Prefix         => Relocate_Node (Op1),
-                    Attribute_Name => Name_Address),
+                   Parameter_Associations => New_List (
+                     Make_Attribute_Reference (Loc,
+                       Prefix         => Relocate_Node (Op1),
+                       Attribute_Name => Name_Address),
 
-                  Make_Attribute_Reference (Loc,
-                    Prefix         => Relocate_Node (Op2),
-                    Attribute_Name => Name_Address),
+                     Make_Attribute_Reference (Loc,
+                       Prefix         => Relocate_Node (Op2),
+                       Attribute_Name => Name_Address),
 
-                  Make_Attribute_Reference (Loc,
-                    Prefix         => Relocate_Node (Op1),
-                    Attribute_Name => Name_Length),
+                     Make_Attribute_Reference (Loc,
+                       Prefix         => Relocate_Node (Op1),
+                       Attribute_Name => Name_Length),
 
-                  Make_Attribute_Reference (Loc,
-                    Prefix         => Relocate_Node (Op2),
-                    Attribute_Name => Name_Length))));
+                     Make_Attribute_Reference (Loc,
+                       Prefix         => Relocate_Node (Op2),
+                       Attribute_Name => Name_Length)));
 
-            Rewrite (Op2,
-              Make_Integer_Literal (Sloc (Op2),
-                Intval => Uint_0));
+               Zero : constant Node_Id :=
+                 Make_Integer_Literal (Loc,
+                   Intval => Uint_0);
 
-            Analyze_And_Resolve (Op1, Standard_Integer);
-            Analyze_And_Resolve (Op2, Standard_Integer);
+               Comp_Op : Node_Id;
+
+            begin
+               case Nkind (N) is
+                  when N_Op_Lt =>
+                     Comp_Op := Make_Op_Lt (Loc, Comp_Call, Zero);
+                  when N_Op_Le =>
+                     Comp_Op := Make_Op_Le (Loc, Comp_Call, Zero);
+                  when N_Op_Gt =>
+                     Comp_Op := Make_Op_Gt (Loc, Comp_Call, Zero);
+                  when N_Op_Ge =>
+                     Comp_Op := Make_Op_Ge (Loc, Comp_Call, Zero);
+                  when others =>
+                     raise Program_Error;
+               end case;
+
+               Rewrite (N, Comp_Op);
+            end;
+
+            Analyze_And_Resolve (N, Standard_Boolean);
             return;
          end if;
       end if;
@@ -1719,7 +1521,9 @@ package body Exp_Ch4 is
              Prefix      => Make_Identifier (Loc, Chars (B)),
              Expressions => Index_List2);
 
-         Test := Expand_Composite_Equality (Nod, Component_Type (Typ), L, R);
+         Test := Expand_Composite_Equality
+           (Outer_Type => Typ, Nod => Nod, Comp_Type => Component_Type (Typ),
+            Lhs => L, Rhs => R);
 
          --  If some (sub)component is an unchecked_union, the whole operation
          --  will raise program error.
@@ -1951,7 +1755,6 @@ package body Exp_Ch4 is
       if Ltyp /= Rtyp then
          Ltyp := Base_Type (Ltyp);
          Rtyp := Base_Type (Rtyp);
-         pragma Assert (Ltyp = Rtyp);
       end if;
 
       --  If the array type is distinct from the type of the arguments, it
@@ -1974,6 +1777,7 @@ package body Exp_Ch4 is
          New_Rhs := Rhs;
       end if;
 
+      pragma Assert (Ltyp = Rtyp);
       First_Idx := First_Index (Ltyp);
 
       --  If optimization is enabled and the array boils down to a couple of
@@ -1981,7 +1785,6 @@ package body Exp_Ch4 is
       --  which should be easier to optimize by the code generator.
 
       if Optimization_Level > 0
-        and then Ltyp = Rtyp
         and then Is_Constrained (Ltyp)
         and then Number_Dimensions (Ltyp) = 1
         and then Compile_Time_Known_Bounds (Ltyp)
@@ -2008,7 +1811,9 @@ package body Exp_Ch4 is
                 Prefix      => New_Copy_Tree (New_Rhs),
                 Expressions => New_List (New_Copy_Tree (Low_B)));
 
-            TestL := Expand_Composite_Equality (Nod, Ctyp, L, R);
+            TestL := Expand_Composite_Equality
+              (Outer_Type => Ltyp, Nod => Nod, Comp_Type => Ctyp,
+               Lhs => L, Rhs => R);
 
             L :=
               Make_Indexed_Component (Loc,
@@ -2020,7 +1825,9 @@ package body Exp_Ch4 is
                 Prefix      => New_Rhs,
                 Expressions => New_List (New_Copy_Tree (High_B)));
 
-            TestH := Expand_Composite_Equality (Nod, Ctyp, L, R);
+            TestH := Expand_Composite_Equality
+              (Outer_Type => Ltyp, Nod => Nod, Comp_Type => Ctyp,
+               Lhs => L, Rhs => R);
 
             return
               Make_And_Then (Loc, Left_Opnd => TestL, Right_Opnd => TestH);
@@ -2433,20 +2240,21 @@ package body Exp_Ch4 is
    --  case because it is not possible to respect normal Ada visibility rules.
 
    function Expand_Composite_Equality
-     (Nod : Node_Id;
-      Typ : Entity_Id;
-      Lhs : Node_Id;
-      Rhs : Node_Id) return Node_Id
+     (Outer_Type : Entity_Id;
+      Nod        : Node_Id;
+      Comp_Type  : Entity_Id;
+      Lhs        : Node_Id;
+      Rhs        : Node_Id) return Node_Id
    is
       Loc       : constant Source_Ptr := Sloc (Nod);
       Full_Type : Entity_Id;
       Eq_Op     : Entity_Id;
 
    begin
-      if Is_Private_Type (Typ) then
-         Full_Type := Underlying_Type (Typ);
+      if Is_Private_Type (Comp_Type) then
+         Full_Type := Underlying_Type (Comp_Type);
       else
-         Full_Type := Typ;
+         Full_Type := Comp_Type;
       end if;
 
       --  If the private type has no completion the context may be the
@@ -2471,7 +2279,7 @@ package body Exp_Ch4 is
       --  Case of tagged record types
 
       if Is_Tagged_Type (Full_Type) then
-         Eq_Op := Find_Primitive_Eq (Typ);
+         Eq_Op := Find_Primitive_Eq (Comp_Type);
          pragma Assert (Present (Eq_Op));
 
          return
@@ -2633,18 +2441,20 @@ package body Exp_Ch4 is
 
          --  Equality composes in Ada 2012 for untagged record types. It also
          --  composes for bounded strings, because they are part of the
-         --  predefined environment. We could make it compose for bounded
-         --  strings by making them tagged, or by making sure all subcomponents
-         --  are set to the same value, even when not used. Instead, we have
-         --  this special case in the compiler, because it's more efficient.
+         --  predefined environment (see 4.5.2(32.1/1)). We could make it
+         --  compose for bounded strings by making them tagged, or by making
+         --  sure all subcomponents are set to the same value, even when not
+         --  used. Instead, we have this special case in the compiler, because
+         --  it's more efficient.
 
-         elsif Ada_Version >= Ada_2012 or else Is_Bounded_String (Typ) then
-
+         elsif Ada_Version >= Ada_2012 or else Is_Bounded_String (Comp_Type)
+         then
             --  If no TSS has been created for the type, check whether there is
             --  a primitive equality declared for it.
 
             declare
-               Op : constant Node_Id := Build_Eq_Call (Typ, Loc, Lhs, Rhs);
+               Op : constant Node_Id :=
+                 Build_Eq_Call (Comp_Type, Loc, Lhs, Rhs);
 
             begin
                --  Use user-defined primitive if it exists, otherwise use
@@ -2664,6 +2474,33 @@ package body Exp_Ch4 is
       --  Case of non-record types (always use predefined equality)
 
       else
+         --  Print a warning if there is a user-defined "=", because it can be
+         --  surprising that the predefined "=" takes precedence over it.
+
+         --  Suppress the warning if the "user-defined" one is in the
+         --  predefined library, because those are defined to compose
+         --  properly by RM-4.5.2(32.1/1). Intrinsics also compose.
+
+         declare
+            Op : constant Entity_Id := Find_Primitive_Eq (Comp_Type);
+         begin
+            if Warn_On_Ignored_Equality
+              and then Present (Op)
+              and then not In_Predefined_Unit (Base_Type (Comp_Type))
+              and then not Is_Intrinsic_Subprogram (Op)
+            then
+               pragma Assert
+                 (Is_First_Subtype (Outer_Type)
+                   or else Is_Generic_Actual_Type (Outer_Type));
+               Error_Msg_Node_1 := Outer_Type;
+               Error_Msg_Node_2 := Comp_Type;
+               Error_Msg
+                 ("?_q?""="" for type & uses predefined ""="" for }", Loc);
+               Error_Msg_Sloc := Sloc (Op);
+               Error_Msg ("\?_q?""="" # is ignored here", Loc);
+            end if;
+         end;
+
          return Make_Op_Eq (Loc, Left_Opnd => Lhs, Right_Opnd => Rhs);
       end if;
    end Expand_Composite_Equality;
@@ -2724,9 +2561,14 @@ package body Exp_Ch4 is
       --  Set to the corresponding entry in the Opnds list (but note that null
       --  operands are excluded, so not all entries in the list are stored).
 
-      Fixed_Length : array (1 .. N) of Uint;
+      Fixed_Length : array (1 .. N) of Unat;
       --  Set to length of operand. Entries in this array are set only if the
       --  corresponding entry in Is_Fixed_Length is True.
+
+      Max_Length : array (1 .. N) of Unat;
+      --  Set to the maximum length of operand, or Too_Large_Length_For_Array
+      --  if it is not known. Entries in this array are set only if the
+      --  corresponding entry in Is_Fixed_Length is False;
 
       Opnd_Low_Bound : array (1 .. N) of Node_Id;
       --  Set to lower bound of operand. Either an integer literal in the case
@@ -2740,16 +2582,23 @@ package body Exp_Ch4 is
       --  is False. The entity is of type Artyp.
 
       Aggr_Length : array (0 .. N) of Node_Id;
-      --  The J'th entry in an expression node that represents the total length
+      --  The J'th entry is an expression node that represents the total length
       --  of operands 1 through J. It is either an integer literal node, or a
       --  reference to a constant entity with the right value, so it is fine
       --  to just do a Copy_Node to get an appropriate copy. The extra zeroth
       --  entry always is set to zero. The length is of type Artyp.
 
+      Max_Aggr_Length : Unat := Too_Large_Length_For_Array;
+      --  Set to the maximum total length, or Too_Large_Length_For_Array at
+      --  least if it is not known.
+
       Low_Bound : Node_Id := Empty;
       --  A tree node representing the low bound of the result (of type Ityp).
       --  This is either an integer literal node, or an identifier reference to
       --  a constant entity initialized to the appropriate value.
+
+      High_Bound : Node_Id := Empty;
+      --  A tree node representing the high bound of the result (of type Ityp)
 
       Last_Opnd_Low_Bound : Node_Id := Empty;
       --  A tree node representing the low bound of the last operand. This
@@ -2762,9 +2611,6 @@ package body Exp_Ch4 is
       --  need only be set if the result could be null. It is used for the
       --  special case of setting the right high bound for a null result.
       --  This is of type Ityp.
-
-      High_Bound : Node_Id := Empty;
-      --  A tree node representing the high bound of the result (of type Ityp)
 
       Result : Node_Id := Empty;
       --  Result of the concatenation (of type Ityp)
@@ -2780,7 +2626,7 @@ package body Exp_Ch4 is
       --  Return True if the concatenation is within the expression of the
       --  declaration of a library-level object.
 
-      function Make_Artyp_Literal (Val : Nat) return Node_Id;
+      function Make_Artyp_Literal (Val : Uint) return Node_Id;
       --  This function makes an N_Integer_Literal node that is returned in
       --  analyzed form with the type set to Artyp. Importantly this literal
       --  is not flagged as static, so that if we do computations with it that
@@ -2823,7 +2669,7 @@ package body Exp_Ch4 is
       -- Make_Artyp_Literal --
       ------------------------
 
-      function Make_Artyp_Literal (Val : Nat) return Node_Id is
+      function Make_Artyp_Literal (Val : Uint) return Node_Id is
          Result : constant Node_Id := Make_Integer_Literal (Loc, Val);
       begin
          Set_Etype (Result, Artyp);
@@ -2880,9 +2726,10 @@ package body Exp_Ch4 is
       --  Local Declarations
 
       Opnd_Typ   : Entity_Id;
+      Slice_Rng  : Entity_Id;
       Subtyp_Ind : Entity_Id;
       Ent        : Entity_Id;
-      Len        : Uint;
+      Len        : Unat;
       J          : Nat;
       Clen       : Node_Id;
       Set        : Boolean;
@@ -2938,7 +2785,7 @@ package body Exp_Ch4 is
 
       --  Supply dummy entry at start of length array
 
-      Aggr_Length (0) := Make_Artyp_Literal (0);
+      Aggr_Length (0) := Make_Artyp_Literal (Uint_0);
 
       --  Go through operands setting up the above arrays
 
@@ -2982,7 +2829,7 @@ package body Exp_Ch4 is
          elsif Nkind (Opnd) = N_String_Literal then
             Len := String_Literal_Length (Opnd_Typ);
 
-            if Len /= 0 then
+            if Len > 0 then
                Result_May_Be_Null := False;
             end if;
 
@@ -3023,61 +2870,47 @@ package body Exp_Ch4 is
          else
             --  Check constrained case with known bounds
 
-            if Is_Constrained (Opnd_Typ) then
+            if Is_Constrained (Opnd_Typ)
+              and then Compile_Time_Known_Bounds (Opnd_Typ)
+            then
                declare
-                  Index    : constant Node_Id   := First_Index (Opnd_Typ);
-                  Indx_Typ : constant Entity_Id := Etype (Index);
-                  Lo       : constant Node_Id   := Type_Low_Bound  (Indx_Typ);
-                  Hi       : constant Node_Id   := Type_High_Bound (Indx_Typ);
+                  Lo, Hi : Uint;
 
                begin
                   --  Fixed length constrained array type with known at compile
                   --  time bounds is last case of fixed length operand.
 
-                  if Compile_Time_Known_Value (Lo)
-                       and then
-                     Compile_Time_Known_Value (Hi)
-                  then
-                     declare
-                        Loval : constant Uint := Expr_Value (Lo);
-                        Hival : constant Uint := Expr_Value (Hi);
-                        Len   : constant Uint :=
-                                  UI_Max (Hival - Loval + 1, Uint_0);
+                  Get_First_Index_Bounds (Opnd_Typ, Lo, Hi);
+                  Len := UI_Max (Hi - Lo + 1, Uint_0);
 
-                     begin
-                        if Len > 0 then
-                           Result_May_Be_Null := False;
-                        end if;
-
-                        --  Capture last operand bounds if result could be null
-
-                        if J = N and then Result_May_Be_Null then
-                           Last_Opnd_Low_Bound :=
-                             Convert_To (Ityp,
-                               Make_Integer_Literal (Loc, Expr_Value (Lo)));
-
-                           Last_Opnd_High_Bound :=
-                             Convert_To (Ityp,
-                               Make_Integer_Literal (Loc, Expr_Value (Hi)));
-                        end if;
-
-                        --  Exclude null length case unless last operand
-
-                        if J < N and then Len = 0 then
-                           goto Continue;
-                        end if;
-
-                        NN := NN + 1;
-                        Operands (NN) := Opnd;
-                        Is_Fixed_Length (NN) := True;
-                        Fixed_Length (NN)    := Len;
-
-                        Opnd_Low_Bound (NN) :=
-                          To_Ityp
-                            (Make_Integer_Literal (Loc, Expr_Value (Lo)));
-                        Set := True;
-                     end;
+                  if Len > 0 then
+                     Result_May_Be_Null := False;
                   end if;
+
+                  --  Capture last operand bounds if result could be null
+
+                  if J = N and then Result_May_Be_Null then
+                     Last_Opnd_Low_Bound :=
+                       To_Ityp (Make_Integer_Literal (Loc, Lo));
+
+                     Last_Opnd_High_Bound :=
+                       To_Ityp (Make_Integer_Literal (Loc, Hi));
+                  end if;
+
+                  --  Exclude null length case unless last operand
+
+                  if J < N and then Len = 0 then
+                     goto Continue;
+                  end if;
+
+                  NN := NN + 1;
+                  Operands (NN) := Opnd;
+                  Is_Fixed_Length (NN) := True;
+                  Fixed_Length (NN)    := Len;
+
+                  Opnd_Low_Bound (NN) :=
+                    To_Ityp (Make_Integer_Literal (Loc, Lo));
+                  Set := True;
                end;
             end if;
 
@@ -3121,6 +2954,25 @@ package body Exp_Ch4 is
 
                Var_Length (NN) := Make_Temporary (Loc, 'L');
 
+               --  If the operand is a slice, try to compute an upper bound for
+               --  its length.
+
+               if Nkind (Opnd) = N_Slice
+                  and then Is_Constrained (Etype (Prefix (Opnd)))
+                  and then Compile_Time_Known_Bounds (Etype (Prefix (Opnd)))
+               then
+                  declare
+                     Lo, Hi : Uint;
+
+                  begin
+                     Get_First_Index_Bounds (Etype (Prefix (Opnd)), Lo, Hi);
+                     Max_Length (NN) := UI_Max (Hi - Lo + 1, Uint_0);
+                  end;
+
+               else
+                  Max_Length (NN) := Too_Large_Length_For_Array;
+               end if;
+
                Append_To (Actions,
                  Make_Object_Declaration (Loc,
                    Defining_Identifier => Var_Length (NN),
@@ -3142,8 +2994,10 @@ package body Exp_Ch4 is
          if NN = 1 then
             if Is_Fixed_Length (1) then
                Aggr_Length (1) := Make_Integer_Literal (Loc, Fixed_Length (1));
+               Max_Aggr_Length := Fixed_Length (1);
             else
                Aggr_Length (1) := New_Occurrence_Of (Var_Length (1), Loc);
+               Max_Aggr_Length := Max_Length (1);
             end if;
 
          --  If entry is fixed length and only fixed lengths so far, make
@@ -3155,6 +3009,7 @@ package body Exp_Ch4 is
             Aggr_Length (NN) :=
               Make_Integer_Literal (Loc,
                 Intval => Fixed_Length (NN) + Intval (Aggr_Length (NN - 1)));
+            Max_Aggr_Length := Intval (Aggr_Length (NN));
 
          --  All other cases, construct an addition node for the length and
          --  create an entity initialized to this length.
@@ -3164,8 +3019,11 @@ package body Exp_Ch4 is
 
             if Is_Fixed_Length (NN) then
                Clen := Make_Integer_Literal (Loc, Fixed_Length (NN));
+               Max_Aggr_Length := Max_Aggr_Length + Fixed_Length (NN);
+
             else
                Clen := New_Occurrence_Of (Var_Length (NN), Loc);
+               Max_Aggr_Length := Max_Aggr_Length + Max_Length (NN);
             end if;
 
             Append_To (Actions,
@@ -3290,29 +3148,38 @@ package body Exp_Ch4 is
 
       pragma Assert (Present (Low_Bound));
 
-      --  Now we can safely compute the upper bound, normally
-      --  Low_Bound + Length - 1.
+      --  Now we can compute the high bound as Low_Bound + Length - 1
 
-      High_Bound :=
-        To_Ityp
-          (Make_Op_Add (Loc,
-             Left_Opnd  => To_Artyp (New_Copy_Tree (Low_Bound)),
-             Right_Opnd =>
-               Make_Op_Subtract (Loc,
-                 Left_Opnd  => New_Copy_Tree (Aggr_Length (NN)),
-                 Right_Opnd => Make_Artyp_Literal (1))));
-
-      --  Note that calculation of the high bound may cause overflow in some
-      --  very weird cases, so in the general case we need an overflow check on
-      --  the high bound. We can avoid this for the common case of string types
-      --  and other types whose index is Positive, since we chose a wider range
-      --  for the arithmetic type. If checks are suppressed we do not set the
-      --  flag, and possibly superfluous warnings will be omitted.
-
-      if Istyp /= Standard_Positive
-        and then not Overflow_Checks_Suppressed (Istyp)
+      if Compile_Time_Known_Value (Low_Bound)
+        and then Nkind (Aggr_Length (NN)) = N_Integer_Literal
       then
-         Activate_Overflow_Check (High_Bound);
+         High_Bound :=
+           To_Ityp
+             (Make_Artyp_Literal
+                (Expr_Value (Low_Bound) + Intval (Aggr_Length (NN)) - 1));
+
+      else
+         High_Bound :=
+           To_Ityp
+             (Make_Op_Add (Loc,
+                Left_Opnd  => To_Artyp (New_Copy_Tree (Low_Bound)),
+                Right_Opnd =>
+                  Make_Op_Subtract (Loc,
+                    Left_Opnd  => New_Copy_Tree (Aggr_Length (NN)),
+                    Right_Opnd => Make_Artyp_Literal (Uint_1))));
+
+         --  Note that calculation of the high bound may cause overflow in some
+         --  very weird cases, so in the general case we need an overflow check
+         --  on the high bound. We can avoid this for the common case of string
+         --  types and other types whose index is Positive, since we chose a
+         --  wider range for the arithmetic type. If checks are suppressed, we
+         --  do not set the flag so superfluous warnings may be omitted.
+
+         if Istyp /= Standard_Positive
+           and then not Overflow_Checks_Suppressed (Istyp)
+         then
+            Activate_Overflow_Check (High_Bound);
+         end if;
       end if;
 
       --  Handle the exceptional case where the result is null, in which case
@@ -3325,7 +3192,7 @@ package body Exp_Ch4 is
              Expressions => New_List (
                Make_Op_Eq (Loc,
                  Left_Opnd  => New_Copy_Tree (Aggr_Length (NN)),
-                 Right_Opnd => Make_Artyp_Literal (0)),
+                 Right_Opnd => Make_Artyp_Literal (Uint_0)),
                Last_Opnd_Low_Bound,
                Low_Bound));
 
@@ -3334,7 +3201,7 @@ package body Exp_Ch4 is
              Expressions => New_List (
                Make_Op_Eq (Loc,
                  Left_Opnd  => New_Copy_Tree (Aggr_Length (NN)),
-                 Right_Opnd => Make_Artyp_Literal (0)),
+                 Right_Opnd => Make_Artyp_Literal (Uint_0)),
                Last_Opnd_High_Bound,
                High_Bound));
       end if;
@@ -3342,6 +3209,35 @@ package body Exp_Ch4 is
       --  Here is where we insert the saved up actions
 
       Insert_Actions (Cnode, Actions, Suppress => All_Checks);
+
+      --  If the low bound is known at compile time and not the high bound, but
+      --  we have computed a sensible upper bound for the length, then adjust
+      --  the high bound for the subtype of the array. This will change it into
+      --  a static subtype and thus help the code generator.
+
+      if Compile_Time_Known_Value (Low_Bound)
+        and then not Compile_Time_Known_Value (High_Bound)
+        and then Max_Aggr_Length < Too_Large_Length_For_Array
+      then
+         declare
+            Known_High_Bound : constant Node_Id :=
+              To_Ityp
+                (Make_Artyp_Literal
+                   (Expr_Value (Low_Bound) +  Max_Aggr_Length - 1));
+
+         begin
+            if not Is_Out_Of_Range (Known_High_Bound, Ityp) then
+               Slice_Rng  := Make_Range (Loc, Low_Bound, High_Bound);
+               High_Bound := Known_High_Bound;
+
+            else
+               Slice_Rng := Empty;
+            end if;
+         end;
+
+      else
+         Slice_Rng := Empty;
+      end if;
 
       --  Now we construct an array object with appropriate bounds. We mark
       --  the target as internal to prevent useless initialization when
@@ -3363,9 +3259,9 @@ package body Exp_Ch4 is
       Set_Debug_Info_Needed (Ent);
 
       --  If we are concatenating strings and the current scope already uses
-      --  the secondary stack, allocate the resulting string also on the
-      --  secondary stack to avoid putting too much pressure on the primary
-      --  stack.
+      --  the secondary stack, allocate the result also on the secondary stack
+      --  to avoid putting too much pressure on the primary stack.
+
       --  Don't do this if -gnatd.h is set, as this will break the wrapping of
       --  Cnode in an Expression_With_Actions, see Expand_N_Op_Concat.
 
@@ -3375,16 +3271,17 @@ package body Exp_Ch4 is
         and then not Debug_Flag_Dot_H
       then
          --  Generate:
-         --     subtype Axx is ...;
+         --     subtype Axx is String (<low-bound> .. <high-bound>)
          --     type Ayy is access Axx;
-         --     Rxx : Ayy := new <subtype> [storage_pool = ss_pool];
-         --     Sxx : <subtype> renames Rxx.all;
+         --     Rxx : Ayy := new <Axx> [storage_pool = ss_pool];
+         --     Sxx : Axx renames Rxx.all;
 
          declare
-            Alloc   : Node_Id;
             ConstrT : constant Entity_Id := Make_Temporary (Loc, 'A');
             Acc_Typ : constant Entity_Id := Make_Temporary (Loc, 'A');
-            Temp    : Entity_Id;
+
+            Alloc : Node_Id;
+            Temp  : Entity_Id;
 
          begin
             Insert_Action (Cnode,
@@ -3392,6 +3289,7 @@ package body Exp_Ch4 is
                 Defining_Identifier => ConstrT,
                 Subtype_Indication  => Subtyp_Ind),
               Suppress => All_Checks);
+
             Freeze_Itype (ConstrT, Cnode);
 
             Insert_Action (Cnode,
@@ -3401,19 +3299,19 @@ package body Exp_Ch4 is
                   Make_Access_To_Object_Definition (Loc,
                     Subtype_Indication => New_Occurrence_Of (ConstrT, Loc))),
               Suppress => All_Checks);
+
+            Mutate_Ekind (Acc_Typ, E_Access_Type);
+            Set_Associated_Storage_Pool (Acc_Typ, RTE (RE_SS_Pool));
+
             Alloc :=
               Make_Allocator (Loc,
                 Expression => New_Occurrence_Of (ConstrT, Loc));
 
-            --  Allocate on the secondary stack. This is currently done
-            --  only for type String, which normally doesn't have default
-            --  initialization, but we need to Set_No_Initialization in case
-            --  of Initialize_Scalars or Normalize_Scalars; otherwise, the
-            --  allocator will get transformed and will not use the secondary
-            --  stack.
+            --  This is currently done only for type String, which normally
+            --  doesn't have default initialization, but we need to set the
+            --  No_Initialization flag in case of either Initialize_Scalars
+            --  or Normalize_Scalars.
 
-            Set_Storage_Pool (Alloc, RTE (RE_SS_Pool));
-            Set_Procedure_To_Call (Alloc, RTE (RE_SS_Allocate));
             Set_No_Initialization (Alloc);
 
             Temp := Make_Temporary (Loc, 'R', Alloc);
@@ -3433,14 +3331,14 @@ package body Exp_Ch4 is
                     Prefix => New_Occurrence_Of (Temp, Loc))),
               Suppress => All_Checks);
          end;
+
       else
          --  If the bound is statically known to be out of range, we do not
          --  want to abort, we want a warning and a runtime constraint error.
-         --  Note that we have arranged that the result will not be treated as
-         --  a static constant, so we won't get an illegality during this
-         --  insertion.
-         --  We also enable checks (in particular range checks) in case the
-         --  bounds of Subtyp_Ind are out of range.
+         --  Note that we have arranged that the result will not be treated
+         --  as a static constant, so we won't get an illegality during this
+         --  insertion. We also enable checks (in particular range checks) in
+         --  case the bounds of Subtyp_Ind are out of range.
 
          Insert_Action (Cnode,
            Make_Object_Declaration (Loc,
@@ -3456,16 +3354,26 @@ package body Exp_Ch4 is
 
       --  Catch the static out of range case now
 
-      if Raises_Constraint_Error (High_Bound) then
+      if Raises_Constraint_Error (High_Bound)
+        or else Is_Out_Of_Range (High_Bound, Ityp)
+      then
          --  Kill warning generated for the declaration of the static out of
          --  range high bound, and instead generate a Constraint_Error with
          --  an appropriate specific message.
 
-         Kill_Dead_Code (Declaration_Node (Entity (High_Bound)));
+         if Nkind (High_Bound) = N_Integer_Literal then
+            Kill_Dead_Code (High_Bound);
+            Rewrite (High_Bound, New_Copy_Tree (Low_Bound));
+
+         else
+            Kill_Dead_Code (Declaration_Node (Entity (High_Bound)));
+         end if;
+
          Apply_Compile_Time_Constraint_Error
            (N      => Cnode,
             Msg    => "concatenation result upper bound out of range??",
             Reason => CE_Range_Check_Failed);
+
          return;
       end if;
 
@@ -3542,8 +3450,9 @@ package body Exp_Ch4 is
                       Name => New_Occurrence_Of (RTE (RR (NN)), Loc),
                       Parameter_Associations => Opnds));
 
-                  Result := New_Occurrence_Of (Ent, Loc);
-                  goto Done;
+                  --  No assignments left to do below
+
+                  NN := 0;
                end;
             end if;
          end;
@@ -3566,7 +3475,7 @@ package body Exp_Ch4 is
                      Right_Opnd =>
                        Make_Op_Subtract (Loc,
                          Left_Opnd  => Aggr_Length (J),
-                         Right_Opnd => Make_Artyp_Literal (1)));
+                         Right_Opnd => Make_Artyp_Literal (Uint_1)));
 
          begin
             --  Singleton case, simple assignment
@@ -3627,9 +3536,14 @@ package body Exp_Ch4 is
          end;
       end loop;
 
-      --  Finally we build the result, which is a reference to the array object
+      --  Finally we build the result, which is either a direct reference to
+      --  the array object or a slice of it.
 
       Result := New_Occurrence_Of (Ent, Loc);
+
+      if Present (Slice_Rng) then
+         Result := Make_Slice (Loc, Result, Slice_Rng);
+      end if;
 
    <<Done>>
       pragma Assert (Present (Result));
@@ -4077,39 +3991,42 @@ package body Exp_Ch4 is
                Mod_Minus_Right : constant Uint :=
                                    Modulus (Typ) - Intval (Right_Opnd (N));
 
-               Exprs     : constant List_Id := New_List;
-               Cond_Expr : constant Node_Id := New_Op_Node (N_Op_Lt, Loc);
-               Then_Expr : constant Node_Id := New_Op_Node (N_Op_Add, Loc);
-               Else_Expr : constant Node_Id := New_Op_Node (N_Op_Subtract,
-                                                            Loc);
+               Cond_Expr : Node_Id;
+               Then_Expr : Node_Id;
+               Else_Expr : Node_Id;
             begin
                --  To prevent spurious visibility issues, convert all
                --  operands to Standard.Unsigned.
 
-               Set_Left_Opnd (Cond_Expr,
-                 Unchecked_Convert_To (Standard_Unsigned,
-                   New_Copy_Tree (Left_Opnd (N))));
-               Set_Right_Opnd (Cond_Expr,
-                 Make_Integer_Literal (Loc, Mod_Minus_Right));
-               Append_To (Exprs, Cond_Expr);
+               Cond_Expr :=
+                 Make_Op_Lt (Loc,
+                   Left_Opnd  =>
+                     Unchecked_Convert_To (Standard_Unsigned,
+                       New_Copy_Tree (Left_Opnd (N))),
+                   Right_Opnd =>
+                     Make_Integer_Literal (Loc, Mod_Minus_Right));
 
-               Set_Left_Opnd (Then_Expr,
-                 Unchecked_Convert_To (Standard_Unsigned,
-                   New_Copy_Tree (Left_Opnd (N))));
-               Set_Right_Opnd (Then_Expr,
-                 Make_Integer_Literal (Loc, Intval (Right_Opnd (N))));
-               Append_To (Exprs, Then_Expr);
+               Then_Expr :=
+                 Make_Op_Add (Loc,
+                   Left_Opnd  =>
+                     Unchecked_Convert_To (Standard_Unsigned,
+                       New_Copy_Tree (Left_Opnd (N))),
+                   Right_Opnd =>
+                     Make_Integer_Literal (Loc, Intval (Right_Opnd (N))));
 
-               Set_Left_Opnd (Else_Expr,
-                 Unchecked_Convert_To (Standard_Unsigned,
-                   New_Copy_Tree (Left_Opnd (N))));
-               Set_Right_Opnd (Else_Expr,
-                 Make_Integer_Literal (Loc, Mod_Minus_Right));
-               Append_To (Exprs, Else_Expr);
+               Else_Expr :=
+                 Make_Op_Subtract (Loc,
+                   Left_Opnd  =>
+                     Unchecked_Convert_To (Standard_Unsigned,
+                       New_Copy_Tree (Left_Opnd (N))),
+                   Right_Opnd =>
+                     Make_Integer_Literal (Loc, Mod_Minus_Right));
 
                Rewrite (N,
                  Unchecked_Convert_To (Typ,
-                   Make_If_Expression (Loc, Expressions => Exprs)));
+                   Make_If_Expression (Loc,
+                     Expressions =>
+                       New_List (Cond_Expr, Then_Expr, Else_Expr))));
             end;
          end if;
       end Expand_Modular_Addition;
@@ -4119,43 +4036,82 @@ package body Exp_Ch4 is
       -----------------------
 
       procedure Expand_Modular_Op is
+         --   We will convert to another type (not a nonbinary-modulus modular
+         --   type), evaluate the op in that representation, reduce the result,
+         --   and convert back to the original type. This means that the
+         --   backend does not have to deal with nonbinary-modulus ops.
+
          Op_Expr  : constant Node_Id := New_Op_Node (Nkind (N), Loc);
-         Mod_Expr : constant Node_Id := New_Op_Node (N_Op_Mod, Loc);
+         Mod_Expr : Node_Id;
 
-         Target_Type   : Entity_Id;
-
+         Target_Type : Entity_Id;
       begin
-         --  Convert nonbinary modular type operands into integer values. Thus
-         --  we avoid never-ending loops expanding them, and we also ensure
-         --  the back end never receives nonbinary modular type expressions.
+         --  Select a target type that is large enough to avoid spurious
+         --  intermediate overflow on pre-reduction computation (for
+         --  correctness) but is no larger than is needed (for performance).
 
-         if Nkind (N) in N_Op_And | N_Op_Or | N_Op_Xor then
-            Set_Left_Opnd (Op_Expr,
-              Unchecked_Convert_To (Standard_Unsigned,
-                New_Copy_Tree (Left_Opnd (N))));
-            Set_Right_Opnd (Op_Expr,
-              Unchecked_Convert_To (Standard_Unsigned,
-                New_Copy_Tree (Right_Opnd (N))));
-            Set_Left_Opnd (Mod_Expr,
-              Unchecked_Convert_To (Standard_Integer, Op_Expr));
+         declare
+            Required_Size : Uint := RM_Size (Etype (N));
+            Use_Unsigned  : Boolean := True;
+         begin
+            case Nkind (N) is
+               when N_Op_Add =>
+                  --  For example, if modulus is 255 then RM_Size will be 8
+                  --  and the range of possible values (before reduction) will
+                  --  be 0 .. 508; that range requires 9 bits.
+                  Required_Size := Required_Size + 1;
 
-         else
-            --  If the modulus of the type is larger than Integer'Last use a
-            --  larger type for the operands, to prevent spurious constraint
-            --  errors on large legal literals of the type.
+               when N_Op_Subtract =>
+                  --  For example, if modulus is 255 then RM_Size will be 8
+                  --  and the range of possible values (before reduction) will
+                  --  be -254 .. 254; that range requires 9 bits, signed.
+                  Use_Unsigned := False;
+                  Required_Size := Required_Size + 1;
 
-            if Modulus (Etype (N)) > Int (Integer'Last) then
-               Target_Type := Standard_Long_Long_Integer;
+               when N_Op_Multiply =>
+                  --  For example, if modulus is 255 then RM_Size will be 8
+                  --  and the range of possible values (before reduction) will
+                  --  be 0 .. 64,516; that range requires 16 bits.
+                  Required_Size := Required_Size * 2;
+
+               when others =>
+                  null;
+            end case;
+
+            if Use_Unsigned then
+               if Required_Size <= Standard_Short_Short_Integer_Size then
+                  Target_Type := Standard_Short_Short_Unsigned;
+               elsif Required_Size <= Standard_Short_Integer_Size then
+                  Target_Type := Standard_Short_Unsigned;
+               elsif Required_Size <= Standard_Integer_Size then
+                  Target_Type := Standard_Unsigned;
+               else
+                  pragma Assert (Required_Size <= 64);
+                  Target_Type := Standard_Unsigned_64;
+               end if;
+            elsif Required_Size <= 8 then
+               Target_Type := Standard_Integer_8;
+            elsif Required_Size <= 16 then
+               Target_Type := Standard_Integer_16;
+            elsif Required_Size <= 32 then
+               Target_Type := Standard_Integer_32;
             else
-               Target_Type := Standard_Integer;
+               pragma Assert (Required_Size <= 64);
+               Target_Type := Standard_Integer_64;
             end if;
 
-            Set_Left_Opnd (Op_Expr,
-              Unchecked_Convert_To (Target_Type,
-                New_Copy_Tree (Left_Opnd (N))));
-            Set_Right_Opnd (Op_Expr,
-              Unchecked_Convert_To (Target_Type,
-                New_Copy_Tree (Right_Opnd (N))));
+            pragma Assert (Present (Target_Type));
+         end;
+
+         Set_Left_Opnd (Op_Expr,
+           Unchecked_Convert_To (Target_Type,
+             New_Copy_Tree (Left_Opnd (N))));
+         Set_Right_Opnd (Op_Expr,
+           Unchecked_Convert_To (Target_Type,
+             New_Copy_Tree (Right_Opnd (N))));
+
+         --  ??? Why do this stuff for some ops and not others?
+         if Nkind (N) not in N_Op_And | N_Op_Or | N_Op_Xor then
 
             --  Link this node to the tree to analyze it
 
@@ -4179,12 +4135,12 @@ package body Exp_Ch4 is
             --  several times.
 
             Force_Evaluation (Op_Expr, Mode => Strict);
-
-            Set_Left_Opnd (Mod_Expr, Op_Expr);
          end if;
 
-         Set_Right_Opnd (Mod_Expr,
-           Make_Integer_Literal (Loc, Modulus (Typ)));
+         Mod_Expr :=
+           Make_Op_Mod (Loc,
+             Left_Opnd  => Op_Expr,
+             Right_Opnd => Make_Integer_Literal (Loc, Modulus (Typ)));
 
          Rewrite (N,
            Unchecked_Convert_To (Typ, Mod_Expr));
@@ -4215,37 +4171,40 @@ package body Exp_Ch4 is
                Mod_Minus_Right : constant Uint :=
                                    Modulus (Typ) - Intval (Right_Opnd (N));
 
-               Exprs     : constant List_Id := New_List;
-               Cond_Expr : constant Node_Id := New_Op_Node (N_Op_Lt, Loc);
-               Then_Expr : constant Node_Id := New_Op_Node (N_Op_Add, Loc);
-               Else_Expr : constant Node_Id := New_Op_Node (N_Op_Subtract,
-                                                            Loc);
+               Cond_Expr : Node_Id;
+               Then_Expr : Node_Id;
+               Else_Expr : Node_Id;
             begin
-               Set_Left_Opnd (Cond_Expr,
-                 Unchecked_Convert_To (Standard_Unsigned,
-                   New_Copy_Tree (Left_Opnd (N))));
-               Set_Right_Opnd (Cond_Expr,
-                 Make_Integer_Literal (Loc, Intval (Right_Opnd (N))));
-               Append_To (Exprs, Cond_Expr);
+               Cond_Expr :=
+                 Make_Op_Lt (Loc,
+                   Left_Opnd  =>
+                     Unchecked_Convert_To (Standard_Unsigned,
+                       New_Copy_Tree (Left_Opnd (N))),
+                   Right_Opnd =>
+                     Make_Integer_Literal (Loc, Intval (Right_Opnd (N))));
 
-               Set_Left_Opnd (Then_Expr,
-                 Unchecked_Convert_To (Standard_Unsigned,
-                   New_Copy_Tree (Left_Opnd (N))));
-               Set_Right_Opnd (Then_Expr,
-                 Make_Integer_Literal (Loc, Mod_Minus_Right));
-               Append_To (Exprs, Then_Expr);
+               Then_Expr :=
+                 Make_Op_Add (Loc,
+                   Left_Opnd  =>
+                     Unchecked_Convert_To (Standard_Unsigned,
+                       New_Copy_Tree (Left_Opnd (N))),
+                   Right_Opnd =>
+                     Make_Integer_Literal (Loc, Mod_Minus_Right));
 
-               Set_Left_Opnd (Else_Expr,
-                 Unchecked_Convert_To (Standard_Unsigned,
-                   New_Copy_Tree (Left_Opnd (N))));
-               Set_Right_Opnd (Else_Expr,
-                 Unchecked_Convert_To (Standard_Unsigned,
-                   New_Copy_Tree (Right_Opnd (N))));
-               Append_To (Exprs, Else_Expr);
+               Else_Expr :=
+                 Make_Op_Subtract (Loc,
+                   Left_Opnd  =>
+                     Unchecked_Convert_To (Standard_Unsigned,
+                       New_Copy_Tree (Left_Opnd (N))),
+                   Right_Opnd =>
+                     Unchecked_Convert_To (Standard_Unsigned,
+                       New_Copy_Tree (Right_Opnd (N))));
 
                Rewrite (N,
                  Unchecked_Convert_To (Typ,
-                   Make_If_Expression (Loc, Expressions => Exprs)));
+                   Make_If_Expression (Loc,
+                     Expressions =>
+                       New_List (Cond_Expr, Then_Expr, Else_Expr))));
             end;
          end if;
       end Expand_Modular_Subtraction;
@@ -4551,7 +4510,10 @@ package body Exp_Ch4 is
          if Present (Pool) then
             Set_Storage_Pool (N, Pool);
 
-            if Is_RTE (Pool, RE_SS_Pool) then
+            if Is_RTE (Pool, RE_RS_Pool) then
+               Set_Procedure_To_Call (N, RTE (RE_RS_Allocate));
+
+            elsif Is_RTE (Pool, RE_SS_Pool) then
                Check_Restriction (No_Secondary_Stack, N);
                Set_Procedure_To_Call (N, RTE (RE_SS_Allocate));
 
@@ -5147,6 +5109,30 @@ package body Exp_Ch4 is
                      then
                         Typ := Build_Default_Subtype (Typ, N);
                         Set_Expression (N, New_Occurrence_Of (Typ, Loc));
+                     end if;
+
+                     --  When the designated subtype is unconstrained and
+                     --  the allocator specifies a constrained subtype (or
+                     --  such a subtype has been created, such as above by
+                     --  Build_Default_Subtype), associate that subtype with
+                     --  the dereference of the allocator's access value.
+                     --  This is needed by the back end for cases where
+                     --  the access type has a Designated_Storage_Model,
+                     --  to support allocation of a host object of the right
+                     --  size for passing to the initialization procedure.
+
+                     if not Is_Constrained (Dtyp)
+                       and then Is_Constrained (Typ)
+                     then
+                        declare
+                           Init_Deref : constant Node_Id :=
+                             Unqual_Conv (Init_Arg1);
+                        begin
+                           pragma Assert
+                             (Nkind (Init_Deref) = N_Explicit_Dereference);
+
+                           Set_Actual_Designated_Subtype (Init_Deref, Typ);
+                        end;
                      end if;
 
                      Discr := First_Elmt (Discriminant_Constraint (Typ));
@@ -5776,23 +5762,51 @@ package body Exp_Ch4 is
       Elsex : constant Node_Id    := Next (Thenx);
       Typ   : constant Entity_Id  := Etype (N);
 
-      Actions      : List_Id;
-      Decl         : Node_Id;
-      Expr         : Node_Id;
-      New_If       : Node_Id;
-      New_N        : Node_Id;
-
+      Force_Expand : constant Boolean := Is_Anonymous_Access_Actual (N);
       --  Determine if we are dealing with a special case of a conditional
       --  expression used as an actual for an anonymous access type which
       --  forces us to transform the if expression into an expression with
       --  actions in order to create a temporary to capture the level of the
       --  expression in each branch.
 
-      Force_Expand : constant Boolean := Is_Anonymous_Access_Actual (N);
+      function OK_For_Single_Subtype (T1, T2 : Entity_Id) return Boolean;
+      --  Return true if it is acceptable to use a single subtype for two
+      --  dependent expressions of subtype T1 and T2 respectively, which are
+      --  unidimensional arrays whose index bounds are known at compile time.
+
+      ---------------------------
+      -- OK_For_Single_Subtype --
+      ---------------------------
+
+      function OK_For_Single_Subtype (T1, T2 : Entity_Id) return Boolean is
+         Lo1, Hi1 : Uint;
+         Lo2, Hi2 : Uint;
+
+      begin
+         Get_First_Index_Bounds (T1, Lo1, Hi1);
+         Get_First_Index_Bounds (T2, Lo2, Hi2);
+
+         --  Return true if the length of the covering subtype is not too large
+
+         return
+           UI_Max (Hi1, Hi2) - UI_Min (Lo1, Lo2) < Too_Large_Length_For_Array;
+      end OK_For_Single_Subtype;
+
+      --  Local variables
+
+      Actions : List_Id;
+      Decl    : Node_Id;
+      Expr    : Node_Id;
+      New_If  : Node_Id;
+      New_N   : Node_Id;
 
    --  Start of processing for Expand_N_If_Expression
 
    begin
+      --  Deal with non-standard booleans
+
+      Adjust_Condition (Cond);
+
       --  Check for MINIMIZED/ELIMINATED overflow mode.
       --  Apply_Arithmetic_Overflow_Check will not deal with Then/Else_Actions
       --  so skip this step if any actions are present.
@@ -5959,6 +5973,242 @@ package body Exp_Ch4 is
             New_N :=
               Make_Explicit_Dereference (Loc,
                 Prefix => New_Occurrence_Of (Cnn, Loc));
+         end;
+
+      --  If the result is a unidimensional unconstrained array but the two
+      --  dependent expressions have constrained subtypes with known bounds,
+      --  then we expand as follows:
+
+      --      subtype Txx is Typ (<static low-bound> .. <static high-bound>);
+      --      Cnn : Txx;
+      --      if cond then
+      --         <<then actions>>
+      --         Cnn (<then low-bound .. then high-bound>) := then-expr;
+      --      else
+      --         <<else actions>>
+      --         Cnn (<else low bound .. else high-bound>) := else-expr;
+      --      end if;
+
+      --  and replace the if expression by a slice of Cnn, provided that Txx
+      --  is not too large. This will create a static temporary instead of the
+      --  dynamic one of the next case and thus help the code generator.
+
+      --  Note that we need to deal with the case where the else expression is
+      --  itself such a slice, in order to catch if expressions with more than
+      --  two dependent expressions in the source code.
+
+      --  Also note that this creates variables on branches without an explicit
+      --  scope, causing troubles with e.g. the LLVM IR, so disable this
+      --  optimization when Unnest_Subprogram_Mode (enabled for LLVM).
+
+      elsif Is_Array_Type (Typ)
+        and then Number_Dimensions (Typ) = 1
+        and then not Is_Constrained (Typ)
+        and then Is_Constrained (Etype (Thenx))
+        and then Compile_Time_Known_Bounds (Etype (Thenx))
+        and then
+          ((Is_Constrained (Etype (Elsex))
+             and then Compile_Time_Known_Bounds (Etype (Elsex))
+             and then OK_For_Single_Subtype (Etype (Thenx), Etype (Elsex)))
+            or else
+           (Nkind (Elsex) = N_Slice
+             and then Is_Constrained (Etype (Prefix (Elsex)))
+             and then Compile_Time_Known_Bounds (Etype (Prefix (Elsex)))
+             and then
+               OK_For_Single_Subtype (Etype (Thenx), Etype (Prefix (Elsex)))))
+        and then not Generate_C_Code
+        and then not Unnest_Subprogram_Mode
+      then
+         declare
+            Ityp : constant Entity_Id := Base_Type (Etype (First_Index (Typ)));
+
+            function Build_New_Bound
+              (Then_Bnd  : Uint;
+               Else_Bnd  : Uint;
+               Slice_Bnd : Node_Id) return Node_Id;
+            --  Build a new bound from the bounds of the if expression
+
+            function To_Ityp (V : Uint) return Node_Id;
+            --  Convert V to an index value in Ityp
+
+            ---------------------
+            -- Build_New_Bound --
+            ---------------------
+
+            function Build_New_Bound
+              (Then_Bnd  : Uint;
+               Else_Bnd  : Uint;
+               Slice_Bnd : Node_Id) return Node_Id is
+
+            begin
+               --  We need to use the special processing for slices only if
+               --  they do not have compile-time known bounds; if they do, they
+               --  can be treated like any other expressions.
+
+               if Nkind (Elsex) = N_Slice
+                 and then not Compile_Time_Known_Bounds (Etype (Elsex))
+               then
+                  if Compile_Time_Known_Value (Slice_Bnd)
+                    and then Expr_Value (Slice_Bnd) = Then_Bnd
+                  then
+                     return To_Ityp (Then_Bnd);
+
+                  else
+                     return Make_If_Expression (Loc,
+                       Expressions => New_List (
+                         Duplicate_Subexpr (Cond),
+                         To_Ityp (Then_Bnd),
+                         New_Copy_Tree (Slice_Bnd)));
+                  end if;
+
+               elsif Then_Bnd = Else_Bnd then
+                  return To_Ityp (Then_Bnd);
+
+               else
+                  return Make_If_Expression (Loc,
+                    Expressions => New_List (
+                      Duplicate_Subexpr (Cond),
+                      To_Ityp (Then_Bnd),
+                      To_Ityp (Else_Bnd)));
+               end if;
+            end Build_New_Bound;
+
+            -------------
+            -- To_Ityp --
+            -------------
+
+            function To_Ityp (V : Uint) return Node_Id is
+               Result : constant Node_Id := Make_Integer_Literal (Loc, V);
+
+            begin
+               if Is_Enumeration_Type (Ityp) then
+                  return
+                    Make_Attribute_Reference (Loc,
+                      Prefix         => New_Occurrence_Of (Ityp, Loc),
+                      Attribute_Name => Name_Val,
+                      Expressions    => New_List (Result));
+               else
+                  return Result;
+               end if;
+            end To_Ityp;
+
+            Ent                  : Node_Id;
+            Slice_Lo, Slice_Hi   : Node_Id;
+            Subtyp_Ind           : Node_Id;
+            Else_Lo, Else_Hi     : Uint;
+            Min_Lo, Max_Hi       : Uint;
+            Then_Lo, Then_Hi     : Uint;
+            Then_List, Else_List : List_Id;
+
+         begin
+            Get_First_Index_Bounds (Etype (Thenx), Then_Lo, Then_Hi);
+
+            --  See the rationale in Build_New_Bound
+
+            if Nkind (Elsex) = N_Slice
+              and then not Compile_Time_Known_Bounds (Etype (Elsex))
+            then
+               Slice_Lo := Low_Bound (Discrete_Range (Elsex));
+               Slice_Hi := High_Bound (Discrete_Range (Elsex));
+               Get_First_Index_Bounds
+                 (Etype (Prefix (Elsex)), Else_Lo, Else_Hi);
+
+            else
+               Slice_Lo := Empty;
+               Slice_Hi := Empty;
+               Get_First_Index_Bounds (Etype (Elsex), Else_Lo, Else_Hi);
+            end if;
+
+            Min_Lo := UI_Min (Then_Lo, Else_Lo);
+            Max_Hi := UI_Max (Then_Hi, Else_Hi);
+
+            --  Now we construct an array object with appropriate bounds and
+            --  mark it as internal to prevent useless initialization when
+            --  Initialize_Scalars is enabled. Also since this is the actual
+            --  result entity, we make sure we have debug information for it.
+
+            Subtyp_Ind :=
+              Make_Subtype_Indication (Loc,
+                Subtype_Mark => New_Occurrence_Of (Typ, Loc),
+                Constraint   =>
+                  Make_Index_Or_Discriminant_Constraint (Loc,
+                    Constraints => New_List (
+                      Make_Range (Loc,
+                        Low_Bound  => To_Ityp (Min_Lo),
+                        High_Bound => To_Ityp (Max_Hi)))));
+
+            Ent := Make_Temporary (Loc, 'C');
+            Set_Is_Internal       (Ent);
+            Set_Debug_Info_Needed (Ent);
+
+            Decl :=
+              Make_Object_Declaration (Loc,
+                Defining_Identifier => Ent,
+                Object_Definition   => Subtyp_Ind);
+
+            --  If the result of the expression appears as the initializing
+            --  expression of an object declaration, we can just rename the
+            --  result, rather than copying it.
+
+            Mutate_Ekind (Ent, E_Variable);
+            Set_OK_To_Rename (Ent);
+
+            Then_List := New_List (
+              Make_Assignment_Statement (Loc,
+                Name       =>
+                  Make_Slice (Loc,
+                    Prefix         => New_Occurrence_Of (Ent, Loc),
+                    Discrete_Range =>
+                      Make_Range (Loc,
+                        Low_Bound  => To_Ityp (Then_Lo),
+                        High_Bound => To_Ityp (Then_Hi))),
+                Expression => Relocate_Node (Thenx)));
+
+            Set_Suppress_Assignment_Checks (Last (Then_List));
+
+            --  See the rationale in Build_New_Bound
+
+            if Nkind (Elsex) = N_Slice
+              and then not Compile_Time_Known_Bounds (Etype (Elsex))
+            then
+               Else_List := New_List (
+                 Make_Assignment_Statement (Loc,
+                   Name       =>
+                     Make_Slice (Loc,
+                       Prefix         => New_Occurrence_Of (Ent, Loc),
+                       Discrete_Range =>
+                         Make_Range (Loc,
+                           Low_Bound  => New_Copy_Tree (Slice_Lo),
+                           High_Bound => New_Copy_Tree (Slice_Hi))),
+                   Expression => Relocate_Node (Elsex)));
+
+            else
+               Else_List := New_List (
+                 Make_Assignment_Statement (Loc,
+                   Name       =>
+                     Make_Slice (Loc,
+                       Prefix         => New_Occurrence_Of (Ent, Loc),
+                       Discrete_Range =>
+                         Make_Range (Loc,
+                           Low_Bound  => To_Ityp (Else_Lo),
+                           High_Bound => To_Ityp (Else_Hi))),
+                   Expression => Relocate_Node (Elsex)));
+            end if;
+
+            Set_Suppress_Assignment_Checks (Last (Else_List));
+
+            New_If :=
+              Make_Implicit_If_Statement (N,
+                Condition       => Duplicate_Subexpr (Cond),
+                Then_Statements => Then_List,
+                Else_Statements => Else_List);
+
+            New_N :=
+              Make_Slice (Loc,
+                Prefix         => New_Occurrence_Of (Ent, Loc),
+                Discrete_Range => Make_Range (Loc,
+                  Low_Bound  => Build_New_Bound (Then_Lo, Else_Lo, Slice_Lo),
+                  High_Bound => Build_New_Bound (Then_Hi, Else_Hi, Slice_Hi)));
          end;
 
       --  If the result is an unconstrained array and the if expression is in a
@@ -6135,7 +6385,7 @@ package body Exp_Ch4 is
          end if;
 
       --  For the sake of GNATcoverage, generate an intermediate temporary in
-      --  the case where the if-expression is a condition in an outer decision,
+      --  the case where the if expression is a condition in an outer decision,
       --  in order to make sure that no branch is shared between the decisions.
 
       elsif Opt.Suppress_Control_Flow_Optimizations
@@ -6214,15 +6464,15 @@ package body Exp_Ch4 is
       Rop    : constant Node_Id    := Right_Opnd (N);
       Static : constant Boolean    := Is_OK_Static_Expression (N);
 
-      procedure Substitute_Valid_Check;
+      procedure Substitute_Valid_Test;
       --  Replaces node N by Lop'Valid. This is done when we have an explicit
       --  test for the left operand being in range of its subtype.
 
-      ----------------------------
-      -- Substitute_Valid_Check --
-      ----------------------------
+      ---------------------------
+      -- Substitute_Valid_Test --
+      ---------------------------
 
-      procedure Substitute_Valid_Check is
+      procedure Substitute_Valid_Test is
          function Is_OK_Object_Reference (Nod : Node_Id) return Boolean;
          --  Determine whether arbitrary node Nod denotes a source object that
          --  may safely act as prefix of attribute 'Valid.
@@ -6262,7 +6512,7 @@ package body Exp_Ch4 is
             return False;
          end Is_OK_Object_Reference;
 
-      --  Start of processing for Substitute_Valid_Check
+      --  Start of processing for Substitute_Valid_Test
 
       begin
          Rewrite (N,
@@ -6286,7 +6536,7 @@ package body Exp_Ch4 is
             Error_Msg_N -- CODEFIX
               ("\??use ''Valid attribute instead", N);
          end if;
-      end Substitute_Valid_Check;
+      end Substitute_Valid_Test;
 
       --  Local variables
 
@@ -6339,15 +6589,15 @@ package body Exp_Ch4 is
         --  eliminates the cases where MINIMIZED/ELIMINATED mode overflow
         --  checks have changed the type of the left operand.
 
-        and then Nkind (Rop) in N_Has_Entity
+        and then Is_Entity_Name (Rop)
         and then Ltyp = Entity (Rop)
 
         --  Skip this for predicated types, where such expressions are a
         --  reasonable way of testing if something meets the predicate.
 
-        and then not Present (Predicate_Function (Ltyp))
+        and then No (Predicate_Function (Ltyp))
       then
-         Substitute_Valid_Check;
+         Substitute_Valid_Test;
          return;
       end if;
 
@@ -6365,35 +6615,41 @@ package body Exp_Ch4 is
             Lo : constant Node_Id := Low_Bound (Rop);
             Hi : constant Node_Id := High_Bound (Rop);
 
-            Lo_Orig : constant Node_Id := Original_Node (Lo);
-            Hi_Orig : constant Node_Id := Original_Node (Hi);
+            Lo_Orig  : constant Node_Id := Original_Node (Lo);
+            Hi_Orig  : constant Node_Id := Original_Node (Hi);
+            Rop_Orig : constant Node_Id := Original_Node (Rop);
 
-            Lcheck : Compare_Result;
-            Ucheck : Compare_Result;
+            Comes_From_Simple_Range_In_Source : constant Boolean :=
+              Comes_From_Source (N)
+                and then not
+                  (Is_Entity_Name (Rop_Orig)
+                    and then Is_Type (Entity (Rop_Orig))
+                    and then Present (Predicate_Function (Entity (Rop_Orig))));
+            --  This is true for a membership test present in the source with a
+            --  range or mark for a subtype that is not predicated. As already
+            --  explained a few lines above, we do not want to give warnings on
+            --  a test with a mark for a subtype that is predicated.
 
-            Warn1 : constant Boolean :=
+            Warn : constant Boolean :=
                       Constant_Condition_Warnings
-                        and then Comes_From_Source (N)
+                        and then Comes_From_Simple_Range_In_Source
                         and then not In_Instance;
             --  This must be true for any of the optimization warnings, we
             --  clearly want to give them only for source with the flag on. We
             --  also skip these warnings in an instance since it may be the
             --  case that different instantiations have different ranges.
 
-            Warn2 : constant Boolean :=
-                      Warn1
-                        and then Nkind (Original_Node (Rop)) = N_Range
-                        and then Is_Integer_Type (Etype (Lo));
-            --  For the case where only one bound warning is elided, we also
-            --  insist on an explicit range and an integer type. The reason is
-            --  that the use of enumeration ranges including an end point is
-            --  common, as is the use of a subtype name, one of whose bounds is
-            --  the same as the type of the expression.
+            Lcheck : Compare_Result;
+            Ucheck : Compare_Result;
 
          begin
-            --  If test is explicit x'First .. x'Last, replace by valid check
+            --  If test is explicit x'First .. x'Last, replace by 'Valid test
 
             if Is_Scalar_Type (Ltyp)
+
+              --  Only relevant for source comparisons
+
+              and then Comes_From_Simple_Range_In_Source
 
               --  And left operand is X'First where X matches left operand
               --  type (this eliminates cases of type mismatch, including
@@ -6402,21 +6658,17 @@ package body Exp_Ch4 is
 
               and then Nkind (Lo_Orig) = N_Attribute_Reference
               and then Attribute_Name (Lo_Orig) = Name_First
-              and then Nkind (Prefix (Lo_Orig)) in N_Has_Entity
+              and then Is_Entity_Name (Prefix (Lo_Orig))
               and then Entity (Prefix (Lo_Orig)) = Ltyp
 
               --  Same tests for right operand
 
               and then Nkind (Hi_Orig) = N_Attribute_Reference
               and then Attribute_Name (Hi_Orig) = Name_Last
-              and then Nkind (Prefix (Hi_Orig)) in N_Has_Entity
+              and then Is_Entity_Name (Prefix (Hi_Orig))
               and then Entity (Prefix (Hi_Orig)) = Ltyp
-
-              --  Relevant only for source cases
-
-              and then Comes_From_Source (N)
             then
-               Substitute_Valid_Check;
+               Substitute_Valid_Test;
                goto Leave;
             end if;
 
@@ -6425,7 +6677,7 @@ package body Exp_Ch4 is
             --  for substituting a valid test. We only do this for discrete
             --  types, since it won't arise in practice for float types.
 
-            if Comes_From_Source (N)
+            if Comes_From_Simple_Range_In_Source
               and then Is_Discrete_Type (Ltyp)
               and then Compile_Time_Known_Value (Type_High_Bound (Ltyp))
               and then Compile_Time_Known_Value (Type_Low_Bound  (Ltyp))
@@ -6438,7 +6690,7 @@ package body Exp_Ch4 is
               --  have a test in the generic that makes sense with some types
               --  and not with other types.
 
-              --  Similarly, do not rewrite membership as a validity check if
+              --  Similarly, do not rewrite membership as a 'Valid test if
               --  within the predicate function for the type.
 
               --  Finally, if the original bounds are type conversions, even
@@ -6458,7 +6710,7 @@ package body Exp_Ch4 is
                   null;
 
                else
-                  Substitute_Valid_Check;
+                  Substitute_Valid_Test;
                   goto Leave;
                end if;
             end if;
@@ -6474,7 +6726,7 @@ package body Exp_Ch4 is
             --  legality checks, because we are constant-folding beyond RM 4.9.
 
             if Lcheck = LT or else Ucheck = GT then
-               if Warn1 then
+               if Warn then
                   Error_Msg_N ("?c?range test optimized away", N);
                   Error_Msg_N ("\?c?value is known to be out of range", N);
                end if;
@@ -6488,7 +6740,7 @@ package body Exp_Ch4 is
             --  since we know we are in range.
 
             elsif Lcheck in Compare_GE and then Ucheck in Compare_LE then
-               if Warn1 then
+               if Warn then
                   Error_Msg_N ("?c?range test optimized away", N);
                   Error_Msg_N ("\?c?value is known to be in range", N);
                end if;
@@ -6503,11 +6755,6 @@ package body Exp_Ch4 is
             --  a comparison against the upper bound.
 
             elsif Lcheck in Compare_GE then
-               if Warn2 and then not In_Instance then
-                  Error_Msg_N ("??lower bound test optimized away", Lo);
-                  Error_Msg_N ("\??value is known to be in range", Lo);
-               end if;
-
                Rewrite (N,
                  Make_Op_Le (Loc,
                    Left_Opnd  => Lop,
@@ -6515,16 +6762,9 @@ package body Exp_Ch4 is
                Analyze_And_Resolve (N, Restyp);
                goto Leave;
 
-            --  If upper bound check succeeds and lower bound check is not
-            --  known to succeed or fail, then replace the range check with
-            --  a comparison against the lower bound.
+            --  Inverse of previous case.
 
             elsif Ucheck in Compare_LE then
-               if Warn2 and then not In_Instance then
-                  Error_Msg_N ("??upper bound test optimized away", Hi);
-                  Error_Msg_N ("\??value is known to be in range", Hi);
-               end if;
-
                Rewrite (N,
                  Make_Op_Ge (Loc,
                    Left_Opnd  => Lop,
@@ -6538,7 +6778,7 @@ package body Exp_Ch4 is
             --  see if we can determine the outcome assuming everything is
             --  valid, and if so give an appropriate warning.
 
-            if Warn1 and then not Assume_No_Invalid_Values then
+            if Warn and then not Assume_No_Invalid_Values then
                Lcheck := Compile_Time_Compare (Lop, Lo, Assume_Valid => True);
                Ucheck := Compile_Time_Compare (Lop, Hi, Assume_Valid => True);
 
@@ -6553,18 +6793,6 @@ package body Exp_Ch4 is
                elsif Lcheck in Compare_GE and then Ucheck in Compare_LE then
                   Error_Msg_N
                     ("?c?value can only be out of range if it is invalid", N);
-
-               --  Lower bound check succeeds if value is valid
-
-               elsif Warn2 and then Lcheck in Compare_GE then
-                  Error_Msg_N
-                    ("?c?lower bound check only fails if it is invalid", Lo);
-
-               --  Upper bound  check succeeds if value is valid
-
-               elsif Warn2 and then Ucheck in Compare_LE then
-                  Error_Msg_N
-                    ("?c?upper bound check only fails for invalid values", Hi);
                end if;
             end if;
          end;
@@ -6617,12 +6845,12 @@ package body Exp_Ch4 is
                goto Leave;
 
             --  If type is scalar type, rewrite as x in t'First .. t'Last.
-            --  This reason we do this is that the bounds may have the wrong
+            --  The reason we do this is that the bounds may have the wrong
             --  type if they come from the original type definition. Also this
             --  way we get all the processing above for an explicit range.
 
-            --  Don't do this for predicated types, since in this case we
-            --  want to check the predicate.
+            --  Don't do this for predicated types, since in this case we want
+            --  to generate the predicate check at the end of the function.
 
             elsif Is_Scalar_Type (Typ) then
                if No (Predicate_Function (Typ)) then
@@ -6637,6 +6865,7 @@ package body Exp_Ch4 is
                         Make_Attribute_Reference (Loc,
                           Attribute_Name => Name_Last,
                           Prefix         => New_Occurrence_Of (Typ, Loc))));
+
                   Analyze_And_Resolve (N, Restyp);
                end if;
 
@@ -6794,7 +7023,7 @@ package body Exp_Ch4 is
                   if Is_Entity_Name (Lop) then
                      Expr_Entity := Param_Entity (Lop);
 
-                     if not Present (Expr_Entity) then
+                     if No (Expr_Entity) then
                         Expr_Entity := Entity (Lop);
                      end if;
                   end if;
@@ -6944,8 +7173,28 @@ package body Exp_Ch4 is
            and then Current_Scope /= PFunc
            and then Nkind (Rop) /= N_Range
          then
+            --  First apply the transformation that was skipped above
+
+            if Is_Scalar_Type (Rtyp) then
+               Rewrite (Rop,
+                 Make_Range (Loc,
+                   Low_Bound =>
+                     Make_Attribute_Reference (Loc,
+                       Attribute_Name => Name_First,
+                       Prefix         => New_Occurrence_Of (Rtyp, Loc)),
+
+                   High_Bound =>
+                     Make_Attribute_Reference (Loc,
+                       Attribute_Name => Name_Last,
+                       Prefix         => New_Occurrence_Of (Rtyp, Loc))));
+
+               Analyze_And_Resolve (N, Restyp);
+            end if;
+
             if not In_Range_Check then
-               R_Op := Make_Predicate_Call (Rtyp, Lop, Mem => True);
+               --  Indicate via Static_Mem parameter that this predicate
+               --  evaluation is for a membership test.
+               R_Op := Make_Predicate_Call (Rtyp, Lop, Static_Mem => True);
             else
                R_Op := New_Occurrence_Of (Standard_True, Loc);
             end if;
@@ -6961,10 +7210,6 @@ package body Exp_Ch4 is
 
             Set_Analyzed (Left_Opnd (N));
             Analyze_And_Resolve (N, Standard_Boolean, Suppress => All_Checks);
-
-            --  All done, skip attempt at compile time determination of result
-
-            return;
          end if;
       end Predicate_Check;
    end Expand_N_In;
@@ -7812,20 +8057,9 @@ package body Exp_Ch4 is
       --  build and analyze call, adding conversions if the operation is
       --  inherited.
 
-      function Is_Equality (Subp : Entity_Id;
-                            Typ  : Entity_Id := Empty) return Boolean;
-      --  Determine whether arbitrary Entity_Id denotes a function with the
-      --  right name and profile for an equality op, specifically for the
-      --  base type Typ if Typ is nonempty.
-
       function Find_Equality (Prims : Elist_Id) return Entity_Id;
       --  Find a primitive equality function within primitive operation list
       --  Prims.
-
-      function User_Defined_Primitive_Equality_Op
-        (Typ : Entity_Id) return Entity_Id;
-      --  Find a user-defined primitive equality function for a given untagged
-      --  record type, ignoring visibility. Return Empty if no such op found.
 
       function Has_Unconstrained_UU_Component (Typ : Entity_Id) return Boolean;
       --  Determines whether a type has a subcomponent of an unconstrained
@@ -8075,43 +8309,6 @@ package body Exp_Ch4 is
          Analyze_And_Resolve (N, Standard_Boolean, Suppress => All_Checks);
       end Build_Equality_Call;
 
-      -----------------
-      -- Is_Equality --
-      -----------------
-
-      function Is_Equality (Subp : Entity_Id;
-                            Typ  : Entity_Id := Empty) return Boolean is
-         Formal_1 : Entity_Id;
-         Formal_2 : Entity_Id;
-      begin
-         --  The equality function carries name "=", returns Boolean, and has
-         --  exactly two formal parameters of an identical type.
-
-         if Ekind (Subp) = E_Function
-           and then Chars (Subp) = Name_Op_Eq
-           and then Base_Type (Etype (Subp)) = Standard_Boolean
-         then
-            Formal_1 := First_Formal (Subp);
-            Formal_2 := Empty;
-
-            if Present (Formal_1) then
-               Formal_2 := Next_Formal (Formal_1);
-            end if;
-
-            return
-              Present (Formal_1)
-                and then Present (Formal_2)
-                and then No (Next_Formal (Formal_2))
-                and then Base_Type (Etype (Formal_1)) =
-                         Base_Type (Etype (Formal_2))
-                and then
-                  (not Present (Typ)
-                    or else Implementation_Base_Type (Etype (Formal_1)) = Typ);
-         end if;
-
-         return False;
-      end Is_Equality;
-
       -------------------
       -- Find_Equality --
       -------------------
@@ -8134,7 +8331,7 @@ package body Exp_Ch4 is
 
             Candid := Prim;
             while Present (Candid) loop
-               if Is_Equality (Candid) then
+               if Is_User_Defined_Equality (Candid) then
                   return Candid;
                end if;
 
@@ -8172,43 +8369,6 @@ package body Exp_Ch4 is
 
          return Eq_Prim;
       end Find_Equality;
-
-      ----------------------------------------
-      -- User_Defined_Primitive_Equality_Op --
-      ----------------------------------------
-
-      function User_Defined_Primitive_Equality_Op
-        (Typ : Entity_Id) return Entity_Id
-      is
-         Enclosing_Scope : constant Entity_Id := Scope (Typ);
-         E : Entity_Id;
-      begin
-         for Private_Entities in Boolean loop
-            if Private_Entities then
-               if Ekind (Enclosing_Scope) /= E_Package then
-                  exit;
-               end if;
-               E := First_Private_Entity (Enclosing_Scope);
-
-            else
-               E := First_Entity (Enclosing_Scope);
-            end if;
-
-            while Present (E) loop
-               if Is_Equality (E, Typ) then
-                  return E;
-               end if;
-               Next_Entity (E);
-            end loop;
-         end loop;
-
-         if Is_Derived_Type (Typ) then
-            return User_Defined_Primitive_Equality_Op
-                     (Implementation_Base_Type (Etype (Typ)));
-         end if;
-
-         return Empty;
-      end User_Defined_Primitive_Equality_Op;
 
       ------------------------------------
       -- Has_Unconstrained_UU_Component --
@@ -8353,14 +8513,7 @@ package body Exp_Ch4 is
 
       --  Deal with private types
 
-      Typl := A_Typ;
-
-      if Ekind (Typl) = E_Private_Type then
-         Typl := Underlying_Type (Typl);
-
-      elsif Ekind (Typl) = E_Private_Subtype then
-         Typl := Underlying_Type (Base_Type (Typl));
-      end if;
+      Typl := Underlying_Type (A_Typ);
 
       --  It may happen in error situations that the underlying type is not
       --  set. The error will be detected later, here we just defend the
@@ -8523,15 +8676,6 @@ package body Exp_Ch4 is
                Build_Equality_Call
                  (Find_Equality (Primitive_Operations (Typl)));
             end if;
-
-         --  See AI12-0101 (which only removes a legality rule) and then
-         --  AI05-0123 (which then applies in the previously illegal case).
-         --  AI12-0101 is a binding interpretation.
-
-         elsif Ada_Version >= Ada_2012
-           and then Present (User_Defined_Primitive_Equality_Op (Typl))
-         then
-            Build_Equality_Call (User_Defined_Primitive_Equality_Op (Typl));
 
          --  Ada 2005 (AI-216): Program_Error is raised when evaluating the
          --  predefined equality operator for a type which has a subcomponent
@@ -9564,7 +9708,7 @@ package body Exp_Ch4 is
          --  avoids anomalies when the replacement is done in an instance and
          --  is epsilon more efficient.
 
-         Set_Entity            (N, Standard_Entity (S_Op_Rem));
+         pragma Assert (Entity (N) = Standard_Op_Rem);
          Set_Etype             (N, Typ);
          Set_Do_Division_Check (N, DDC);
          Expand_N_Op_Rem (N);
@@ -10887,6 +11031,8 @@ package body Exp_Ch4 is
          Ensure_Valid (Operand);
       end if;
 
+      Freeze_Before (Operand, Target_Type);
+
       --  Apply possible constraint check
 
       Apply_Constraint_Check (Operand, Target_Type, No_Sliding => True);
@@ -11122,6 +11268,16 @@ package body Exp_Ch4 is
          --  actually performed.
 
          else
+            if (not Is_Unchecked_Union
+                     (Implementation_Base_Type (Etype (Prefix (N)))))
+              and then not Is_Predefined_Unit (Get_Source_Unit (N))
+            then
+               Error_Msg_N
+                 ("sorry - unable to generate discriminant check for" &
+                    " reference to variant component &",
+                  Selector_Name (N));
+            end if;
+
             Set_Do_Discriminant_Check (N, False);
          end if;
       end if;
@@ -11670,7 +11826,7 @@ package body Exp_Ch4 is
 
          if Is_Fixed_Point_Type (Etype (Expr)) then
             Ityp := Small_Integer_Type_For
-                      (Esize (Base_Type (Etype (Expr))), False);
+                      (Esize (Base_Type (Etype (Expr))), Uns => False);
 
             --  Generate a temporary with the integer type to facilitate in the
             --  C backend the code generation for the unchecked conversion.
@@ -11745,31 +11901,24 @@ package body Exp_Ch4 is
                   declare
                      Stored : constant Elist_Id :=
                                 Stored_Constraint (Operand_Type);
-
-                     Elmt : Elmt_Id;
+                     --  Stored constraints of the operand. If present, they
+                     --  correspond to the discriminants of the parent type.
 
                      Disc_O : Entity_Id;
                      --  Discriminant of the operand type. Its value in the
                      --  object is captured in a selected component.
 
-                     Disc_S : Entity_Id;
-                     --  Stored discriminant of the operand. If present, it
-                     --  corresponds to a constrained discriminant of the
-                     --  parent type.
-
                      Disc_T : Entity_Id;
                      --  Discriminant of the target type
 
-                  begin
-                     Disc_T := First_Discriminant (Target_Type);
-                     Disc_O := First_Discriminant (Operand_Type);
-                     Disc_S := First_Stored_Discriminant (Operand_Type);
+                     Elmt : Elmt_Id;
 
-                     if Present (Stored) then
-                        Elmt := First_Elmt (Stored);
-                     else
-                        Elmt := No_Elmt; -- init to avoid warning
-                     end if;
+                  begin
+                     Disc_O := First_Discriminant (Operand_Type);
+                     Disc_T := First_Discriminant (Target_Type);
+                     Elmt   := (if Present (Stored)
+                                 then First_Elmt (Stored)
+                                 else No_Elmt);
 
                      Cons := New_List;
                      while Present (Disc_T) loop
@@ -11784,8 +11933,11 @@ package body Exp_Ch4 is
                                  Make_Identifier (Loc, Chars (Disc_O))));
                            Next_Discriminant (Disc_O);
 
-                        elsif Present (Disc_S) then
+                        elsif Present (Elmt) then
                            Append_To (Cons, New_Copy_Tree (Node (Elmt)));
+                        end if;
+
+                        if Present (Elmt) then
                            Next_Elmt (Elmt);
                         end if;
 
@@ -12044,7 +12196,7 @@ package body Exp_Ch4 is
             declare
                Expr_Id : constant Entity_Id := Make_Temporary (Loc, 'T', Conv);
                Int_Typ : constant Entity_Id :=
-                           Small_Integer_Type_For (RM_Size (Btyp), False);
+                 Small_Integer_Type_For (RM_Size (Btyp), Uns => False);
 
             begin
                --  Generate a temporary with the integer value. Required in the
@@ -12756,18 +12908,35 @@ package body Exp_Ch4 is
          if not Has_Compatible_Representation (Target_Type, Operand_Type)
            and then not Conversion_OK (N)
          then
+            if Optimization_Level > 0
+              and then Is_Boolean_Type (Target_Type)
+            then
+               --  Convert x(y) to (if y then x'(True) else x'(False)).
+               --  Use literals, instead of indexing x'val, to enable
+               --  further optimizations in the middle-end.
 
-            --  Convert: x(y) to x'val (ytyp'pos (y))
+               Rewrite (N,
+                 Make_If_Expression (Loc,
+                   Expressions => New_List (
+                     Operand,
+                     Convert_To (Target_Type,
+                                 New_Occurrence_Of (Standard_True, Loc)),
+                     Convert_To (Target_Type,
+                                 New_Occurrence_Of (Standard_False, Loc)))));
 
-            Rewrite (N,
-              Make_Attribute_Reference (Loc,
-                Prefix         => New_Occurrence_Of (Target_Type, Loc),
-                Attribute_Name => Name_Val,
-                Expressions    => New_List (
-                  Make_Attribute_Reference (Loc,
-                    Prefix         => New_Occurrence_Of (Operand_Type, Loc),
-                    Attribute_Name => Name_Pos,
-                    Expressions    => New_List (Operand)))));
+            else
+               --  Convert: x(y) to x'val (ytyp'pos (y))
+
+               Rewrite (N,
+                 Make_Attribute_Reference (Loc,
+                   Prefix         => New_Occurrence_Of (Target_Type, Loc),
+                   Attribute_Name => Name_Val,
+                   Expressions    => New_List (
+                     Make_Attribute_Reference (Loc,
+                       Prefix         => New_Occurrence_Of (Operand_Type, Loc),
+                       Attribute_Name => Name_Pos,
+                       Expressions    => New_List (Operand)))));
+            end if;
 
             Analyze_And_Resolve (N, Target_Type);
          end if;
@@ -13042,15 +13211,16 @@ package body Exp_Ch4 is
             end if;
 
             Check :=
-              Expand_Composite_Equality (Nod, Etype (C),
-               Lhs =>
-                 Make_Selected_Component (Loc,
-                   Prefix        => New_Lhs,
-                   Selector_Name => New_Occurrence_Of (C, Loc)),
-               Rhs =>
-                 Make_Selected_Component (Loc,
-                   Prefix        => New_Rhs,
-                   Selector_Name => New_Occurrence_Of (C, Loc)));
+              Expand_Composite_Equality
+                (Outer_Type => Typ, Nod => Nod, Comp_Type => Etype (C),
+                 Lhs =>
+                   Make_Selected_Component (Loc,
+                     Prefix        => New_Lhs,
+                     Selector_Name => New_Occurrence_Of (C, Loc)),
+                 Rhs =>
+                   Make_Selected_Component (Loc,
+                     Prefix        => New_Rhs,
+                     Selector_Name => New_Occurrence_Of (C, Loc)));
 
             --  If some (sub)component is an unchecked_union, the whole
             --  operation will raise program error.
@@ -13114,23 +13284,11 @@ package body Exp_Ch4 is
          if (Is_Entity_Name (Alt) and then Is_Type (Entity (Alt)))
            or else Nkind (Alt) = N_Range
          then
-            Cond :=
-              Make_In (Sloc (Alt),
-                Left_Opnd  => L,
-                Right_Opnd => R);
+            Cond := Make_In (Sloc (Alt), Left_Opnd  => L, Right_Opnd => R);
+
          else
-            Cond :=
-              Make_Op_Eq (Sloc (Alt),
-                Left_Opnd  => L,
-                Right_Opnd => R);
-
-            if Is_Record_Or_Limited_Type (Etype (Alt)) then
-
-               --  We reset the Entity in order to use the primitive equality
-               --  of the type, as per RM 4.5.2 (28.1/4).
-
-               Set_Entity (Cond, Empty);
-            end if;
+            Cond := Make_Op_Eq (Sloc (Alt), Left_Opnd  => L, Right_Opnd => R);
+            Resolve_Membership_Equality (Cond, Etype (Alt));
          end if;
 
          return Cond;
@@ -13419,6 +13577,30 @@ package body Exp_Ch4 is
          Set_Etype (N, Base_Type (Etype (Conv)));
       end if;
    end Fixup_Universal_Fixed_Operation;
+
+   ----------------------------
+   -- Get_First_Index_Bounds --
+   ----------------------------
+
+   procedure Get_First_Index_Bounds (T : Entity_Id; Lo, Hi : out Uint) is
+      Typ  : Entity_Id;
+
+   begin
+      pragma Assert (Is_Array_Type (T));
+
+      --  This follows Sem_Eval.Compile_Time_Known_Bounds
+
+      if Ekind (T) = E_String_Literal_Subtype then
+         Lo := Expr_Value (String_Literal_Low_Bound (T));
+         Hi := Lo + String_Literal_Length (T) - 1;
+
+      else
+         Typ := Underlying_Type (Etype (First_Index (T)));
+
+         Lo := Expr_Value (Type_Low_Bound (Typ));
+         Hi := Expr_Value (Type_High_Bound (Typ));
+      end if;
+   end Get_First_Index_Bounds;
 
    ------------------------
    -- Get_Size_For_Range --
@@ -14187,6 +14369,7 @@ package body Exp_Ch4 is
 
    procedure Narrow_Large_Operation (N : Node_Id) is
       Kind   : constant Node_Kind := Nkind (N);
+      Otyp   : constant Entity_Id := Etype (N);
       In_Rng : constant Boolean   := Kind = N_In;
       Binary : constant Boolean   := Kind in N_Binary_Op or else In_Rng;
       Compar : constant Boolean   := Kind in N_Op_Compare or else In_Rng;
@@ -14341,8 +14524,7 @@ package body Exp_Ch4 is
          --  Analyze it with the comparison type and checks suppressed since
          --  the conversions of the operands cannot overflow.
 
-         Analyze_And_Resolve
-           (N, Etype (Original_Node (N)), Suppress => Overflow_Check);
+         Analyze_And_Resolve (N, Otyp, Suppress => Overflow_Check);
 
       else
          --  Analyze it with the narrower type and checks suppressed, but only

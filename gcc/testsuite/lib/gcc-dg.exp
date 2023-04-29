@@ -1,4 +1,4 @@
-#   Copyright (C) 1997-2022 Free Software Foundation, Inc.
+#   Copyright (C) 1997-2023 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -25,6 +25,7 @@ load_lib scanltranstree.exp
 load_lib scanipa.exp
 load_lib scanwpaipa.exp
 load_lib scanlang.exp
+load_lib scansarif.exp
 load_lib timeout.exp
 load_lib timeout-dg.exp
 load_lib prune.exp
@@ -655,7 +656,7 @@ proc gcc-dg-target-supports-debug-format { target_compile trivial type } {
 proc gcc-dg-debug-runtest { target_compile trivial opt_opts testcases } {
     if ![info exists DEBUG_TORTURE_OPTIONS] {
 	set DEBUG_TORTURE_OPTIONS ""
-	foreach type {-gctf -gdwarf-2 -gstabs -gstabs+ -gxcoff -gxcoff+} {
+	foreach type {-gctf -gdwarf-2} {
 	    if [expr [gcc-dg-target-supports-debug-format \
 		      $target_compile $trivial $type]] {
 		if { $type == "-gctf" } {
@@ -1426,6 +1427,19 @@ proc scan-symbol-not { args } {
     } else {
 	pass "$testcase   scan-symbol-not $args"
     }
+}
+
+# Transform a tool-name to its canonical-target-name by "transform"
+# (which may return the original name for native targets) but only if
+# testing out-of-tree.  When in-tree, the tool is expected to be found
+# by its original name, typically with some build-directory prefix
+# prepended by the caller.
+proc gcc-transform-out-of-tree { args } {
+    global TESTING_IN_BUILD_TREE
+    if { [info exists TESTING_IN_BUILD_TREE] } {
+	return $args;
+    }
+    return [transform $args]
 }
 
 set additional_prunes ""

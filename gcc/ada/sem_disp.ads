@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -63,7 +63,7 @@ package Sem_Disp is
    --  the inherited subprogram will have been hidden by the current one at
    --  the point of the type derivation, so it does not appear in the list
    --  of primitive operations of the type, and this procedure inserts the
-   --  overriding subprogram in the the full type's list of primitives by
+   --  overriding subprogram in the full type's list of primitives by
    --  iterating over the list for the parent type. If instead Subp is a new
    --  primitive, then it's simply appended to the primitive list.
 

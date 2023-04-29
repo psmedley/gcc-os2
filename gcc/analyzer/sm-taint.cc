@@ -1,7 +1,7 @@
 /* An experimental state machine, for tracking "taint": unsanitized uses
    of data potentially under an attacker's control.
 
-   Copyright (C) 2019-2022 Free Software Foundation, Inc.
+   Copyright (C) 2019-2023 Free Software Foundation, Inc.
    Contributed by David Malcolm <dmalcolm@redhat.com>.
 
 This file is part of GCC.
@@ -21,8 +21,10 @@ along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
 #include "config.h"
+#define INCLUDE_MEMORY
 #include "system.h"
 #include "coretypes.h"
+#include "make-unique.h"
 #include "tree.h"
 #include "function.h"
 #include "basic-block.h"
@@ -30,13 +32,9 @@ along with GCC; see the file COPYING3.  If not see
 #include "options.h"
 #include "diagnostic-path.h"
 #include "diagnostic-metadata.h"
-#include "function.h"
-#include "json.h"
 #include "analyzer/analyzer.h"
 #include "analyzer/analyzer-logging.h"
 #include "gimple-iterator.h"
-#include "tristate.h"
-#include "selftest.h"
 #include "ordered-hash-map.h"
 #include "cgraph.h"
 #include "cfg.h"
@@ -51,6 +49,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "analyzer/sm.h"
 #include "analyzer/program-state.h"
 #include "analyzer/pending-diagnostic.h"
+#include "analyzer/constraint-manager.h"
 
 #if ENABLE_ANALYZER
 
@@ -80,31 +79,40 @@ class taint_state_machine : public state_machine
 public:
   taint_state_machine (logger *logger);
 
-  bool inherited_state_p () const FINAL OVERRIDE { return true; }
+  bool inherited_state_p () const final override { return true; }
 
   state_t alt_get_inherited_state (const sm_state_map &map,
 				   const svalue *sval,
 				   const extrinsic_state &ext_state)
-    const FINAL OVERRIDE;
+    const final override;
 
   bool on_stmt (sm_context *sm_ctxt,
 		const supernode *node,
-		const gimple *stmt) const FINAL OVERRIDE;
+		const gimple *stmt) const final override;
 
   void on_condition (sm_context *sm_ctxt,
 		     const supernode *node,
 		     const gimple *stmt,
 		     const svalue *lhs,
 		     enum tree_code op,
-		     const svalue *rhs) const FINAL OVERRIDE;
+		     const svalue *rhs) const final override;
+  void on_bounded_ranges (sm_context *sm_ctxt,
+			  const supernode *node,
+			  const gimple *stmt,
+			  const svalue &sval,
+			  const bounded_ranges &ranges) const final override;
 
-  bool can_purge_p (state_t s) const FINAL OVERRIDE;
+  bool can_purge_p (state_t s) const final override;
 
   bool get_taint (state_t s, tree type, enum bounds *out) const;
 
   state_t combine_states (state_t s0, state_t s1) const;
 
 private:
+  void check_control_flow_arg_for_taint (sm_context *sm_ctxt,
+					 const gimple *stmt,
+					 tree expr) const;
+
   void check_for_tainted_size_arg (sm_context *sm_ctxt,
 				   const supernode *node,
 				   const gcall *call,
@@ -126,6 +134,9 @@ public:
 
   /* Stop state, for a value we don't want to track any more.  */
   state_t m_stop;
+
+  /* Global state, for when the last condition had tainted arguments.  */
+  state_t m_tainted_control_flow;
 };
 
 /* Class for diagnostics relating to taint_state_machine.  */
@@ -138,15 +149,14 @@ public:
   : m_sm (sm), m_arg (arg), m_has_bounds (has_bounds)
   {}
 
-  bool subclass_equal_p (const pending_diagnostic &base_other) const OVERRIDE
+  bool subclass_equal_p (const pending_diagnostic &base_other) const override
   {
     const taint_diagnostic &other = (const taint_diagnostic &)base_other;
     return (same_tree_p (m_arg, other.m_arg)
 	    && m_has_bounds == other.m_has_bounds);
   }
 
-  label_text describe_state_change (const evdesc::state_change &change)
-    FINAL OVERRIDE
+  label_text describe_state_change (const evdesc::state_change &change) override
   {
     if (change.m_new_state == m_sm.m_tainted)
       {
@@ -166,6 +176,17 @@ public:
 				     change.m_expr);
     return label_text ();
   }
+
+  diagnostic_event::meaning
+  get_meaning_for_state_change (const evdesc::state_change &change)
+    const final override
+  {
+    if (change.m_new_state == m_sm.m_tainted)
+      return diagnostic_event::meaning (diagnostic_event::VERB_acquire,
+					diagnostic_event::NOUN_taint);
+    return diagnostic_event::meaning ();
+  }
+
 protected:
   const taint_state_machine &m_sm;
   tree m_arg;
@@ -183,65 +204,108 @@ public:
   : taint_diagnostic (sm, arg, has_bounds)
   {}
 
-  const char *get_kind () const FINAL OVERRIDE { return "tainted_array_index"; }
+  const char *get_kind () const final override { return "tainted_array_index"; }
 
-  int get_controlling_option () const FINAL OVERRIDE
+  int get_controlling_option () const final override
   {
     return OPT_Wanalyzer_tainted_array_index;
   }
 
-  bool emit (rich_location *rich_loc) FINAL OVERRIDE
+  bool emit (rich_location *rich_loc) final override
   {
     diagnostic_metadata m;
     /* CWE-129: "Improper Validation of Array Index".  */
     m.add_cwe (129);
-    switch (m_has_bounds)
-      {
-      default:
-	gcc_unreachable ();
-      case BOUNDS_NONE:
-	return warning_meta (rich_loc, m, get_controlling_option (),
-			     "use of attacker-controlled value %qE"
-			     " in array lookup without bounds checking",
-			     m_arg);
-	break;
-      case BOUNDS_UPPER:
-	return warning_meta (rich_loc, m, get_controlling_option (),
-			     "use of attacker-controlled value %qE"
-			     " in array lookup without checking for negative",
-			     m_arg);
-	break;
-      case BOUNDS_LOWER:
-	return warning_meta (rich_loc, m, get_controlling_option (),
-			     "use of attacker-controlled value %qE"
-			     " in array lookup without upper-bounds checking",
-			     m_arg);
-	break;
-      }
+    if (m_arg)
+      switch (m_has_bounds)
+	{
+	default:
+	  gcc_unreachable ();
+	case BOUNDS_NONE:
+	  return warning_meta (rich_loc, m, get_controlling_option (),
+			       "use of attacker-controlled value %qE"
+			       " in array lookup without bounds checking",
+			       m_arg);
+	  break;
+	case BOUNDS_UPPER:
+	  return warning_meta (rich_loc, m, get_controlling_option (),
+			       "use of attacker-controlled value %qE"
+			       " in array lookup without checking for negative",
+			       m_arg);
+	  break;
+	case BOUNDS_LOWER:
+	  return warning_meta (rich_loc, m, get_controlling_option (),
+			       "use of attacker-controlled value %qE"
+			       " in array lookup without upper-bounds checking",
+			       m_arg);
+	  break;
+	}
+    else
+      switch (m_has_bounds)
+	{
+	default:
+	  gcc_unreachable ();
+	case BOUNDS_NONE:
+	  return warning_meta (rich_loc, m, get_controlling_option (),
+			       "use of attacker-controlled value"
+			       " in array lookup without bounds checking");
+	  break;
+	case BOUNDS_UPPER:
+	  return warning_meta (rich_loc, m, get_controlling_option (),
+			       "use of attacker-controlled value"
+			       " in array lookup without checking for"
+			       " negative");
+	  break;
+	case BOUNDS_LOWER:
+	  return warning_meta (rich_loc, m, get_controlling_option (),
+			       "use of attacker-controlled value"
+			       " in array lookup without upper-bounds"
+			       " checking");
+	  break;
+	}
   }
 
-  label_text describe_final_event (const evdesc::final_event &ev) FINAL OVERRIDE
+  label_text describe_final_event (const evdesc::final_event &ev) final override
   {
-    switch (m_has_bounds)
-      {
-      default:
-	gcc_unreachable ();
-      case BOUNDS_NONE:
-	return ev.formatted_print
-	  ("use of attacker-controlled value %qE in array lookup"
-	   " without bounds checking",
-	   m_arg);
-      case BOUNDS_UPPER:
-	return ev.formatted_print
-	  ("use of attacker-controlled value %qE"
-	   " in array lookup without checking for negative",
-	   m_arg);
-      case BOUNDS_LOWER:
-	return ev.formatted_print
-	  ("use of attacker-controlled value %qE"
-	   " in array lookup without upper-bounds checking",
-	   m_arg);
-      }
+    if (m_arg)
+      switch (m_has_bounds)
+	{
+	default:
+	  gcc_unreachable ();
+	case BOUNDS_NONE:
+	  return ev.formatted_print
+	    ("use of attacker-controlled value %qE in array lookup"
+	     " without bounds checking",
+	     m_arg);
+	case BOUNDS_UPPER:
+	  return ev.formatted_print
+	    ("use of attacker-controlled value %qE"
+	     " in array lookup without checking for negative",
+	     m_arg);
+	case BOUNDS_LOWER:
+	  return ev.formatted_print
+	    ("use of attacker-controlled value %qE"
+	     " in array lookup without upper-bounds checking",
+	     m_arg);
+	}
+    else
+      switch (m_has_bounds)
+	{
+	default:
+	  gcc_unreachable ();
+	case BOUNDS_NONE:
+	  return ev.formatted_print
+	    ("use of attacker-controlled value in array lookup"
+	     " without bounds checking");
+	case BOUNDS_UPPER:
+	  return ev.formatted_print
+	    ("use of attacker-controlled value"
+	     " in array lookup without checking for negative");
+	case BOUNDS_LOWER:
+	  return ev.formatted_print
+	    ("use of attacker-controlled value"
+	     " in array lookup without upper-bounds checking");
+	}
   }
 };
 
@@ -256,14 +320,14 @@ public:
   : taint_diagnostic (sm, arg, has_bounds)
   {}
 
-  const char *get_kind () const FINAL OVERRIDE { return "tainted_offset"; }
+  const char *get_kind () const final override { return "tainted_offset"; }
 
-  int get_controlling_option () const FINAL OVERRIDE
+  int get_controlling_option () const final override
   {
     return OPT_Wanalyzer_tainted_offset;
   }
 
-  bool emit (rich_location *rich_loc) FINAL OVERRIDE
+  bool emit (rich_location *rich_loc) final override
   {
     diagnostic_metadata m;
     /* CWE-823: "Use of Out-of-range Pointer Offset".  */
@@ -315,7 +379,7 @@ public:
 	}
   }
 
-  label_text describe_final_event (const evdesc::final_event &ev) FINAL OVERRIDE
+  label_text describe_final_event (const evdesc::final_event &ev) final override
   {
     if (m_arg)
       switch (m_has_bounds)
@@ -366,61 +430,100 @@ public:
   : taint_diagnostic (sm, arg, has_bounds)
   {}
 
-  const char *get_kind () const OVERRIDE { return "tainted_size"; }
+  const char *get_kind () const override { return "tainted_size"; }
 
-  int get_controlling_option () const FINAL OVERRIDE
+  int get_controlling_option () const final override
   {
     return OPT_Wanalyzer_tainted_size;
   }
 
-  bool emit (rich_location *rich_loc) OVERRIDE
+  bool emit (rich_location *rich_loc) override
   {
+    /* "CWE-129: Improper Validation of Array Index".  */
     diagnostic_metadata m;
     m.add_cwe (129);
-    switch (m_has_bounds)
-      {
-      default:
-	gcc_unreachable ();
-      case BOUNDS_NONE:
-	return warning_meta (rich_loc, m, get_controlling_option (),
-			     "use of attacker-controlled value %qE as size"
-			     " without bounds checking",
-			     m_arg);
-	break;
-      case BOUNDS_UPPER:
-	return warning_meta (rich_loc, m, get_controlling_option (),
-			     "use of attacker-controlled value %qE as size"
-			     " without lower-bounds checking",
-			     m_arg);
-	break;
-      case BOUNDS_LOWER:
-	return warning_meta (rich_loc, m, get_controlling_option (),
-			     "use of attacker-controlled value %qE as size"
-			     " without upper-bounds checking",
-			     m_arg);
-	break;
-      }
+    if (m_arg)
+      switch (m_has_bounds)
+	{
+	default:
+	  gcc_unreachable ();
+	case BOUNDS_NONE:
+	  return warning_meta (rich_loc, m, get_controlling_option (),
+			       "use of attacker-controlled value %qE as size"
+			       " without bounds checking",
+			       m_arg);
+	  break;
+	case BOUNDS_UPPER:
+	  return warning_meta (rich_loc, m, get_controlling_option (),
+			       "use of attacker-controlled value %qE as size"
+			       " without lower-bounds checking",
+			       m_arg);
+	  break;
+	case BOUNDS_LOWER:
+	  return warning_meta (rich_loc, m, get_controlling_option (),
+			       "use of attacker-controlled value %qE as size"
+			       " without upper-bounds checking",
+			       m_arg);
+	  break;
+	}
+    else
+      switch (m_has_bounds)
+	{
+	default:
+	  gcc_unreachable ();
+	case BOUNDS_NONE:
+	  return warning_meta (rich_loc, m, get_controlling_option (),
+			       "use of attacker-controlled value as size"
+			       " without bounds checking");
+	  break;
+	case BOUNDS_UPPER:
+	  return warning_meta (rich_loc, m, get_controlling_option (),
+			       "use of attacker-controlled value as size"
+			       " without lower-bounds checking");
+	  break;
+	case BOUNDS_LOWER:
+	  return warning_meta (rich_loc, m, get_controlling_option (),
+			       "use of attacker-controlled value as size"
+			       " without upper-bounds checking");
+	  break;
+	}
   }
 
-  label_text describe_final_event (const evdesc::final_event &ev) FINAL OVERRIDE
+  label_text describe_final_event (const evdesc::final_event &ev) final override
   {
-    switch (m_has_bounds)
-      {
-      default:
-	gcc_unreachable ();
-      case BOUNDS_NONE:
-	return ev.formatted_print ("use of attacker-controlled value %qE"
-				   " as size without bounds checking",
-				   m_arg);
-      case BOUNDS_UPPER:
-	return ev.formatted_print ("use of attacker-controlled value %qE"
-				   " as size without lower-bounds checking",
-				   m_arg);
-      case BOUNDS_LOWER:
-	return ev.formatted_print ("use of attacker-controlled value %qE"
-				   " as size without upper-bounds checking",
-				   m_arg);
-      }
+    if (m_arg)
+      switch (m_has_bounds)
+	{
+	default:
+	  gcc_unreachable ();
+	case BOUNDS_NONE:
+	  return ev.formatted_print ("use of attacker-controlled value %qE"
+				     " as size without bounds checking",
+				     m_arg);
+	case BOUNDS_UPPER:
+	  return ev.formatted_print ("use of attacker-controlled value %qE"
+				     " as size without lower-bounds checking",
+				     m_arg);
+	case BOUNDS_LOWER:
+	  return ev.formatted_print ("use of attacker-controlled value %qE"
+				     " as size without upper-bounds checking",
+				     m_arg);
+	}
+    else
+      switch (m_has_bounds)
+	{
+	default:
+	  gcc_unreachable ();
+	case BOUNDS_NONE:
+	  return ev.formatted_print ("use of attacker-controlled value"
+				     " as size without bounds checking");
+	case BOUNDS_UPPER:
+	  return ev.formatted_print ("use of attacker-controlled value"
+				     " as size without lower-bounds checking");
+	case BOUNDS_LOWER:
+	  return ev.formatted_print ("use of attacker-controlled value"
+				     " as size without upper-bounds checking");
+	}
   }
 };
 
@@ -439,12 +542,12 @@ public:
   {
   }
 
-  const char *get_kind () const OVERRIDE
+  const char *get_kind () const override
   {
     return "tainted_access_attrib_size";
   }
 
-  bool emit (rich_location *rich_loc) FINAL OVERRIDE
+  bool emit (rich_location *rich_loc) final override
   {
     bool warned = tainted_size::emit (rich_loc);
     if (warned)
@@ -473,14 +576,14 @@ public:
   : taint_diagnostic (sm, arg, has_bounds)
   {}
 
-  const char *get_kind () const FINAL OVERRIDE { return "tainted_divisor"; }
+  const char *get_kind () const final override { return "tainted_divisor"; }
 
-  int get_controlling_option () const FINAL OVERRIDE
+  int get_controlling_option () const final override
   {
     return OPT_Wanalyzer_tainted_divisor;
   }
 
-  bool emit (rich_location *rich_loc) FINAL OVERRIDE
+  bool emit (rich_location *rich_loc) final override
   {
     diagnostic_metadata m;
     /* CWE-369: "Divide By Zero".  */
@@ -496,7 +599,7 @@ public:
 			   " without checking for zero");
   }
 
-  label_text describe_final_event (const evdesc::final_event &ev) FINAL OVERRIDE
+  label_text describe_final_event (const evdesc::final_event &ev) final override
   {
     if (m_arg)
       return ev.formatted_print
@@ -523,12 +626,12 @@ public:
   {
   }
 
-  const char *get_kind () const FINAL OVERRIDE
+  const char *get_kind () const final override
   {
     return "tainted_allocation_size";
   }
 
-  bool subclass_equal_p (const pending_diagnostic &base_other) const OVERRIDE
+  bool subclass_equal_p (const pending_diagnostic &base_other) const override
   {
     if (!taint_diagnostic::subclass_equal_p (base_other))
       return false;
@@ -537,12 +640,12 @@ public:
     return m_mem_space == other.m_mem_space;
   }
 
-  int get_controlling_option () const FINAL OVERRIDE
+  int get_controlling_option () const final override
   {
     return OPT_Wanalyzer_tainted_allocation_size;
   }
 
-  bool emit (rich_location *rich_loc) FINAL OVERRIDE
+  bool emit (rich_location *rich_loc) final override
   {
     diagnostic_metadata m;
     /* "CWE-789: Memory Allocation with Excessive Size Value".  */
@@ -617,7 +720,7 @@ public:
     return warned;
   }
 
-  label_text describe_final_event (const evdesc::final_event &ev) FINAL OVERRIDE
+  label_text describe_final_event (const evdesc::final_event &ev) final override
   {
     if (m_arg)
       switch (m_has_bounds)
@@ -664,6 +767,100 @@ private:
   enum memory_space m_mem_space;
 };
 
+/* Concrete taint_diagnostic subclass for reporting attacker-controlled
+   value being used as part of the condition of an assertion.  */
+
+class tainted_assertion : public taint_diagnostic
+{
+public:
+  tainted_assertion (const taint_state_machine &sm, tree arg,
+		     tree assert_failure_fndecl)
+  : taint_diagnostic (sm, arg, BOUNDS_NONE),
+    m_assert_failure_fndecl (assert_failure_fndecl)
+  {
+    gcc_assert (m_assert_failure_fndecl);
+  }
+
+  const char *get_kind () const final override
+  {
+    return "tainted_assertion";
+  }
+
+  bool subclass_equal_p (const pending_diagnostic &base_other) const override
+  {
+    if (!taint_diagnostic::subclass_equal_p (base_other))
+      return false;
+    const tainted_assertion &other
+      = (const tainted_assertion &)base_other;
+    return m_assert_failure_fndecl == other.m_assert_failure_fndecl;
+  }
+
+  int get_controlling_option () const final override
+  {
+    return OPT_Wanalyzer_tainted_assertion;
+  }
+
+  bool emit (rich_location *rich_loc) final override
+  {
+    diagnostic_metadata m;
+    /* "CWE-617: Reachable Assertion".  */
+    m.add_cwe (617);
+
+    return warning_meta (rich_loc, m, get_controlling_option (),
+			 "use of attacked-controlled value in"
+			 " condition for assertion");
+  }
+
+  location_t fixup_location (location_t loc,
+			     bool primary) const final override
+  {
+    if (primary)
+      /* For the primary location we want to avoid being in e.g. the
+	 <assert.h> system header, since this would suppress the
+	 diagnostic.  */
+      return expansion_point_location_if_in_system_header (loc);
+    else if (in_system_header_at (loc))
+      /* For events, we want to show the implemenation of the assert
+	 macro when we're describing them.  */
+      return linemap_resolve_location (line_table, loc,
+				       LRK_SPELLING_LOCATION,
+				       NULL);
+    else
+      return pending_diagnostic::fixup_location (loc, primary);
+  }
+
+  label_text describe_state_change (const evdesc::state_change &change) override
+  {
+    if (change.m_new_state == m_sm.m_tainted_control_flow)
+      return change.formatted_print
+	("use of attacker-controlled value for control flow");
+    return taint_diagnostic::describe_state_change (change);
+  }
+
+  label_text describe_final_event (const evdesc::final_event &ev) final override
+  {
+    if (mention_noreturn_attribute_p ())
+      return ev.formatted_print
+	("treating %qE as an assertion failure handler"
+	 " due to %<__attribute__((__noreturn__))%>",
+	 m_assert_failure_fndecl);
+    else
+      return ev.formatted_print
+	("treating %qE as an assertion failure handler",
+	 m_assert_failure_fndecl);
+  }
+
+private:
+  bool mention_noreturn_attribute_p () const
+  {
+    if (fndecl_built_in_p (m_assert_failure_fndecl, BUILT_IN_UNREACHABLE))
+      return false;
+    return true;
+  }
+
+  tree m_assert_failure_fndecl;
+};
+
 /* taint_state_machine's ctor.  */
 
 taint_state_machine::taint_state_machine (logger *logger)
@@ -673,6 +870,7 @@ taint_state_machine::taint_state_machine (logger *logger)
   m_has_lb = add_state ("has_lb");
   m_has_ub = add_state ("has_ub");
   m_stop = add_state ("stop");
+  m_tainted_control_flow = add_state ("tainted-control-flow");
 }
 
 state_machine::state_t
@@ -713,6 +911,15 @@ taint_state_machine::alt_get_inherited_state (const sm_state_map &map,
 	  {
 	  default:
 	    break;
+
+	  case EQ_EXPR:
+	  case GE_EXPR:
+	  case LE_EXPR:
+	  case NE_EXPR:
+	  case GT_EXPR:
+	  case LT_EXPR:
+	  case UNORDERED_EXPR:
+	  case ORDERED_EXPR:
 	  case PLUS_EXPR:
 	  case MINUS_EXPR:
 	  case MULT_EXPR:
@@ -726,17 +933,6 @@ taint_state_machine::alt_get_inherited_state (const sm_state_map &map,
 	    }
 	    break;
 
-	  case EQ_EXPR:
-	  case GE_EXPR:
-	  case LE_EXPR:
-	  case NE_EXPR:
-	  case GT_EXPR:
-	  case LT_EXPR:
-	  case UNORDERED_EXPR:
-	  case ORDERED_EXPR:
-	    /* Comparisons are just booleans.  */
-	    return m_start;
-
 	  case BIT_AND_EXPR:
 	  case RSHIFT_EXPR:
 	    return NULL;
@@ -745,6 +941,19 @@ taint_state_machine::alt_get_inherited_state (const sm_state_map &map,
       break;
     }
   return NULL;
+}
+
+/* Return true iff FNDECL should be considered to be an assertion failure
+   handler by -Wanalyzer-tainted-assertion. */
+
+static bool
+is_assertion_failure_handler_p (tree fndecl)
+{
+  // i.e. "noreturn"
+  if (TREE_THIS_VOLATILE (fndecl))
+    return true;
+
+  return false;
 }
 
 /* Implementation of state_machine::on_stmt vfunc for taint_state_machine.  */
@@ -774,6 +983,14 @@ taint_state_machine::on_stmt (sm_context *sm_ctxt,
 	/* External function with "access" attribute. */
 	if (sm_ctxt->unknown_side_effects_p ())
 	  check_for_tainted_size_arg (sm_ctxt, node, call, callee_fndecl);
+
+	if (is_assertion_failure_handler_p (callee_fndecl)
+	    && sm_ctxt->get_global_state () == m_tainted_control_flow)
+	  {
+	    sm_ctxt->warn (node, call, NULL_TREE,
+			   make_unique<tainted_assertion> (*this, NULL_TREE,
+							   callee_fndecl));
+	  }
       }
   // TODO: ...etc; many other sources of untrusted data
 
@@ -800,7 +1017,44 @@ taint_state_machine::on_stmt (sm_context *sm_ctxt,
 	}
     }
 
+  if (const gcond *cond = dyn_cast <const gcond *> (stmt))
+    {
+      /* Reset the state of "tainted-control-flow" before each
+	 control flow statement, so that only the last one before
+	 an assertion-failure-handler counts.  */
+      sm_ctxt->set_global_state (m_start);
+      check_control_flow_arg_for_taint (sm_ctxt, cond, gimple_cond_lhs (cond));
+      check_control_flow_arg_for_taint (sm_ctxt, cond, gimple_cond_rhs (cond));
+    }
+
+  if (const gswitch *switch_ = dyn_cast <const gswitch *> (stmt))
+    {
+      /* Reset the state of "tainted-control-flow" before each
+	 control flow statement, so that only the last one before
+	 an assertion-failure-handler counts.  */
+      sm_ctxt->set_global_state (m_start);
+      check_control_flow_arg_for_taint (sm_ctxt, switch_,
+					gimple_switch_index (switch_));
+    }
+
   return false;
+}
+
+/* If EXPR is tainted, mark this execution path with the
+   "tainted-control-flow" global state, in case we're about
+   to call an assertion-failure-handler.  */
+
+void
+taint_state_machine::check_control_flow_arg_for_taint (sm_context *sm_ctxt,
+						       const gimple *stmt,
+						       tree expr) const
+{
+  const region_model *old_model = sm_ctxt->get_old_region_model ();
+  const svalue *sval = old_model->get_rvalue (expr, NULL);
+  state_t state = sm_ctxt->get_state (stmt, sval);
+  enum bounds b;
+  if (get_taint (state, TREE_TYPE (expr), &b))
+    sm_ctxt->set_global_state (m_tainted_control_flow);
 }
 
 /* Implementation of state_machine::on_condition vfunc for taint_state_machine.
@@ -813,12 +1067,10 @@ taint_state_machine::on_condition (sm_context *sm_ctxt,
 				   const gimple *stmt,
 				   const svalue *lhs,
 				   enum tree_code op,
-				   const svalue *rhs ATTRIBUTE_UNUSED) const
+				   const svalue *rhs) const
 {
   if (stmt == NULL)
     return;
-
-  // TODO: this doesn't use the RHS; should we make it symmetric?
 
   // TODO
   switch (op)
@@ -828,24 +1080,132 @@ taint_state_machine::on_condition (sm_context *sm_ctxt,
     case GE_EXPR:
     case GT_EXPR:
       {
+	/* (LHS >= RHS) or (LHS > RHS)
+	   LHS gains a lower bound
+	   RHS gains an upper bound.  */
 	sm_ctxt->on_transition (node, stmt, lhs, m_tainted,
 				m_has_lb);
 	sm_ctxt->on_transition (node, stmt, lhs, m_has_ub,
+				m_stop);
+	sm_ctxt->on_transition (node, stmt, rhs, m_tainted,
+				m_has_ub);
+	sm_ctxt->on_transition (node, stmt, rhs, m_has_lb,
 				m_stop);
       }
       break;
     case LE_EXPR:
     case LT_EXPR:
       {
+	/* Detect where build_range_check has optimized
+	   (c>=low) && (c<=high)
+	   into
+	   (c-low>=0) && (c-low<=high-low)
+	   and thus into:
+	   (unsigned)(c - low) <= (unsigned)(high-low).  */
+	if (const binop_svalue *binop_sval
+	      = lhs->dyn_cast_binop_svalue ())
+	  {
+	    const svalue *inner_lhs = binop_sval->get_arg0 ();
+	    enum tree_code inner_op = binop_sval->get_op ();
+	    const svalue *inner_rhs = binop_sval->get_arg1 ();
+	    if (const svalue *before_cast = inner_lhs->maybe_undo_cast ())
+	      inner_lhs = before_cast;
+	    if (tree outer_rhs_cst = rhs->maybe_get_constant ())
+	      if (tree inner_rhs_cst = inner_rhs->maybe_get_constant ())
+		if (inner_op == PLUS_EXPR
+		    && TREE_CODE (inner_rhs_cst) == INTEGER_CST
+		    && TREE_CODE (outer_rhs_cst) == INTEGER_CST
+		    && TYPE_UNSIGNED (TREE_TYPE (inner_rhs_cst))
+		    && TYPE_UNSIGNED (TREE_TYPE (outer_rhs_cst)))
+		  {
+		    /* We have
+		       (unsigned)(INNER_LHS + CST_A) </<= UNSIGNED_CST_B
+		       and thus an optimized test of INNER_LHS (before any
+		       cast to unsigned) against a range.
+		       Transition any of the tainted states to the stop state.
+		       We have to special-case this here rather than in
+		       region_model::on_condition since we can't apply
+		       both conditions simultaneously (we'd have a transition
+		       from the old state to has_lb, then a transition from
+		       the old state *again* to has_ub).  */
+		    state_t old_state
+		      = sm_ctxt->get_state (stmt, inner_lhs);
+		    if (old_state == m_tainted
+			|| old_state == m_has_lb
+			|| old_state == m_has_ub)
+		      sm_ctxt->set_next_state (stmt, inner_lhs, m_stop);
+		    return;
+		  }
+	  }
+
+	/* (LHS <= RHS) or (LHS < RHS)
+	   LHS gains an upper bound
+	   RHS gains a lower bound.  */
 	sm_ctxt->on_transition (node, stmt, lhs, m_tainted,
 				m_has_ub);
 	sm_ctxt->on_transition (node, stmt, lhs, m_has_lb,
+				m_stop);
+	sm_ctxt->on_transition (node, stmt, rhs, m_tainted,
+				m_has_lb);
+	sm_ctxt->on_transition (node, stmt, rhs, m_has_ub,
 				m_stop);
       }
       break;
     default:
       break;
     }
+}
+
+/* Implementation of state_machine::on_bounded_ranges vfunc for
+   taint_state_machine, for handling switch statement cases.
+   Potentially transition state 'tainted' to 'has_ub' or 'has_lb',
+   and states 'has_ub' and 'has_lb' to 'stop'.  */
+
+void
+taint_state_machine::on_bounded_ranges (sm_context *sm_ctxt,
+					const supernode *,
+					const gimple *stmt,
+					const svalue &sval,
+					const bounded_ranges &ranges) const
+{
+  gcc_assert (!ranges.empty_p ());
+  gcc_assert (ranges.get_count () > 0);
+
+  /* We have one or more ranges; this could be a "default:", or one or
+     more single or range cases.
+
+     Look at the overall endpoints to see if the ranges impose any lower
+     bounds or upper bounds beyond those of the underlying numeric type.  */
+
+  tree lowest_bound = ranges.get_range (0).m_lower;
+  tree highest_bound = ranges.get_range (ranges.get_count () - 1).m_upper;
+  gcc_assert (lowest_bound);
+  gcc_assert (highest_bound);
+
+  bool ranges_have_lb
+    = (lowest_bound != TYPE_MIN_VALUE (TREE_TYPE (lowest_bound)));
+  bool ranges_have_ub
+    = (highest_bound != TYPE_MAX_VALUE (TREE_TYPE (highest_bound)));
+
+  if (!ranges_have_lb && !ranges_have_ub)
+    return;
+
+  /* We have new bounds from the ranges; combine them with any
+     existing bounds on SVAL.  */
+  state_t old_state = sm_ctxt->get_state (stmt, &sval);
+  if (old_state == m_tainted)
+    {
+      if (ranges_have_lb && ranges_have_ub)
+	sm_ctxt->set_next_state (stmt, &sval, m_stop);
+      else if (ranges_have_lb)
+	sm_ctxt->set_next_state (stmt, &sval, m_has_lb);
+      else if (ranges_have_ub)
+	sm_ctxt->set_next_state (stmt, &sval, m_has_ub);
+    }
+  else if (old_state == m_has_ub && ranges_have_lb)
+    sm_ctxt->set_next_state (stmt, &sval, m_stop);
+  else if (old_state == m_has_lb && ranges_have_ub)
+    sm_ctxt->set_next_state (stmt, &sval, m_stop);
 }
 
 bool
@@ -962,10 +1322,11 @@ taint_state_machine::check_for_tainted_size_arg (sm_context *sm_ctxt,
 	    TREE_STRING_POINTER (access->to_external_string ());
 	  tree diag_size = sm_ctxt->get_diagnostic_tree (size_arg);
 	  sm_ctxt->warn (node, call, size_arg,
-			 new tainted_access_attrib_size (*this, diag_size, b,
-							 callee_fndecl,
-							 access->sizarg,
-							 access_str));
+			 make_unique<tainted_access_attrib_size>
+			   (*this, diag_size, b,
+			    callee_fndecl,
+			    access->sizarg,
+			    access_str));
 	}
     }
 }
@@ -1000,7 +1361,7 @@ taint_state_machine::check_for_tainted_divisor (sm_context *sm_ctxt,
 
       tree diag_divisor = sm_ctxt->get_diagnostic_tree (divisor_expr);
       sm_ctxt->warn (node, assign, divisor_expr,
-		     new tainted_divisor (*this, diag_divisor, b));
+		     make_unique <tainted_divisor> (*this, diag_divisor, b));
       sm_ctxt->set_next_state (assign, divisor_sval, m_stop);
     }
 }
@@ -1063,7 +1424,7 @@ region_model::check_region_for_taint (const region *reg,
 	    if (taint_sm.get_taint (state, index->get_type (), &b))
 	    {
 	      tree arg = get_representative_tree (index);
-	      ctxt->warn (new tainted_array_index (taint_sm, arg, b));
+	      ctxt->warn (make_unique<tainted_array_index> (taint_sm, arg, b));
 	    }
 	  }
 	  break;
@@ -1085,7 +1446,7 @@ region_model::check_region_for_taint (const region *reg,
 	    if (taint_sm.get_taint (state, effective_type, &b))
 	      {
 		tree arg = get_representative_tree (offset);
-		ctxt->warn (new tainted_offset (taint_sm, arg, b));
+		ctxt->warn (make_unique<tainted_offset> (taint_sm, arg, b));
 	      }
 	  }
 	  break;
@@ -1110,7 +1471,7 @@ region_model::check_region_for_taint (const region *reg,
 	    if (taint_sm.get_taint (state, size_sval->get_type (), &b))
 	      {
 		tree arg = get_representative_tree (size_sval);
-		ctxt->warn (new tainted_size (taint_sm, arg, b));
+		ctxt->warn (make_unique<tainted_size> (taint_sm, arg, b));
 	      }
 	  }
 	  break;
@@ -1156,8 +1517,61 @@ region_model::check_dynamic_size_for_taint (enum memory_space mem_space,
   if (taint_sm.get_taint (state, size_in_bytes->get_type (), &b))
     {
       tree arg = get_representative_tree (size_in_bytes);
-      ctxt->warn (new tainted_allocation_size (taint_sm, arg, b, mem_space));
+      ctxt->warn (make_unique<tainted_allocation_size>
+		    (taint_sm, arg, b, mem_space));
     }
+}
+
+/* Mark SVAL as TAINTED.  CTXT must be non-NULL.  */
+
+void
+region_model::mark_as_tainted (const svalue *sval,
+			       region_model_context *ctxt)
+{
+  gcc_assert (sval);
+  gcc_assert (ctxt);
+
+  sm_state_map *smap;
+  const state_machine *sm;
+  unsigned sm_idx;
+  if (!ctxt->get_taint_map (&smap, &sm, &sm_idx))
+    return;
+
+  gcc_assert (smap);
+  gcc_assert (sm);
+
+  const taint_state_machine &taint_sm = (const taint_state_machine &)*sm;
+
+  const extrinsic_state *ext_state = ctxt->get_ext_state ();
+  if (!ext_state)
+    return;
+
+  smap->set_state (this, sval, taint_sm.m_tainted, NULL, *ext_state);
+}
+
+/* Return true if SVAL could possibly be attacker-controlled.  */
+
+bool
+region_model_context::possibly_tainted_p (const svalue *sval)
+{
+  sm_state_map *smap;
+  const state_machine *sm;
+  unsigned sm_idx;
+  if (!get_taint_map (&smap, &sm, &sm_idx))
+      return false;
+
+  const taint_state_machine &taint_sm = (const taint_state_machine &)*sm;
+
+  const extrinsic_state *ext_state = get_ext_state ();
+  if (!ext_state)
+    return false;
+
+  const state_machine::state_t state = smap->get_state (sval, *ext_state);
+  gcc_assert (state);
+
+  return (state == taint_sm.m_tainted
+	  || state == taint_sm.m_has_lb
+	  || state == taint_sm.m_has_ub);
 }
 
 } // namespace ana

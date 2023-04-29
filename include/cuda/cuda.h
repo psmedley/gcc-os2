@@ -1,5 +1,5 @@
 /* CUDA Driver API description.
-   Copyright (C) 2017-2022 Free Software Foundation, Inc.
+   Copyright (C) 2017-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -31,6 +31,10 @@ the proprietary CUDA toolkit.  */
 #include <stdlib.h>
 
 #define CUDA_VERSION 8000
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef void *CUcontext;
 typedef int CUdevice;
@@ -73,6 +77,7 @@ typedef enum {
   CU_DEVICE_ATTRIBUTE_CONCURRENT_KERNELS = 31,
   CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_MULTIPROCESSOR = 39,
   CU_DEVICE_ATTRIBUTE_ASYNC_ENGINE_COUNT = 40,
+  CU_DEVICE_ATTRIBUTE_UNIFIED_ADDRESSING = 41,
   CU_DEVICE_ATTRIBUTE_MAX_REGISTERS_PER_MULTIPROCESSOR = 82
 } CUdevice_attribute;
 
@@ -93,7 +98,9 @@ typedef enum {
   CU_JIT_ERROR_LOG_BUFFER = 5,
   CU_JIT_ERROR_LOG_BUFFER_SIZE_BYTES = 6,
   CU_JIT_OPTIMIZATION_LEVEL = 7,
-  CU_JIT_LOG_VERBOSE = 12
+  CU_JIT_GENERATE_DEBUG_INFO = 11,
+  CU_JIT_LOG_VERBOSE = 12,
+  CU_JIT_GENERATE_LINE_INFO = 13,
 } CUjit_option;
 
 typedef enum {
@@ -107,11 +114,17 @@ enum {
 #define CU_LAUNCH_PARAM_END ((void *) 0)
 #define CU_LAUNCH_PARAM_BUFFER_POINTER ((void *) 1)
 #define CU_LAUNCH_PARAM_BUFFER_SIZE ((void *) 2)
+#define CU_MEMHOSTALLOC_DEVICEMAP 0x02U
 
 enum {
   CU_STREAM_DEFAULT = 0,
   CU_STREAM_NON_BLOCKING = 1
 };
+
+typedef enum {
+  CU_LIMIT_STACK_SIZE = 0x00,
+  CU_LIMIT_MALLOC_HEAP_SIZE = 0x02,
+} CUlimit;
 
 #define cuCtxCreate cuCtxCreate_v2
 CUresult cuCtxCreate (CUcontext *, unsigned, CUdevice);
@@ -124,6 +137,7 @@ CUresult cuCtxPopCurrent (CUcontext *);
 #define cuCtxPushCurrent cuCtxPushCurrent_v2
 CUresult cuCtxPushCurrent (CUcontext);
 CUresult cuCtxSynchronize (void);
+CUresult cuCtxSetLimit (CUlimit, size_t);
 CUresult cuDeviceGet (CUdevice *, int);
 #define cuDeviceTotalMem cuDeviceTotalMem_v2
 CUresult cuDeviceTotalMem (size_t *, CUdevice);
@@ -139,6 +153,7 @@ CUresult cuEventRecord (CUevent, CUstream);
 CUresult cuEventSynchronize (CUevent);
 CUresult cuFuncGetAttribute (int *, CUfunction_attribute, CUfunction);
 CUresult cuGetErrorString (CUresult, const char **);
+CUresult cuGetErrorName (CUresult, const char **);
 CUresult cuInit (unsigned);
 CUresult cuDriverGetVersion (int *);
 CUresult cuLaunchKernel (CUfunction, unsigned, unsigned, unsigned, unsigned,
@@ -156,6 +171,7 @@ CUresult cuMemGetInfo (size_t *, size_t *);
 CUresult cuMemAlloc (CUdeviceptr *, size_t);
 #define cuMemAllocHost cuMemAllocHost_v2
 CUresult cuMemAllocHost (void **, size_t);
+CUresult cuMemHostAlloc (void **, size_t, unsigned int);
 CUresult cuMemcpy (CUdeviceptr, CUdeviceptr, size_t);
 #define cuMemcpyDtoDAsync cuMemcpyDtoDAsync_v2
 CUresult cuMemcpyDtoDAsync (CUdeviceptr, CUdeviceptr, size_t, CUstream);
@@ -190,5 +206,9 @@ CUresult cuStreamDestroy (CUstream);
 CUresult cuStreamQuery (CUstream);
 CUresult cuStreamSynchronize (CUstream);
 CUresult cuStreamWaitEvent (CUstream, CUevent, unsigned);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* GCC_CUDA_H */

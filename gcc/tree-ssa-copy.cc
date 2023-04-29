@@ -1,5 +1,5 @@
 /* Copy propagation and SSA_NAME replacement support routines.
-   Copyright (C) 2004-2022 Free Software Foundation, Inc.
+   Copyright (C) 2004-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -33,6 +33,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "cfgloop.h"
 #include "tree-scalar-evolution.h"
 #include "tree-ssa-loop-niter.h"
+#include "gimple-fold.h"
 
 
 /* This file implements the copy propagation pass and provides a
@@ -71,8 +72,8 @@ struct prop_value_t {
 class copy_prop : public ssa_propagation_engine
 {
  public:
-  enum ssa_prop_result visit_stmt (gimple *, edge *, tree *) FINAL OVERRIDE;
-  enum ssa_prop_result visit_phi (gphi *) FINAL OVERRIDE;
+  enum ssa_prop_result visit_stmt (gimple *, edge *, tree *) final override;
+  enum ssa_prop_result visit_phi (gphi *) final override;
 };
 
 static prop_value_t *copy_of;
@@ -99,12 +100,16 @@ stmt_may_generate_copy (gimple *stmt)
   if (gimple_vuse (stmt))
     return false;
 
+  /* If the assignment is from a constant it generates a useful copy.  */
+  if (gimple_assign_single_p (stmt)
+      && is_gimple_min_invariant (gimple_assign_rhs1 (stmt)))
+    return true;
+
   /* Otherwise, the only statements that generate useful copies are
-     assignments whose RHS is just an SSA name that doesn't flow
-     through abnormal edges.  */
-  return ((gimple_assign_rhs_code (stmt) == SSA_NAME
-	   && !SSA_NAME_OCCURS_IN_ABNORMAL_PHI (gimple_assign_rhs1 (stmt)))
-	  || is_gimple_min_invariant (gimple_assign_rhs1 (stmt)));
+     assignments whose single SSA use doesn't flow through abnormal
+     edges.  */
+  tree rhs = single_ssa_tree_operand (stmt, SSA_OP_USE);
+  return (rhs && !SSA_NAME_OCCURS_IN_ABNORMAL_PHI (rhs));
 }
 
 
@@ -197,26 +202,24 @@ dump_copy_of (FILE *file, tree var)
 static enum ssa_prop_result
 copy_prop_visit_assignment (gimple *stmt, tree *result_p)
 {
-  tree lhs, rhs;
-
-  lhs = gimple_assign_lhs (stmt);
-  rhs = valueize_val (gimple_assign_rhs1 (stmt));
-
-  if (TREE_CODE (lhs) == SSA_NAME)
+  tree lhs = gimple_assign_lhs (stmt);
+  tree rhs = gimple_fold_stmt_to_constant_1 (stmt, valueize_val);
+  if (rhs
+      && (TREE_CODE (rhs) == SSA_NAME
+	  || is_gimple_min_invariant (rhs)))
     {
-      /* Straight copy between two SSA names.  First, make sure that
+      /* Straight copy between two SSA names or a constant.  Make sure that
 	 we can propagate the RHS into uses of LHS.  */
       if (!may_propagate_copy (lhs, rhs))
-	return SSA_PROP_VARYING;
-
-      *result_p = lhs;
-      if (set_copy_of_val (*result_p, rhs))
-	return SSA_PROP_INTERESTING;
-      else
-	return SSA_PROP_NOT_INTERESTING;
+	rhs = lhs;
     }
+  else
+    rhs = lhs;
 
-  return SSA_PROP_VARYING;
+  *result_p = lhs;
+  if (set_copy_of_val (*result_p, rhs))
+    return SSA_PROP_INTERESTING;
+  return rhs != lhs ? SSA_PROP_NOT_INTERESTING : SSA_PROP_VARYING;
 }
 
 
@@ -282,10 +285,8 @@ copy_prop::visit_stmt (gimple *stmt, edge *taken_edge_p, tree *result_p)
       fprintf (dump_file, "\n");
     }
 
-  if (gimple_assign_single_p (stmt)
-      && TREE_CODE (gimple_assign_lhs (stmt)) == SSA_NAME
-      && (TREE_CODE (gimple_assign_rhs1 (stmt)) == SSA_NAME
-	  || is_gimple_min_invariant (gimple_assign_rhs1 (stmt))))
+  if (is_gimple_assign (stmt)
+      && TREE_CODE (gimple_assign_lhs (stmt)) == SSA_NAME)
     {
       /* If the statement is a copy assignment, evaluate its RHS to
 	 see if the lattice value of its output has changed.  */
@@ -492,7 +493,7 @@ init_copy_prop (void)
 class copy_folder : public substitute_and_fold_engine
 {
  public:
-  tree value_of_expr (tree name, gimple *) FINAL OVERRIDE;
+  tree value_of_expr (tree name, gimple *) final override;
 };
 
 /* Callback for substitute_and_fold to get at the final copy-of values.  */
@@ -556,9 +557,7 @@ fini_copy_prop (void)
 		   && SSA_NAME_RANGE_INFO (var)
 		   && !SSA_NAME_RANGE_INFO (copy_of[i].value)
 		   && var_bb == copy_of_bb)
-	    duplicate_ssa_name_range_info (copy_of[i].value,
-					   SSA_NAME_RANGE_TYPE (var),
-					   SSA_NAME_RANGE_INFO (var));
+	    duplicate_ssa_name_range_info (copy_of[i].value, var);
 	}
     }
 
@@ -644,9 +643,12 @@ public:
   {}
 
   /* opt_pass methods: */
-  opt_pass * clone () { return new pass_copy_prop (m_ctxt); }
-  virtual bool gate (function *) { return flag_tree_copy_prop != 0; }
-  virtual unsigned int execute (function *) { return execute_copy_prop (); }
+  opt_pass * clone () final override { return new pass_copy_prop (m_ctxt); }
+  bool gate (function *) final override { return flag_tree_copy_prop != 0; }
+  unsigned int execute (function *) final override
+  {
+    return execute_copy_prop ();
+  }
 
 }; // class pass_copy_prop
 

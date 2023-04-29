@@ -1,5 +1,5 @@
 /* Functions for generic Darwin as target machine for GNU C compiler.
-   Copyright (C) 1989-2022 Free Software Foundation, Inc.
+   Copyright (C) 1989-2023 Free Software Foundation, Inc.
    Contributed by Apple Computer Inc.
 
 This file is part of GCC.
@@ -1935,6 +1935,8 @@ darwin_label_is_anonymous_local_objc_name (const char *name)
       return true;
     }
   else if (startswith ((const char *)p, "ClassMethods"))
+    return false;
+  else if (startswith ((const char *)p, "ClassProtocols"))
     return false;
   else if (startswith ((const char *)p, "Instance"))
     {

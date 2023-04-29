@@ -1,5 +1,5 @@
 /* Classes for purging state at function_points.
-   Copyright (C) 2019-2022 Free Software Foundation, Inc.
+   Copyright (C) 2019-2023 Free Software Foundation, Inc.
    Contributed by David Malcolm <dmalcolm@redhat.com>.
 
 This file is part of GCC.
@@ -236,11 +236,11 @@ public:
   state_purge_annotator (const state_purge_map *map) : m_map (map) {}
 
   bool add_node_annotations (graphviz_out *gv, const supernode &n, bool)
-    const FINAL OVERRIDE;
+    const final override;
 
   void add_stmt_annotations (graphviz_out *gv, const gimple *stmt,
 			     bool within_row)
-    const FINAL OVERRIDE;
+    const final override;
 
 private:
   void print_needed (graphviz_out *gv,

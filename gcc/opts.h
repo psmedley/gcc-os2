@@ -1,5 +1,5 @@
 /* Command line option handling.
-   Copyright (C) 2002-2022 Free Software Foundation, Inc.
+   Copyright (C) 2002-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -473,6 +473,7 @@ extern const struct sanitizer_opts_s
   unsigned int flag;
   size_t len;
   bool can_recover;
+  bool can_trap;
 } sanitizer_opts[];
 
 extern const struct zero_call_used_regs_opts_s
@@ -525,5 +526,41 @@ extern char *gen_producer_string (const char *language_string,
 /* Return true if OPTION is set by user in global options.  */
 
 #define OPTION_SET_P(OPTION) global_options_set.x_ ## OPTION
+
+/* Find all the switches given to us
+   and make a vector describing them.
+   The elements of the vector are strings, one per switch given.
+   If a switch uses following arguments, then the `part1' field
+   is the switch itself and the `args' field
+   is a null-terminated vector containing the following arguments.
+   Bits in the `live_cond' field are:
+   SWITCH_LIVE to indicate this switch is true in a conditional spec.
+   SWITCH_FALSE to indicate this switch is overridden by a later switch.
+   SWITCH_IGNORE to indicate this switch should be ignored (used in %<S).
+   SWITCH_IGNORE_PERMANENTLY to indicate this switch should be ignored.
+   SWITCH_KEEP_FOR_GCC to indicate that this switch, otherwise ignored,
+   should be included in COLLECT_GCC_OPTIONS.
+   in all do_spec calls afterwards.  Used for %<S from self specs.
+   The `known' field describes whether this is an internal switch.
+   The `validated' field describes whether any spec has looked at this switch;
+   if it remains false at the end of the run, the switch must be meaningless.
+   The `ordering' field is used to temporarily mark switches that have to be
+   kept in a specific order.  */
+
+#define SWITCH_LIVE    			(1 << 0)
+#define SWITCH_FALSE   			(1 << 1)
+#define SWITCH_IGNORE			(1 << 2)
+#define SWITCH_IGNORE_PERMANENTLY	(1 << 3)
+#define SWITCH_KEEP_FOR_GCC		(1 << 4)
+
+struct switchstr
+{
+  const char *part1;
+  const char **args;
+  unsigned int live_cond;
+  bool known;
+  bool validated;
+  bool ordering;
+};
 
 #endif

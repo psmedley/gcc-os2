@@ -1,5 +1,5 @@
 ;;- Machine description for ARM for GNU compiler
-;;  Copyright (C) 1991-2022 Free Software Foundation, Inc.
+;;  Copyright (C) 1991-2023 Free Software Foundation, Inc.
 ;;  Contributed by Pieter `Tiggr' Schoenmakers (rcpieter@win.tue.nl)
 ;;  and Martin Simmons (@harleqn.co.uk).
 ;;  More major hacks by Richard Earnshaw (rearnsha@arm.com).
@@ -42,6 +42,7 @@
    (APSRQ_REGNUM    104)	; Q bit pseudo register
    (APSRGE_REGNUM   105)	; GE bits pseudo register
    (VPR_REGNUM      106)	; Vector Predication Register - MVE register.
+   (RA_AUTH_CODE    107)	; Pseudo register to save PAC.
   ]
 )
 ;; 3rd operand to select_dominance_cc_mode
@@ -3002,30 +3003,36 @@
 
 ; ??? Check split length for Thumb-2
 (define_insn_and_split "*arm_andsi3_insn"
-  [(set (match_operand:SI         0 "s_register_operand" "=r,l,r,r,r")
-	(and:SI (match_operand:SI 1 "s_register_operand" "%r,0,r,r,r")
-		(match_operand:SI 2 "reg_or_int_operand" "I,l,K,r,?n")))]
+  [(set (match_operand:SI         0 "s_register_operand" "=r,l,r,r,r,r")
+	(and:SI (match_operand:SI 1 "s_register_operand" "%r,0,r,r,0,r")
+		(match_operand:SI 2 "reg_or_int_operand" "I,l,K,r,Dj,?n")))]
   "TARGET_32BIT"
   "@
    and%?\\t%0, %1, %2
    and%?\\t%0, %1, %2
    bic%?\\t%0, %1, #%B2
    and%?\\t%0, %1, %2
+   bfc%?\\t%0, %V2
    #"
   "TARGET_32BIT
    && CONST_INT_P (operands[2])
    && !(const_ok_for_arm (INTVAL (operands[2]))
-	|| const_ok_for_arm (~INTVAL (operands[2])))"
+	|| const_ok_for_arm (~INTVAL (operands[2]))
+	|| (arm_arch_thumb2
+	    && satisfies_constraint_Dj (operands[2])
+	    && (rtx_equal_p (operands[0], operands[1])
+		|| !reload_completed)))"
   [(clobber (const_int 0))]
   "
-  arm_split_constant  (AND, SImode, curr_insn, 
+  arm_split_constant  (AND, SImode, curr_insn,
 	               INTVAL (operands[2]), operands[0], operands[1], 0);
   DONE;
   "
-  [(set_attr "length" "4,4,4,4,16")
+  [(set_attr "length" "4,4,4,4,4,16")
    (set_attr "predicable" "yes")
-   (set_attr "predicable_short_it" "no,yes,no,no,no")
-   (set_attr "type" "logic_imm,logic_imm,logic_reg,logic_reg,logic_imm")]
+   (set_attr "predicable_short_it" "no,yes,no,no,no,no")
+   (set_attr "arch" "*,*,*,*,v6t2,*")
+   (set_attr "type" "logic_imm,logic_imm,logic_reg,logic_reg,bfm,logic_imm")]
 )
 
 (define_insn "*andsi3_compare0"
@@ -3471,13 +3478,25 @@
   }"
 )
 
-(define_insn "insv_zero"
+(define_insn_and_split "insv_zero"
   [(set (zero_extract:SI (match_operand:SI 0 "s_register_operand" "+r")
                          (match_operand:SI 1 "const_int_M_operand" "M")
                          (match_operand:SI 2 "const_int_M_operand" "M"))
         (const_int 0))]
   "arm_arch_thumb2"
   "bfc%?\t%0, %2, %1"
+  ""
+  [(set (match_dup 0) (and:SI (match_dup 0) (match_dup 1)))]
+  {
+    /* Convert back to a normal AND operation, so that we can take advantage
+       of BIC and AND when appropriate; we'll still emit BFC if that's the
+       right thing to do.  */
+    unsigned HOST_WIDE_INT width = UINTVAL (operands[1]);
+    unsigned HOST_WIDE_INT lsb = UINTVAL (operands[2]);
+    unsigned HOST_WIDE_INT mask = (HOST_WIDE_INT_1U << width) - 1;
+
+    operands[1] = gen_int_mode (~(mask << lsb), SImode);
+  }
   [(set_attr "length" "4")
    (set_attr "predicable" "yes")
    (set_attr "type" "bfm")]
@@ -3490,6 +3509,76 @@
         (match_operand:SI 3 "s_register_operand" "r"))]
   "arm_arch_thumb2"
   "bfi%?\t%0, %3, %2, %1"
+  [(set_attr "length" "4")
+   (set_attr "predicable" "yes")
+   (set_attr "type" "bfm")]
+)
+
+(define_insn "*bfi"
+  [(set (match_operand:SI 0 "s_register_operand" "=r")
+	(ior:SI (and:SI (match_operand:SI 1 "s_register_operand" "0")
+			(match_operand 2 "const_int_operand" "Dj"))
+		(and:SI (ashift:SI
+			 (match_operand:SI 3 "s_register_operand" "r")
+			 (match_operand 4 "const_int_operand" "i"))
+			(match_operand 5 "const_int_operand" "i"))))]
+  "arm_arch_thumb2
+   && UINTVAL (operands[4]) < 32
+   && UINTVAL (operands[2]) == ~UINTVAL (operands[5])
+   && (exact_log2 (UINTVAL (operands[5])
+		   + (HOST_WIDE_INT_1U << UINTVAL (operands[4])))
+       >= 0)"
+  "bfi%?\t%0, %3, %V2"
+  [(set_attr "length" "4")
+   (set_attr "predicable" "yes")
+   (set_attr "type" "bfm")]
+)
+
+(define_insn "*bfi_alt1"
+  [(set (match_operand:SI 0 "s_register_operand" "=r")
+	(ior:SI (and:SI (ashift:SI
+			 (match_operand:SI 3 "s_register_operand" "r")
+			 (match_operand 4 "const_int_operand" "i"))
+			(match_operand 5 "const_int_operand" "i"))
+		(and:SI (match_operand:SI 1 "s_register_operand" "0")
+			(match_operand 2 "const_int_operand" "Dj"))))]
+  "arm_arch_thumb2
+   && UINTVAL (operands[4]) < 32
+   && UINTVAL (operands[2]) == ~UINTVAL (operands[5])
+   && (exact_log2 (UINTVAL (operands[5])
+		   + (HOST_WIDE_INT_1U << UINTVAL (operands[4])))
+       >= 0)"
+  "bfi%?\t%0, %3, %V2"
+  [(set_attr "length" "4")
+   (set_attr "predicable" "yes")
+   (set_attr "type" "bfm")]
+)
+
+(define_insn "*bfi_alt2"
+  [(set (match_operand:SI 0 "s_register_operand" "=r")
+	(ior:SI (and:SI (match_operand:SI 1 "s_register_operand" "0")
+			(match_operand 2 "const_int_operand" "i"))
+		(and:SI (match_operand:SI 3 "s_register_operand" "r")
+			(match_operand 4 "const_int_operand" "i"))))]
+  "arm_arch_thumb2
+   && UINTVAL (operands[2]) == ~UINTVAL (operands[4])
+   && exact_log2 (UINTVAL (operands[4]) + 1) >= 0"
+  "bfi%?\t%0, %3, %V2"
+  [(set_attr "length" "4")
+   (set_attr "predicable" "yes")
+   (set_attr "type" "bfm")]
+)
+
+(define_insn "*bfi_alt3"
+  [(set (match_operand:SI 0 "s_register_operand" "=r")
+	(ior:SI (and:SI (match_operand:SI 3 "s_register_operand" "r")
+			(match_operand 4 "const_int_operand" "i"))
+		(and:SI (match_operand:SI 1 "s_register_operand" "0")
+			(match_operand 2 "const_int_operand" "i"))))]
+  "arm_arch_thumb2
+   && UINTVAL (operands[2]) == ~UINTVAL (operands[4])
+   && exact_log2 (UINTVAL (operands[4]) + 1) >= 0"
+  "bfi%?\t%0, %3, %V2"
   [(set_attr "length" "4")
    (set_attr "predicable" "yes")
    (set_attr "type" "bfm")]
@@ -12695,8 +12784,16 @@
   rtx hi_op0 = gen_highpart_mode (SImode, DImode, operands[0]);
   rtx hi_op1 = gen_highpart_mode (SImode, DImode, operands[1]);
 
-  emit_insn (gen_movmisalignsi (lo_op0, lo_op1));
-  emit_insn (gen_movmisalignsi (hi_op0, hi_op1));
+  if (aligned_operand (lo_op0, SImode) && aligned_operand (lo_op1, SImode))
+    {
+      emit_move_insn (lo_op0, lo_op1);
+      emit_move_insn (hi_op0, hi_op1);
+    }
+  else
+    {
+      emit_insn (gen_movmisalignsi (lo_op0, lo_op1));
+      emit_insn (gen_movmisalignsi (hi_op0, hi_op1));
+    }
   DONE;
 })
 
@@ -12889,6 +12986,36 @@
   [(set_attr "type" "block")
    (set_attr "length" "8")]
 )
+
+(define_insn "pac_nop"
+  [(set (reg:SI IP_REGNUM)
+	(unspec:SI [(reg:SI SP_REGNUM) (reg:SI LR_REGNUM)]
+		   UNSPEC_PAC_NOP))]
+  "arm_arch8m_main"
+  "pac\t%|ip, %|lr, %|sp"
+  [(set_attr "conds" "unconditional")])
+
+(define_insn "pacbti_nop"
+  [(set (reg:SI IP_REGNUM)
+	(unspec_volatile:SI [(reg:SI SP_REGNUM) (reg:SI LR_REGNUM)]
+			    VUNSPEC_PACBTI_NOP))]
+  "arm_arch8m_main"
+  "pacbti\t%|ip, %|lr, %|sp"
+  [(set_attr "conds" "unconditional")])
+
+(define_insn "aut_nop"
+  [(unspec_volatile:SI [(reg:SI IP_REGNUM) (reg:SI SP_REGNUM) (reg:SI LR_REGNUM)]
+		       VUNSPEC_AUT_NOP)]
+  "arm_arch8m_main"
+  "aut\t%|ip, %|lr, %|sp"
+  [(set_attr "conds" "unconditional")])
+
+(define_insn "bti_nop"
+  [(unspec_volatile [(const_int 0)] VUNSPEC_BTI_NOP)]
+  "arm_arch8m_main"
+  "bti"
+  [(set_attr "conds" "unconditional")
+   (set_attr "type" "nop")])
 
 ;; Vector bits common to IWMMXT, Neon and MVE
 (include "vec-common.md")

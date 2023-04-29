@@ -1,5 +1,5 @@
 /* Subroutines for the gcc driver.
-   Copyright (C) 2006-2022 Free Software Foundation, Inc.
+   Copyright (C) 2006-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -438,7 +438,8 @@ const char *host_detect_local_cpu (int argc, const char **argv)
 	  || vendor == VENDOR_CYRIX
 	  || vendor == VENDOR_NSC)
 	cache = detect_caches_amd (ext_level);
-      else if (vendor == VENDOR_INTEL)
+      else if (vendor == VENDOR_INTEL
+			 || vendor == VENDOR_ZHAOXIN)
 	{
 	  bool xeon_mp = (family == 15 && model == 6);
 	  cache = detect_caches_intel (xeon_mp, max_level,
@@ -464,6 +465,8 @@ const char *host_detect_local_cpu (int argc, const char **argv)
 	processor = PROCESSOR_GEODE;
       else if (has_feature (FEATURE_MOVBE) && family == 22)
 	processor = PROCESSOR_BTVER2;
+      else if (has_feature (FEATURE_AVX512F))
+	processor = PROCESSOR_ZNVER4;
       else if (has_feature (FEATURE_VAES))
 	processor = PROCESSOR_ZNVER3;
       else if (has_feature (FEATURE_CLWB))
@@ -516,6 +519,20 @@ const char *host_detect_local_cpu (int argc, const char **argv)
 	    processor = PROCESSOR_PENTIUMPRO;
 	  else if (model >= 6)
 	    processor = PROCESSOR_I486;
+	}
+    }
+  else if (vendor == VENDOR_ZHAOXIN)
+    {
+      processor = PROCESSOR_GENERIC;
+
+      switch (family)
+	{
+	case 7:
+	  if (model == 0x3b)
+	    processor = PROCESSOR_LUJIAZUI;
+	  break;
+	default:
+	  break;
 	}
     }
   else
@@ -574,15 +591,21 @@ const char *host_detect_local_cpu (int argc, const char **argv)
 	      /* This is unknown family 0x6 CPU.  */
 	      if (has_feature (FEATURE_AVX))
 		{
-		  if (has_feature (FEATURE_AVX512VP2INTERSECT))
-		    {
-		      if (has_feature (FEATURE_TSXLDTRK))
-			/* Assume Sapphire Rapids.  */
-			cpu = "sapphirerapids";
-		      else
-			/* Assume Tiger Lake */
-			cpu = "tigerlake";
-		    }
+		  /* Assume Grand Ridge.  */
+		  if (has_feature (FEATURE_RAOINT))
+		    cpu = "grandridge";
+		  /* Assume Granite Rapids.  */
+		  else if (has_feature (FEATURE_AMX_FP16))
+		    cpu = "graniterapids";
+		  /* Assume Sierra Forest.  */
+		  else if (has_feature (FEATURE_AVXVNNIINT8))
+		    cpu = "sierraforest";
+		  /* Assume Tiger Lake */
+		  else if (has_feature (FEATURE_AVX512VP2INTERSECT))
+		    cpu = "tigerlake";
+		  /* Assume Sapphire Rapids.  */
+		  else if (has_feature (FEATURE_TSXLDTRK))
+		    cpu = "sapphirerapids";
 		  /* Assume Cooper Lake */
 		  else if (has_feature (FEATURE_AVX512BF16))
 		    cpu = "cooperlake";
@@ -767,11 +790,17 @@ const char *host_detect_local_cpu (int argc, const char **argv)
     case PROCESSOR_ZNVER3:
       cpu = "znver3";
       break;
+    case PROCESSOR_ZNVER4:
+      cpu = "znver4";
+      break;
     case PROCESSOR_BTVER1:
       cpu = "btver1";
       break;
     case PROCESSOR_BTVER2:
       cpu = "btver2";
+      break;
+    case PROCESSOR_LUJIAZUI:
+      cpu = "lujiazui";
       break;
 
     default:

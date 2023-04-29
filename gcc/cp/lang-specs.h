@@ -1,5 +1,5 @@
 /* Definitions for specs for C++.
-   Copyright (C) 1995-2022 Free Software Foundation, Inc.
+   Copyright (C) 1995-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -55,7 +55,7 @@ along with GCC; see the file COPYING3.  If not see
       "  %{!fsyntax-only:"
       "    %{!S:-o %g.s%V}"
       "    %{!fmodule-*:%{!fmodules-*:%{!fdump-ada-spec*:"
-      "	         %{!o*:--output-pch=%i.gch}%W{o*:--output-pch=%*}}}}}"
+      "	         %{!o*:--output-pch %i.gch}%W{o*:--output-pch %*}}}}}"
       "}}}",
      CPLUSPLUS_CPP_SPEC, 0, 0},
   {"@c++-system-header",
@@ -76,7 +76,7 @@ along with GCC; see the file COPYING3.  If not see
       "  %{!fsyntax-only:"
       "    %{!S:-o %g.s%V}"
       "    %{!fmodule-*:%{!fmodules-*:%{!fdump-ada-spec*:"
-      "	         %{!o*:--output-pch=%i.gch}%W{o*:--output-pch=%*}}}}}"
+      "	         %{!o*:--output-pch %i.gch}%W{o*:--output-pch %*}}}}}"
       "}}}",
      CPLUSPLUS_CPP_SPEC, 0, 0},
   {"@c++-user-header",
@@ -96,7 +96,7 @@ along with GCC; see the file COPYING3.  If not see
       "  %{!fsyntax-only:"
       "    %{!S:-o %g.s%V}"
       "    %{!fmodule-*:%{!fmodules-*:%{!fdump-ada-spec*:"
-      "	         %{!o*:--output-pch=%i.gch}%W{o*:--output-pch=%*}}}}}"
+      "	         %{!o*:--output-pch %i.gch}%W{o*:--output-pch %*}}}}}"
       "}}}",
      CPLUSPLUS_CPP_SPEC, 0, 0},
   {"@c++",

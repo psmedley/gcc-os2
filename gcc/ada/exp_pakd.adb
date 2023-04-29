@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -671,11 +671,11 @@ package body Exp_Pakd is
          return;
       end if;
 
-      --  If our immediate ancestor subtype is constrained, and it already
-      --  has a packed array type, then just share the same type, since the
-      --  bounds must be the same. If the ancestor is not an array type but
-      --  a private type, as can happen with multiple instantiations, create
-      --  a new packed type, to avoid privacy issues.
+      --  If our immediate ancestor subtype is constrained, and it already has
+      --  a packed array type, and it has the same size, then just share the
+      --  same type, since the bounds must be the same. If the ancestor is not
+      --  an array type but a private type, as can happen with multiple
+      --  instantiations, create a new packed type, to avoid privacy issues.
 
       if Ekind (Typ) = E_Array_Subtype then
          Ancest := Ancestor_Subtype (Typ);
@@ -684,6 +684,9 @@ package body Exp_Pakd is
            and then Is_Array_Type (Ancest)
            and then Is_Constrained (Ancest)
            and then Present (Packed_Array_Impl_Type (Ancest))
+           and then Known_Esize (Typ)
+           and then Known_Esize (Ancest)
+           and then Esize (Typ) = Esize (Ancest)
          then
             Set_Packed_Array_Impl_Type (Typ, Packed_Array_Impl_Type (Ancest));
             return;
@@ -1930,9 +1933,17 @@ package body Exp_Pakd is
       --  modular case we guarantee that the unused bits are always zeroes.
       --  We do have to compare the lengths because we could be comparing
       --  two different subtypes of the same base type. We can only do this
-      --  if the PATs on both sides are the same.
+      --  if the PATs on both sides are modular (in which case they are
+      --  necessarily structurally the same -- same Modulus and so on);
+      --  otherwise, we have a case where the right operand is not of
+      --  compile time known size.
 
-      if Is_Modular_Integer_Type (PAT) and then PAT = Etype (R) then
+      if Is_Modular_Integer_Type (PAT)
+        and then Is_Modular_Integer_Type (Etype (R))
+      then
+         pragma Assert (RM_Size (Etype (R)) = RM_Size (PAT));
+         pragma Assert (Modulus (Etype (R)) = Modulus (PAT));
+
          Rewrite (N,
            Make_And_Then (Loc,
              Left_Opnd =>

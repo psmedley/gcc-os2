@@ -1,10 +1,32 @@
-2022-08-19  Release Manager
+2023-04-26  Release Manager
 
-	* GCC 12.2.0 released.
+	* GCC 13.1.0 released.
 
-2022-05-06  Release Manager
+2023-02-28  Joseph Myers  <joseph@codesourcery.com>
 
-	* GCC 12.1.0 released.
+	* sr.po, sv.po: Update.
+
+2023-02-24  Joseph Myers  <joseph@codesourcery.com>
+
+	* be.po, ca.po, da.po, de.po, el.po, eo.po, es.po, fi.po, fr.po,
+	id.po, ja.po, ka.po, nl.po, pt_BR.po, ro.po, ru.po, sr.po, sv.po,
+	tr.po, uk.po, vi.po, zh_CN.po, zh_TW.po: Update.
+
+2023-02-10  Joseph Myers  <joseph@codesourcery.com>
+
+	* cpplib.pot: Regenerate.
+
+2023-01-16  Joseph Myers  <joseph@codesourcery.com>
+
+	* ka.po: New.
+
+2023-01-09  Joseph Myers  <joseph@codesourcery.com>
+
+	* eo.po: Update.
+
+2022-10-10  Joseph Myers  <joseph@codesourcery.com>
+
+	* ro.po: New.
 
 2022-05-04  Joseph Myers  <joseph@codesourcery.com>
 

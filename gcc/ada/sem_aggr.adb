@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -51,7 +51,6 @@ with Sem_Aux;        use Sem_Aux;
 with Sem_Case;       use Sem_Case;
 with Sem_Cat;        use Sem_Cat;
 with Sem_Ch3;        use Sem_Ch3;
-with Sem_Ch5;        use Sem_Ch5;
 with Sem_Ch8;        use Sem_Ch8;
 with Sem_Ch13;       use Sem_Ch13;
 with Sem_Dim;        use Sem_Dim;
@@ -71,6 +70,7 @@ with Targparm;       use Targparm;
 with Tbuild;         use Tbuild;
 with Ttypes;         use Ttypes;
 with Uintp;          use Uintp;
+with Warnsw;         use Warnsw;
 
 package body Sem_Aggr is
 
@@ -410,6 +410,13 @@ package body Sem_Aggr is
    --  array of characters is expected. This procedure simply rewrites the
    --  string as an aggregate, prior to resolution.
 
+   function Resolve_Null_Array_Aggregate (N : Node_Id) return Boolean;
+   --  For the Ada 2022 construct, build a subtype with a null range for each
+   --  dimension, using the bounds from the context subtype (if the subtype
+   --  is constrained). If the subtype is unconstrained, then the bounds
+   --  are determined in much the same way as the bounds for a null string
+   --  literal with no applicable index constraint.
+
    ---------------------------------
    --  Delta aggregate processing --
    ---------------------------------
@@ -554,7 +561,29 @@ package body Sem_Aggr is
       end if;
 
       Set_Parent (Index_Constraints, N);
-      Collect_Aggr_Bounds (N, 1);
+
+      --  When resolving a null aggregate we created a list of aggregate bounds
+      --  for the consecutive dimensions. The bounds for the first dimension
+      --  are attached as the Aggregate_Bounds of the aggregate node.
+
+      if Is_Null_Aggregate (N) then
+         declare
+            This_Range : Node_Id := Aggregate_Bounds (N);
+         begin
+            for J in 1 .. Aggr_Dimension loop
+               Aggr_Range (J) := This_Range;
+               Next_Index (This_Range);
+
+               --  Remove bounds from the list, so they can be reattached as
+               --  the First_Index/Next_Index again by the code that also
+               --  handles non-null aggregates.
+
+               Remove (Aggr_Range (J));
+            end loop;
+         end;
+      else
+         Collect_Aggr_Bounds (N, 1);
+      end if;
 
       --  Build the list of constrained indexes of our aggregate itype
 
@@ -755,6 +784,34 @@ package body Sem_Aggr is
         and then No (Next (First (Choice_List (First (Assoc)))));
    end Is_Single_Aggregate;
 
+   -----------------------
+   -- Is_Null_Aggregate --
+   -----------------------
+
+   function Is_Null_Aggregate (N : Node_Id) return Boolean is
+   begin
+      return Ada_Version >= Ada_2022
+        and then Is_Homogeneous_Aggregate (N)
+        and then Is_Empty_List (Expressions (N))
+        and then Is_Empty_List (Component_Associations (N));
+   end Is_Null_Aggregate;
+
+   ----------------------------------------
+   -- Is_Null_Array_Aggregate_High_Bound --
+   ----------------------------------------
+
+   function Is_Null_Array_Aggregate_High_Bound (N : Node_Id) return Boolean is
+      Original_N : constant Node_Id := Original_Node (N);
+   begin
+      return Ada_Version >= Ada_2022
+        and then not Comes_From_Source (Original_N)
+        and then Nkind (Original_N) = N_Attribute_Reference
+        and then
+          Get_Attribute_Id (Attribute_Name (Original_N)) = Attribute_Pred
+        and then Nkind (Parent (N)) in N_Range | N_Op_Le
+        and then not Comes_From_Source (Parent (N));
+   end Is_Null_Array_Aggregate_High_Bound;
+
    --------------------------------
    -- Make_String_Into_Aggregate --
    --------------------------------
@@ -808,8 +865,80 @@ package body Sem_Aggr is
       --  Set to True if N represents a simple aggregate with only
       --  (others => <>), not nested as part of another aggregate.
 
+      function Is_Full_Access_Aggregate (N : Node_Id) return Boolean;
+      --  If a full access object is initialized with an aggregate or is
+      --  assigned an aggregate, we have to prevent a piecemeal access or
+      --  assignment to the object, even if the aggregate is to be expanded.
+      --  We create a temporary for the aggregate, and assign the temporary
+      --  instead, so that the back end can generate an atomic move for it.
+      --  This is only done in the context of an object declaration or an
+      --  assignment. Function is a noop and returns false in other contexts.
+
       function Within_Aggregate (N : Node_Id) return Boolean;
       --  Return True if N is part of an N_Aggregate
+
+      ------------------------------
+      -- Is_Full_Access_Aggregate --
+      ------------------------------
+
+      function Is_Full_Access_Aggregate (N : Node_Id) return Boolean is
+         Loc : constant Source_Ptr := Sloc (N);
+
+         New_N : Node_Id;
+         Par   : Node_Id;
+         Temp  : Entity_Id;
+         Typ   : Entity_Id;
+
+      begin
+         Par := Parent (N);
+
+         --  Aggregate may be qualified, so find outer context
+
+         if Nkind (Par) = N_Qualified_Expression then
+            Par := Parent (Par);
+         end if;
+
+         if not Comes_From_Source (Par) then
+            return False;
+         end if;
+
+         case Nkind (Par) is
+            when N_Assignment_Statement =>
+               Typ := Etype (Name (Par));
+
+               if not Is_Full_Access (Typ)
+                 and then not Is_Full_Access_Object (Name (Par))
+               then
+                  return False;
+               end if;
+
+            when N_Object_Declaration =>
+               Typ := Etype (Defining_Identifier (Par));
+
+               if not Is_Full_Access (Typ)
+                 and then not Is_Full_Access (Defining_Identifier (Par))
+               then
+                  return False;
+               end if;
+
+            when others =>
+               return False;
+         end case;
+
+         Temp := Make_Temporary (Loc, 'T', N);
+         New_N :=
+           Make_Object_Declaration (Loc,
+             Defining_Identifier => Temp,
+             Constant_Present    => True,
+             Object_Definition   => New_Occurrence_Of (Typ, Loc),
+             Expression          => Relocate_Node (N));
+         Insert_Action (Par, New_N);
+
+         Rewrite (N, New_Occurrence_Of (Temp, Loc));
+         Analyze_And_Resolve (N, Typ);
+
+         return True;
+      end Is_Full_Access_Aggregate;
 
       ----------------------
       -- Within_Aggregate --
@@ -838,6 +967,16 @@ package body Sem_Aggr is
         and then No (Component_Associations (N))
         and then not Null_Record_Present (N)
       then
+         return;
+
+      --  If the aggregate is assigned to a full access variable, we have
+      --  to prevent a piecemeal assignment even if the aggregate is to be
+      --  expanded. We create a temporary for the aggregate, and assign the
+      --  temporary instead, so that the back end can generate an atomic move
+      --  for it. This is properly an expansion activity but it must be done
+      --  before resolution because aggregate resolution cannot be done twice.
+
+      elsif Expander_Active and then Is_Full_Access_Aggregate (N) then
          return;
       end if;
 
@@ -914,7 +1053,7 @@ package body Sem_Aggr is
       elsif Is_Array_Type (Typ) and then Null_Record_Present (N) then
          Error_Msg_N ("null record forbidden in array aggregate", N);
 
-      elsif Present (Find_Aspect (Typ, Aspect_Aggregate))
+      elsif Has_Aspect (Typ, Aspect_Aggregate)
         and then Ekind (Typ) /= E_Record_Type
         and then Ada_Version >= Ada_2022
       then
@@ -984,12 +1123,13 @@ package body Sem_Aggr is
 
          Array_Aggregate : declare
             Aggr_Resolved : Boolean;
-
             Aggr_Typ : constant Entity_Id := Etype (Typ);
             --  This is the unconstrained array type, which is the type against
             --  which the aggregate is to be resolved. Typ itself is the array
             --  type of the context which may not be the same subtype as the
             --  subtype for the final aggregate.
+
+            Is_Null_Aggr : constant Boolean := Is_Null_Aggregate (N);
 
          begin
             --  In the following we determine whether an OTHERS choice is
@@ -1022,7 +1162,11 @@ package body Sem_Aggr is
 
             Set_Etype (N, Aggr_Typ);  --  May be overridden later on
 
-            if Nkind (Parent (N)) = N_Assignment_Statement
+            if Is_Null_Aggr then
+               Set_Etype (N, Typ);
+               Aggr_Resolved := Resolve_Null_Array_Aggregate (N);
+
+            elsif Nkind (Parent (N)) = N_Assignment_Statement
               or else Inside_Init_Proc
               or else (Is_Constrained (Typ)
                         and then Nkind (Parent (N)) in
@@ -1611,17 +1755,15 @@ package body Sem_Aggr is
          Loc : constant Source_Ptr := Sloc (N);
          Id  : constant Entity_Id  := Defining_Identifier (N);
 
-         Id_Typ : Entity_Id := Any_Type;
-
          -----------------------
          -- Remove_References --
          -----------------------
 
-         function Remove_Ref (N : Node_Id) return Traverse_Result;
-         --  Remove references to the entity Id after analysis, so it can be
+         function Remove_Reference (N : Node_Id) return Traverse_Result;
+         --  Remove reference to the entity Id after analysis, so it can be
          --  properly reanalyzed after construct is expanded into a loop.
 
-         function Remove_Ref (N : Node_Id) return Traverse_Result is
+         function Remove_Reference (N : Node_Id) return Traverse_Result is
          begin
             if Nkind (N) = N_Identifier
                and then Present (Entity (N))
@@ -1632,15 +1774,15 @@ package body Sem_Aggr is
             end if;
             Set_Analyzed (N, False);
             return OK;
-         end Remove_Ref;
+         end Remove_Reference;
 
-         procedure Remove_References is new Traverse_Proc (Remove_Ref);
+         procedure Remove_References is new Traverse_Proc (Remove_Reference);
 
          --  Local variables
 
          Choice : Node_Id;
          Dummy  : Boolean;
-         Ent    : Entity_Id;
+         Scop   : Entity_Id;
          Expr   : Node_Id;
 
       --  Start of processing for Resolve_Iterated_Component_Association
@@ -1648,37 +1790,29 @@ package body Sem_Aggr is
       begin
          Error_Msg_Ada_2022_Feature ("iterated component", Loc);
 
+         --  Create a scope in which to introduce an index, to make it visible
+         --  for the analysis of component expression.
+
+         Scop := New_Internal_Entity (E_Loop, Current_Scope, Loc, 'L');
+         Set_Etype  (Scop, Standard_Void_Type);
+         Set_Parent (Scop, Parent (N));
+         Push_Scope (Scop);
+
+         --  If there is iterator specification, then its preanalysis will make
+         --  the index visible.
+
          if Present (Iterator_Specification (N)) then
-            Analyze (Name (Iterator_Specification (N)));
+            Preanalyze (Iterator_Specification (N));
 
-            --  We assume that the domain of iteration cannot be overloaded.
-
-            declare
-               Domain : constant Node_Id := Name (Iterator_Specification (N));
-               D_Type : constant Entity_Id := Etype (Domain);
-               Elt    : Entity_Id;
-            begin
-               if Is_Array_Type (D_Type) then
-                  Id_Typ := Component_Type (D_Type);
-
-               else
-                  if Has_Aspect (D_Type, Aspect_Iterable) then
-                     Elt :=
-                       Get_Iterable_Type_Primitive (D_Type, Name_Element);
-                     if No (Elt) then
-                        Error_Msg_N
-                          ("missing Element primitive for iteration", Domain);
-                     else
-                        Id_Typ := Etype (Elt);
-                     end if;
-                  else
-                     Error_Msg_N ("cannot iterate over", Domain);
-                  end if;
-               end if;
-            end;
+         --  Otherwise, analyze discrete choices and make the index visible
 
          else
-            Id_Typ := Index_Typ;
+            --  Insert index name into current scope but don't decorate it yet,
+            --  so that a premature usage of this name in discrete choices will
+            --  be nicely diagnosed.
+
+            Enter_Name (Id);
+
             Choice := First (Discrete_Choices (N));
 
             while Present (Choice) loop
@@ -1704,25 +1838,13 @@ package body Sem_Aggr is
 
                Next (Choice);
             end loop;
+
+            --  Decorate the index variable
+
+            Set_Etype (Id, Index_Typ);
+            Mutate_Ekind (Id, E_Variable);
+            Set_Scope (Id, Scop);
          end if;
-
-         --  Create a scope in which to introduce an index, which is usually
-         --  visible in the expression for the component, and needed for its
-         --  analysis.
-
-         Ent := New_Internal_Entity (E_Loop, Current_Scope, Loc, 'L');
-         Set_Etype  (Ent, Standard_Void_Type);
-         Set_Parent (Ent, Parent (N));
-         Push_Scope (Ent);
-
-         --  Insert and decorate the index variable in the current scope.
-         --  The expression has to be analyzed once the index variable is
-         --  directly visible.
-
-         Enter_Name (Id);
-         Set_Etype (Id, Id_Typ);
-         Mutate_Ekind (Id, E_Variable);
-         Set_Scope (Id, Ent);
 
          --  Analyze  expression without expansion, to verify legality.
          --  When generating code, we then remove references to the index
@@ -1795,12 +1917,12 @@ package body Sem_Aggr is
         and then No (Component_Associations (N))
         and then not Null_Record_Present (N)
       then
-         return False;
+         return Failure;
       end if;
 
       --  Disable the warning for GNAT Mode to allow for easier transition.
 
-      if Ada_Version >= Ada_2022
+      if Ada_Version_Explicit >= Ada_2022
         and then Warn_On_Obsolescent_Feature
         and then not GNAT_Mode
         and then not Is_Homogeneous_Aggregate (N)
@@ -1833,9 +1955,9 @@ package body Sem_Aggr is
                  or else No (Iterator_Specification (Assoc))
                then
                   Error_Msg_N ("mixed iterated component association"
-                   & " (RM 4.4.3 (17.1/5))",
+                   & " (RM 4.3.3 (17.1/5))",
                       Assoc);
-                  return False;
+                  return Failure;
                end if;
 
                Next (Assoc);
@@ -1852,23 +1974,25 @@ package body Sem_Aggr is
                  and then Present (Iterator_Specification (Assoc))
                then
                   Error_Msg_N ("mixed iterated component association"
-                    & " (RM 4.4.3 (17.1/5))",
+                    & " (RM 4.3.3 (17.1/5))",
                       Assoc);
-                  return False;
+                  return Failure;
                end if;
 
                Next (Assoc);
             end loop;
 
-            while Present (Assoc) loop
-               Next (Assoc);
-            end loop;
          end if;
 
          Assoc := First (Component_Associations (N));
          while Present (Assoc) loop
             if Nkind (Assoc) = N_Iterated_Component_Association then
                Resolve_Iterated_Component_Association (Assoc, Index_Typ);
+
+            elsif Nkind (Assoc) /= N_Component_Association then
+               Error_Msg_N
+                 ("invalid component association for aggregate", Assoc);
+               return Failure;
             end if;
 
             Choice := First (Choice_List (Assoc));
@@ -2232,7 +2356,7 @@ package body Sem_Aggr is
                --  duplicate the expression tree to analyze the copy and
                --  perform the required check.
 
-               elsif not Present (Etype (Expression (Assoc))) then
+               elsif No (Etype (Expression (Assoc))) then
                   declare
                      Save_Analysis : constant Boolean := Full_Analysis;
                      Expr          : constant Node_Id :=
@@ -2893,12 +3017,12 @@ package body Sem_Aggr is
       is
          Loc      : constant Source_Ptr := Sloc (N);
          Choice   : Node_Id;
+         Copy     : Node_Id;
          Ent      : Entity_Id;
          Expr     : Node_Id;
          Key_Expr : Node_Id;
          Id       : Entity_Id;
          Id_Name  : Name_Id;
-         Iter     : Node_Id;
          Typ      : Entity_Id := Empty;
 
       begin
@@ -2909,15 +3033,29 @@ package body Sem_Aggr is
          --  is present. In both cases a Key_Expression is present.
 
          if Nkind (Comp) = N_Iterated_Element_Association then
+
+            --  Create a temporary scope to avoid some modifications from
+            --  escaping the Analyze call below. The original Tree will be
+            --  reanalyzed later.
+
+            Ent := New_Internal_Entity
+                     (E_Loop, Current_Scope, Sloc (Comp), 'L');
+            Set_Etype  (Ent, Standard_Void_Type);
+            Set_Parent (Ent, Parent (Comp));
+            Push_Scope (Ent);
+
             if Present (Loop_Parameter_Specification (Comp)) then
-               Analyze_Loop_Parameter_Specification
-                  (Loop_Parameter_Specification (Comp));
+               Copy := Copy_Separate_Tree (Comp);
+
+               Analyze
+                 (Loop_Parameter_Specification (Copy));
+
                Id_Name := Chars (Defining_Identifier
                             (Loop_Parameter_Specification (Comp)));
             else
-               Iter := Copy_Separate_Tree (Iterator_Specification (Comp));
-               Analyze (Iter);
-               Typ := Etype (Defining_Identifier (Iter));
+               Copy := Copy_Separate_Tree (Iterator_Specification (Comp));
+               Analyze (Copy);
+
                Id_Name := Chars (Defining_Identifier
                             (Iterator_Specification (Comp)));
             end if;
@@ -2929,12 +3067,15 @@ package body Sem_Aggr is
 
             Key_Expr := Key_Expression (Comp);
             Analyze_And_Resolve (New_Copy_Tree (Key_Expr), Key_Type);
+            End_Scope;
 
          elsif Present (Iterator_Specification (Comp)) then
-            Iter    := Copy_Separate_Tree (Iterator_Specification (Comp));
-            Id_Name := Chars (Defining_Identifier (Comp));
-            Analyze (Iter);
-            Typ := Etype (Defining_Identifier (Iter));
+            Copy    := Copy_Separate_Tree (Iterator_Specification (Comp));
+            Id_Name :=
+              Chars (Defining_Identifier (Iterator_Specification (Comp)));
+
+            Analyze (Copy);
+            Typ := Etype (Defining_Identifier (Copy));
 
          else
             Choice := First (Discrete_Choices (Comp));
@@ -2968,7 +3109,8 @@ package body Sem_Aggr is
          --  analysis.
 
          Id := Make_Defining_Identifier (Sloc (Comp), Id_Name);
-         Ent := New_Internal_Entity (E_Loop, Current_Scope, Sloc (Comp), 'L');
+         Ent := New_Internal_Entity (E_Loop,
+                  Current_Scope, Sloc (Comp), 'L');
          Set_Etype  (Ent, Standard_Void_Type);
          Set_Parent (Ent, Parent (Comp));
          Push_Scope (Ent);
@@ -3002,6 +3144,8 @@ package body Sem_Aggr is
          End_Scope;
 
       end Resolve_Iterated_Association;
+
+   --  Start of processing for Resolve_Container_Aggregate
 
    begin
       pragma Assert (Nkind (Asp) = N_Aggregate);
@@ -3056,7 +3200,7 @@ package body Sem_Aggr is
             end if;
          end;
 
-      elsif  Present (Add_Named_Subp) then
+      elsif Present (Add_Named_Subp) then
          declare
             --  Retrieves types of container, key, and element from the
             --  specified insertion procedure.
@@ -3098,7 +3242,7 @@ package body Sem_Aggr is
             end loop;
          end;
 
-      else
+      elsif Present (Assign_Indexed_Subp) then
          --  Indexed Aggregate. Positional or indexed component
          --  can be present, but not both. Choices must be static
          --  values or ranges with static bounds.
@@ -3124,8 +3268,12 @@ package body Sem_Aggr is
                end loop;
             end if;
 
-            if Present (Component_Associations (N)) then
-               if Present (Expressions (N)) then
+            if Present (Component_Associations (N))
+              and then not Is_Empty_List (Component_Associations (N))
+            then
+               if Present (Expressions (N))
+                 and then not Is_Empty_List (Expressions (N))
+               then
                   Error_Msg_N ("container aggregate cannot be "
                     & "both positional and named", N);
                   return;
@@ -3274,8 +3422,34 @@ package body Sem_Aggr is
       Analyze_And_Resolve (Base, Typ);
 
       if Is_Array_Type (Typ) then
+         --  For an array_delta_aggregate, the base_expression and each
+         --  expression in every array_component_association shall be of a
+         --  nonlimited type; RM 4.3.4(13/5). However, to prevent repeated
+         --  errors we only check the base expression and not array component
+         --  associations.
+
+         if Is_Limited_Type (Etype (Base)) then
+            Error_Msg_N
+              ("array delta aggregate shall be of a nonlimited type", Base);
+            Explain_Limited_Type (Etype (Base), Base);
+         end if;
+
          Resolve_Delta_Array_Aggregate (N, Typ);
       else
+
+         --  Delta aggregates for record types must use parentheses,
+         --  not square brackets.
+
+         if Is_Homogeneous_Aggregate (N) then
+            Error_Msg_N
+              ("delta aggregates for record types must use (), not '[']", N);
+         end if;
+
+         --  The base_expression of a record_delta_aggregate can be of a
+         --  limited type only if it is newly constructed; RM 7.5(2.1/5).
+
+         Check_Expr_OK_In_Limited_Aggregate (Base);
+
          Resolve_Delta_Record_Aggregate (N, Typ);
       end if;
 
@@ -3375,7 +3549,18 @@ package body Sem_Aggr is
                Next (Choice);
             end loop;
 
-            Analyze_And_Resolve (Expression (Assoc), Component_Type (Typ));
+            --  For an array_delta_aggregate, the array_component_association
+            --  shall not use the box symbol <>; RM 4.3.4(11/5).
+
+            pragma Assert
+              (Box_Present (Assoc) xor Present (Expression (Assoc)));
+
+            if Box_Present (Assoc) then
+               Error_Msg_N
+                 ("'<'> in array delta aggregate is not allowed", Assoc);
+            else
+               Analyze_And_Resolve (Expression (Assoc), Component_Type (Typ));
+            end if;
          end if;
 
          Next (Assoc);
@@ -3579,7 +3764,17 @@ package body Sem_Aggr is
               ("'<'> in record delta aggregate is not allowed", Assoc);
          else
             Analyze_And_Resolve (Expression (Assoc), Comp_Type);
+
+            --  The expression must not be of a limited type; RM 4.3.1(17.4/5)
+
+            if Is_Limited_Type (Etype (Expression (Assoc))) then
+               Error_Msg_N
+                 ("expression of a limited type in record delta aggregate " &
+                    "is not allowed",
+                  Expression (Assoc));
+            end if;
          end if;
+
          Next (Assoc);
       end loop;
    end Resolve_Delta_Record_Aggregate;
@@ -3932,6 +4127,53 @@ package body Sem_Aggr is
 
       Check_Function_Writable_Actuals (N);
    end Resolve_Extension_Aggregate;
+
+   ----------------------------------
+   -- Resolve_Null_Array_Aggregate --
+   ----------------------------------
+
+   function Resolve_Null_Array_Aggregate (N : Node_Id) return Boolean is
+      --  Never returns False, but declared as a function to match
+      --  other Resolve_Mumble functions.
+
+      Loc    : constant Source_Ptr := Sloc (N);
+      Typ    : constant Entity_Id := Etype (N);
+
+      Index  : Node_Id;
+      Lo, Hi : Node_Id;
+      Constr : constant List_Id := New_List;
+
+   begin
+      --  Attach the list of constraints at the location of the aggregate, so
+      --  the individual constraints can be analyzed.
+
+      Set_Parent (Constr, N);
+
+      --  Create a constrained subtype with null dimensions
+
+      Index := First_Index (Typ);
+      while Present (Index) loop
+         Get_Index_Bounds (Index, L => Lo, H => Hi);
+
+         --  The upper bound is the predecessor of the lower bound
+
+         Hi := Make_Attribute_Reference
+            (Loc,
+             Prefix         => New_Occurrence_Of (Etype (Index), Loc),
+             Attribute_Name => Name_Pred,
+             Expressions    => New_List (New_Copy_Tree (Lo)));
+
+         Append (Make_Range (Loc, New_Copy_Tree (Lo), Hi), Constr);
+         Analyze_And_Resolve (Last (Constr), Etype (Index));
+
+         Index := Next_Index (Index);
+      end loop;
+
+      Set_Compile_Time_Known_Aggregate (N);
+      Set_Aggregate_Bounds (N, First (Constr));
+
+      return True;
+   end Resolve_Null_Array_Aggregate;
 
    ------------------------------
    -- Resolve_Record_Aggregate --
@@ -4836,9 +5078,7 @@ package body Sem_Aggr is
       --    OTHERS cannot be used.
       --    Positional and named associations cannot be mixed.
 
-      if Present (Component_Associations (N))
-        and then Present (First (Component_Associations (N)))
-      then
+      if Present (Component_Associations (N)) then
          declare
             Assoc : Node_Id;
 
@@ -4893,6 +5133,15 @@ package body Sem_Aggr is
          and then Ada_Version < Ada_2005
       then
          Error_Msg_N ("record aggregate must be null", N);
+         return;
+      end if;
+
+      --  A record aggregate can only use parentheses
+
+      if Nkind (N) = N_Aggregate
+        and then Is_Homogeneous_Aggregate (N)
+      then
+         Error_Msg_N ("record aggregate must use (), not '[']", N);
          return;
       end if;
 
@@ -5537,7 +5786,7 @@ package body Sem_Aggr is
             --  Ignore hidden components associated with the position of the
             --  interface tags: these are initialized dynamically.
 
-            if not Present (Related_Type (Component)) then
+            if No (Related_Type (Component)) then
                Error_Msg_NE
                  ("no value supplied for component &!", N, Component);
             end if;

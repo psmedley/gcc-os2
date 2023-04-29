@@ -1,5 +1,5 @@
 ;; Predicate definitions for TI PRU.
-;; Copyright (C) 2014-2022 Free Software Foundation, Inc.
+;; Copyright (C) 2014-2023 Free Software Foundation, Inc.
 ;; Contributed by Dimitar Dimitrov <dimitar@dinux.eu>
 ;;
 ;; This file is part of GCC.
@@ -303,4 +303,26 @@
 	return false;
     }
   return true;
+})
+
+;; Return true if OP is a constant integer with one single consecutive
+;; range of bytes with value 0xff, and the rest of the bytes are 0x00.
+(define_predicate "const_fillbytes_operand"
+  (match_code "const_int")
+{
+  gcc_assert (mode != VOIDmode);
+
+  pru_byterange r = pru_calc_byterange (INTVAL (op), mode);
+  return r.start >=0 && r.nbytes > 0;
+})
+
+;; Return true if OP is a constant integer with one single consecutive
+;; range of bytes with value 0x00, and the rest of the bytes are 0xff.
+(define_predicate "const_zerobytes_operand"
+  (match_code "const_int")
+{
+  gcc_assert (mode != VOIDmode);
+
+  pru_byterange r = pru_calc_byterange (~INTVAL (op), mode);
+  return r.start >=0 && r.nbytes > 0;
 })

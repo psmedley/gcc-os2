@@ -62,22 +62,21 @@ struct UnitTestResult
     bool summarize;
 }
 
-extern (C) void _d_monitor_staticctor();
-extern (C) void _d_monitor_staticdtor();
-extern (C) void _d_critical_init();
-extern (C) void _d_critical_term();
+extern (C) void _d_monitor_staticctor() @nogc nothrow;
+extern (C) void _d_monitor_staticdtor() @nogc nothrow;
+extern (C) void _d_critical_init() @nogc nothrow;
+extern (C) void _d_critical_term() @nogc nothrow;
 extern (C) void gc_init();
 extern (C) void gc_term();
-extern (C) void thread_init() @nogc;
-extern (C) void thread_term() @nogc;
-extern (C) void lifetime_init();
+extern (C) void thread_init() @nogc nothrow;
+extern (C) void thread_term() @nogc nothrow;
 extern (C) void rt_moduleCtor();
 extern (C) void rt_moduleTlsCtor();
 extern (C) void rt_moduleDtor();
 extern (C) void rt_moduleTlsDtor();
 extern (C) void thread_joinAll();
 extern (C) UnitTestResult runModuleUnitTests();
-extern (C) void _d_initMonoTime();
+extern (C) void _d_initMonoTime() @nogc nothrow;
 
 version (CRuntime_Microsoft)
 {
@@ -134,7 +133,6 @@ extern (C) int rt_init()
         thread_init();
         // TODO: fixme - calls GC.addRange -> Initializes GC
         initStaticDataGC();
-        lifetime_init();
         rt_moduleCtor();
         rt_moduleTlsCtor();
         return 1;
@@ -184,6 +182,7 @@ extern (C) int rt_term()
  */
 alias Throwable.TraceInfo function(void* ptr) TraceHandler;
 private __gshared TraceHandler traceHandler = null;
+private __gshared Throwable.TraceDeallocator traceDeallocator = null;
 
 
 /**
@@ -191,10 +190,12 @@ private __gshared TraceHandler traceHandler = null;
  *
  * Params:
  *  h = The new trace handler.  Set to null to use the default handler.
+ *  d = The new dealloactor to use.
  */
-extern (C) void  rt_setTraceHandler(TraceHandler h)
+extern (C) void  rt_setTraceHandler(TraceHandler h, Throwable.TraceDeallocator d = null)
 {
     traceHandler = h;
+    traceDeallocator = d;
 }
 
 /**
@@ -203,6 +204,11 @@ extern (C) void  rt_setTraceHandler(TraceHandler h)
 extern (C) TraceHandler rt_getTraceHandler()
 {
     return traceHandler;
+}
+
+extern (C) Throwable.TraceDeallocator rt_getTraceDeallocator()
+{
+    return traceDeallocator;
 }
 
 /**
@@ -579,7 +585,7 @@ extern (C) void _d_print_throwable(Throwable t)
         {
             WCHAR* ptr; size_t len;
 
-            void sink(const scope char[] s) scope nothrow
+            void sink(in char[] s) scope nothrow
             {
                 if (!s.length) return;
                 int swlen = MultiByteToWideChar(

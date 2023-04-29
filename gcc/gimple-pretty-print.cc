@@ -1,5 +1,5 @@
 /* Pretty formatting of GIMPLE statements and expressions.
-   Copyright (C) 2001-2022 Free Software Foundation, Inc.
+   Copyright (C) 2001-2023 Free Software Foundation, Inc.
    Contributed by Aldy Hernandez <aldyh@redhat.com> and
    Diego Novillo <dnovillo@google.com>
 
@@ -30,6 +30,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "ssa.h"
 #include "cgraph.h"
 #include "gimple-pretty-print.h"
+#include "value-range-pretty-print.h"
 #include "internal-fn.h"
 #include "tree-eh.h"
 #include "gimple-iterator.h"
@@ -338,7 +339,6 @@ dump_unary_rhs (pretty_printer *buffer, const gassign *gs, int spc,
   switch (rhs_code)
     {
     case VIEW_CONVERT_EXPR:
-    case ASSERT_EXPR:
       dump_generic_node (buffer, rhs, spc, flags, false);
       break;
 
@@ -2051,6 +2051,31 @@ dump_gimple_omp_return (pretty_printer *buffer, const gimple *gs, int spc,
     }
 }
 
+/* Dump a GIMPLE_ASSUME tuple on the pretty_printer BUFFER.  */
+
+static void
+dump_gimple_assume (pretty_printer *buffer, const gimple *gs,
+		    int spc, dump_flags_t flags)
+{
+  if (flags & TDF_RAW)
+    dump_gimple_fmt (buffer, spc, flags,
+		     "%G [GUARD=%T] <%+BODY <%S> >",
+		     gs, gimple_assume_guard (gs),
+		     gimple_assume_body (gs));
+  else
+    {
+      pp_string (buffer, "[[assume (");
+      dump_generic_node (buffer, gimple_assume_guard (gs), spc, flags, false);
+      pp_string (buffer, ")]]");
+      newline_and_indent (buffer, spc + 2);
+      pp_left_brace (buffer);
+      pp_newline (buffer);
+      dump_gimple_seq (buffer, gimple_assume_body (gs), spc + 4, flags);
+      newline_and_indent (buffer, spc + 2);
+      pp_right_brace (buffer);
+    }
+}
+
 /* Dump a GIMPLE_TRANSACTION tuple on the pretty_printer BUFFER.  */
 
 static void
@@ -2335,35 +2360,10 @@ dump_ssaname_info (pretty_printer *buffer, tree node, int spc)
   if (!POINTER_TYPE_P (TREE_TYPE (node))
       && SSA_NAME_RANGE_INFO (node))
     {
-      wide_int min, max, nonzero_bits;
-      value_range r;
-
+      Value_Range r (TREE_TYPE (node));
       get_global_range_query ()->range_of_expr (r, node);
-      value_range_kind range_type = r.kind ();
-      if (!r.undefined_p ())
-	{
-	  min = wi::to_wide (r.min ());
-	  max = wi::to_wide (r.max ());
-	}
-
-      // FIXME: Use irange::dump() instead.
-      if (range_type == VR_VARYING)
-	pp_printf (buffer, "# RANGE VR_VARYING");
-      else if (range_type == VR_RANGE || range_type == VR_ANTI_RANGE)
-	{
-	  pp_printf (buffer, "# RANGE ");
-	  pp_printf (buffer, "%s[", range_type == VR_RANGE ? "" : "~");
-	  pp_wide_int (buffer, min, TYPE_SIGN (TREE_TYPE (node)));
-	  pp_printf (buffer, ", ");
-	  pp_wide_int (buffer, max, TYPE_SIGN (TREE_TYPE (node)));
-	  pp_printf (buffer, "]");
-	}
-      nonzero_bits = get_nonzero_bits (node);
-      if (nonzero_bits != -1)
-	{
-	  pp_string (buffer, " NONZERO ");
-	  pp_wide_int (buffer, nonzero_bits, UNSIGNED);
-	}
+      pp_string (buffer, "# RANGE ");
+      pp_vrange (buffer, &r);
       newline_and_indent (buffer, spc);
     }
 }
@@ -2865,6 +2865,10 @@ pp_gimple_stmt_1 (pretty_printer *buffer, const gimple *gs, int spc,
       pp_string (buffer, " predictor.");
       break;
 
+    case GIMPLE_ASSUME:
+      dump_gimple_assume (buffer, gs, spc, flags);
+      break;
+
     case GIMPLE_TRANSACTION:
       dump_gimple_transaction (buffer, as_a <const gtransaction *> (gs), spc,
 			       flags);
@@ -2899,8 +2903,6 @@ dump_gimple_bb_header (FILE *outf, basic_block bb, int indent,
 			 indent, "", get_lineno (gsi_stmt (gsi)));
 		break;
 	      }
-	  if (bb->discriminator)
-	    fprintf (outf, ", discriminator %i", bb->discriminator);
 	  fputc ('\n', outf);
 	}
     }

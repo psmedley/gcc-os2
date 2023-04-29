@@ -1,5 +1,5 @@
 /* Definitions for code generation pass of GNU compiler.
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -69,25 +69,34 @@ extern void convert_move (rtx, rtx, int);
 extern rtx convert_to_mode (machine_mode, rtx, int);
 
 /* Convert an rtx to MODE from OLDMODE and return the result.  */
-extern rtx convert_modes (machine_mode, machine_mode, rtx, int);
+extern rtx convert_modes (machine_mode mode, machine_mode oldmode,
+			  rtx x, int unsignedp);
+
+/* Variant of convert_modes for ABI parameter passing/return.  */
+extern rtx convert_float_to_wider_int (machine_mode mode, machine_mode fmode,
+				       rtx x);
+
+/* Variant of convert_modes for ABI parameter passing/return.  */
+extern rtx convert_wider_int_to_float (machine_mode mode, machine_mode imode,
+				       rtx x);
 
 /* Expand a call to memcpy or memmove or memcmp, and return the result.  */
 extern rtx emit_block_op_via_libcall (enum built_in_function, rtx, rtx, rtx,
 				      bool);
 
-static inline rtx
+inline rtx
 emit_block_copy_via_libcall (rtx dst, rtx src, rtx size, bool tailcall = false)
 {
   return emit_block_op_via_libcall (BUILT_IN_MEMCPY, dst, src, size, tailcall);
 }
 
-static inline rtx
+inline rtx
 emit_block_move_via_libcall (rtx dst, rtx src, rtx size, bool tailcall = false)
 {
   return emit_block_op_via_libcall (BUILT_IN_MEMMOVE, dst, src, size, tailcall);
 }
 
-static inline rtx
+inline rtx
 emit_block_comp_via_libcall (rtx dst, rtx src, rtx size, bool tailcall = false)
 {
   return emit_block_op_via_libcall (BUILT_IN_MEMCMP, dst, src, size, tailcall);
@@ -169,14 +178,14 @@ extern void clobber_reg_mode (rtx *, rtx, machine_mode);
 extern rtx copy_blkmode_to_reg (machine_mode, tree);
 
 /* Mark REG as holding a parameter for the next CALL_INSN.  */
-static inline void
+inline void
 use_reg (rtx *fusage, rtx reg)
 {
   use_reg_mode (fusage, reg, VOIDmode);
 }
 
 /* Mark REG as clobbered by the call with FUSAGE as CALL_INSN_FUNCTION_USAGE.  */
-static inline void
+inline void
 clobber_reg (rtx *fusage, rtx reg)
 {
   clobber_reg_mode (fusage, reg, VOIDmode);
@@ -253,7 +262,7 @@ extern rtx_insn *emit_move_insn_1 (rtx, rtx);
 extern rtx_insn *emit_move_complex_push (machine_mode, rtx, rtx);
 extern rtx_insn *emit_move_complex_parts (rtx, rtx);
 extern rtx read_complex_part (rtx, bool);
-extern void write_complex_part (rtx, rtx, bool);
+extern void write_complex_part (rtx, rtx, bool, bool);
 extern rtx read_complex_part (rtx, bool);
 extern rtx emit_move_resolve_push (machine_mode, rtx);
 
@@ -294,14 +303,14 @@ extern rtx expand_expr_real_2 (sepops, rtx, machine_mode,
 /* Generate code for computing expression EXP.
    An rtx for the computed value is returned.  The value is never null.
    In the case of a void EXP, const0_rtx is returned.  */
-static inline rtx
+inline rtx
 expand_expr (tree exp, rtx target, machine_mode mode,
 	     enum expand_modifier modifier)
 {
   return expand_expr_real (exp, target, mode, modifier, NULL, false);
 }
 
-static inline rtx
+inline rtx
 expand_normal (tree exp)
 {
   return expand_expr_real (exp, NULL_RTX, VOIDmode, EXPAND_NORMAL, NULL, false);
@@ -338,6 +347,9 @@ extern unsigned HOST_WIDE_INT highest_pow2_factor (const_tree);
 extern bool categorize_ctor_elements (const_tree, HOST_WIDE_INT *,
 				      HOST_WIDE_INT *, HOST_WIDE_INT *,
 				      bool *);
+extern bool immediate_const_ctor_p (const_tree, unsigned int words = 1);
+extern void store_constructor (tree, rtx, int, poly_int64, bool);
+extern HOST_WIDE_INT int_expr_size (const_tree exp);
 
 extern void expand_operands (tree, tree, rtx, rtx*, rtx*,
 			     enum expand_modifier);

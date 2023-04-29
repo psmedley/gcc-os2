@@ -1,6 +1,6 @@
 // Utilities for representing and manipulating ranges -*- C++ -*-
 
-// Copyright (C) 2019-2022 Free Software Foundation, Inc.
+// Copyright (C) 2019-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -53,9 +53,7 @@ namespace ranges
       concept __has_arrow = input_iterator<_It>
 	&& (is_pointer_v<_It> || requires(_It __it) { __it.operator->(); });
 
-    template<typename _Tp, typename _Up>
-      concept __different_from
-	= !same_as<remove_cvref_t<_Tp>, remove_cvref_t<_Up>>;
+    using std::__detail::__different_from;
   } // namespace __detail
 
   /// The ranges::view_interface class template
@@ -97,14 +95,26 @@ namespace ranges
       constexpr bool
       empty()
       noexcept(noexcept(_S_empty(_M_derived())))
-      requires forward_range<_Derived>
+      requires forward_range<_Derived> && (!sized_range<_Derived>)
       { return _S_empty(_M_derived()); }
+
+      constexpr bool
+      empty()
+      noexcept(noexcept(ranges::size(_M_derived()) == 0))
+      requires sized_range<_Derived>
+      { return ranges::size(_M_derived()) == 0; }
 
       constexpr bool
       empty() const
       noexcept(noexcept(_S_empty(_M_derived())))
-      requires forward_range<const _Derived>
+      requires forward_range<const _Derived> && (!sized_range<const _Derived>)
       { return _S_empty(_M_derived()); }
+
+      constexpr bool
+      empty() const
+      noexcept(noexcept(ranges::size(_M_derived()) == 0))
+      requires sized_range<const _Derived>
+      { return ranges::size(_M_derived()) == 0; }
 
       constexpr explicit
       operator bool() noexcept(noexcept(ranges::empty(_M_derived())))
@@ -180,6 +190,24 @@ namespace ranges
 	constexpr decltype(auto)
 	operator[](range_difference_t<_Range> __n) const
 	{ return ranges::begin(_M_derived())[__n]; }
+
+#if __cplusplus > 202002L
+      constexpr auto
+      cbegin() requires input_range<_Derived>
+      { return ranges::cbegin(_M_derived()); }
+
+      constexpr auto
+      cbegin() const requires input_range<const _Derived>
+      { return ranges::cbegin(_M_derived()); }
+
+      constexpr auto
+      cend() requires input_range<_Derived>
+      { return ranges::cend(_M_derived()); }
+
+      constexpr auto
+      cend() const requires input_range<const _Derived>
+      { return ranges::cend(_M_derived()); }
+#endif
     };
 
   namespace __detail
@@ -649,6 +677,99 @@ namespace ranges
   };
 
   inline constexpr __search_fn search{};
+
+  struct __min_fn
+  {
+    template<typename _Tp, typename _Proj = identity,
+	     indirect_strict_weak_order<projected<const _Tp*, _Proj>>
+	       _Comp = ranges::less>
+      constexpr const _Tp&
+      operator()(const _Tp& __a, const _Tp& __b,
+		 _Comp __comp = {}, _Proj __proj = {}) const
+      {
+	if (std::__invoke(__comp,
+			  std::__invoke(__proj, __b),
+			  std::__invoke(__proj, __a)))
+	  return __b;
+	else
+	  return __a;
+      }
+
+    template<input_range _Range, typename _Proj = identity,
+	     indirect_strict_weak_order<projected<iterator_t<_Range>, _Proj>>
+	       _Comp = ranges::less>
+      requires indirectly_copyable_storable<iterator_t<_Range>,
+					    range_value_t<_Range>*>
+      constexpr range_value_t<_Range>
+      operator()(_Range&& __r, _Comp __comp = {}, _Proj __proj = {}) const
+      {
+	auto __first = ranges::begin(__r);
+	auto __last = ranges::end(__r);
+	__glibcxx_assert(__first != __last);
+	auto __result = *__first;
+	while (++__first != __last)
+	  {
+	    auto __tmp = *__first;
+	    if (std::__invoke(__comp,
+			      std::__invoke(__proj, __tmp),
+			      std::__invoke(__proj, __result)))
+	      __result = std::move(__tmp);
+	  }
+	return __result;
+      }
+
+    template<copyable _Tp, typename _Proj = identity,
+	     indirect_strict_weak_order<projected<const _Tp*, _Proj>>
+	       _Comp = ranges::less>
+      constexpr _Tp
+      operator()(initializer_list<_Tp> __r,
+		 _Comp __comp = {}, _Proj __proj = {}) const
+      {
+	return (*this)(ranges::subrange(__r),
+		       std::move(__comp), std::move(__proj));
+      }
+  };
+
+  inline constexpr __min_fn min{};
+
+  struct __adjacent_find_fn
+  {
+    template<forward_iterator _Iter, sentinel_for<_Iter> _Sent,
+	     typename _Proj = identity,
+	     indirect_binary_predicate<projected<_Iter, _Proj>,
+				       projected<_Iter, _Proj>> _Pred
+	       = ranges::equal_to>
+      constexpr _Iter
+      operator()(_Iter __first, _Sent __last,
+		 _Pred __pred = {}, _Proj __proj = {}) const
+      {
+	if (__first == __last)
+	  return __first;
+	auto __next = __first;
+	for (; ++__next != __last; __first = __next)
+	  {
+	    if (std::__invoke(__pred,
+			      std::__invoke(__proj, *__first),
+			      std::__invoke(__proj, *__next)))
+	      return __first;
+	  }
+	return __next;
+      }
+
+    template<forward_range _Range, typename _Proj = identity,
+	     indirect_binary_predicate<
+	       projected<iterator_t<_Range>, _Proj>,
+	       projected<iterator_t<_Range>, _Proj>> _Pred = ranges::equal_to>
+      constexpr borrowed_iterator_t<_Range>
+      operator()(_Range&& __r, _Pred __pred = {}, _Proj __proj = {}) const
+      {
+	return (*this)(ranges::begin(__r), ranges::end(__r),
+		       std::move(__pred), std::move(__proj));
+      }
+  };
+
+  inline constexpr __adjacent_find_fn adjacent_find{};
+
 } // namespace ranges
 
   using ranges::get;

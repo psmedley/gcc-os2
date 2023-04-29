@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -564,8 +564,12 @@ package body Rtsfind is
      Ada_Interrupts_Names .. Ada_Interrupts_Names;
 
    subtype Ada_Numerics_Descendant is Ada_Descendant
-     range Ada_Numerics_Generic_Elementary_Functions ..
-           Ada_Numerics_Generic_Elementary_Functions;
+     range Ada_Numerics_Big_Numbers ..
+           Ada_Numerics_Big_Numbers_Big_Integers_Ghost;
+
+   subtype Ada_Numerics_Big_Numbers_Descendant is Ada_Descendant
+     range Ada_Numerics_Big_Numbers_Big_Integers ..
+           Ada_Numerics_Big_Numbers_Big_Integers_Ghost;
 
    subtype Ada_Real_Time_Descendant is Ada_Descendant
      range Ada_Real_Time_Delays .. Ada_Real_Time_Timing_Events;
@@ -656,6 +660,10 @@ package body Rtsfind is
 
          elsif U_Id in Ada_Numerics_Descendant then
             Name_Buffer (13) := '.';
+
+            if U_Id in Ada_Numerics_Big_Numbers_Descendant then
+               Name_Buffer (25) := '.';
+            end if;
 
          elsif U_Id in Ada_Real_Time_Descendant then
             Name_Buffer (14) := '.';
@@ -1660,7 +1668,7 @@ package body Rtsfind is
 
       --  Load unit if unit not previously loaded
 
-      if not Present (U.Entity) then
+      if No (U.Entity) then
          Load_RTU (U_Id, Id => E);
       end if;
 
@@ -1679,7 +1687,7 @@ package body Rtsfind is
             E1 := First_Entity (Pkg_Ent);
             while Present (E1) loop
                if Ename = Chars (E1) then
-                  pragma Assert (not Present (Found_E));
+                  pragma Assert (No (Found_E));
                   Found_E := E1;
                end if;
 

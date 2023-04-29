@@ -1,5 +1,5 @@
 // Implementation of public inline member functions for RTL SSA     -*- C++ -*-
-// Copyright (C) 2020-2022 Free Software Foundation, Inc.
+// Copyright (C) 2020-2023 Free Software Foundation, Inc.
 //
 // This file is part of GCC.
 //
@@ -484,7 +484,7 @@ insn_info::operator< (const insn_info &other) const
   if (this == &other)
     return false;
 
-  if (__builtin_expect (m_point != other.m_point, 1))
+  if (LIKELY (m_point != other.m_point))
     return m_point < other.m_point;
 
   return slow_compare_with (other) < 0;
@@ -514,7 +514,7 @@ insn_info::compare_with (const insn_info *other) const
   if (this == other)
     return 0;
 
-  if (__builtin_expect (m_point != other->m_point, 1))
+  if (LIKELY (m_point != other->m_point))
     // Assume that points remain in [0, INT_MAX].
     return m_point - other->m_point;
 

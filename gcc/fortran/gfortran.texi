@@ -1,7 +1,7 @@
 \input texinfo  @c -*-texinfo-*-
 @c %**start of header
 @setfilename gfortran.info
-@set copyrights-gfortran 1999-2022
+@set copyrights-gfortran 1999-2023
 
 @include gcc-common.texi
 
@@ -246,7 +246,7 @@ including OpenMP and OpenACC support for parallel programming.
 The GNU Fortran compiler passes the
 @uref{http://www.fortran-2000.com/ArnaudRecipes/fcvs21_f95.html,
 NIST Fortran 77 Test Suite}, and produces acceptable results on the
-@uref{https://www.netlib.org/lapack/faq.html#1.21, LAPACK Test Suite}.
+@uref{https://www.netlib.org/lapack/faq.html, LAPACK Test Suite}.
 It also provides respectable performance on
 the @uref{https://polyhedron.com/?page_id=175,
 Polyhedron Fortran compiler benchmarks} and the
@@ -441,7 +441,7 @@ found in the following sections of the documentation.
 
 Additionally, the GNU Fortran compilers supports the OpenMP specification
 (version 4.5 and partial support of the features of the 5.0 version,
-@url{https://openmp.org/@/openmp-specifications/}).
+@url{https://openmp.org/@/specifications/}).
 There also is support for the OpenACC specification (targeting
 version 2.6, @uref{https://www.openacc.org/}).  See
 @uref{https://gcc.gnu.org/wiki/OpenACC} for more information.
@@ -455,9 +455,8 @@ version 2.6, @uref{https://www.openacc.org/}).  See
 The Fortran 95 standard specifies in Part 2 (ISO/IEC 1539-2:2000)
 varying length character strings.  While GNU Fortran currently does not
 support such strings directly, there exist two Fortran implementations
-for them, which work with GNU Fortran.  They can be found at
-@uref{https://www.fortran.com/@/iso_varying_string.f95} and at
-@uref{ftp://ftp.nag.co.uk/@/sc22wg5/@/ISO_VARYING_STRING/}.
+for them, which work with GNU Fortran. One can be found at
+@uref{http://user.astro.wisc.edu/~townsend/static.php?ref=iso-varying-string}.
 
 Deferred-length character strings of Fortran 2003 supports part of
 the features of @code{ISO_VARYING_STRING} and should be considered as
@@ -821,6 +820,7 @@ might in some way or another become visible to the programmer.
 * File operations on symbolic links::
 * File format of unformatted sequential files::
 * Asynchronous I/O::
+* Behavior on integer overflow::
 @end menu
 
 
@@ -1160,6 +1160,23 @@ sytems, such as Linux, it is necessary to specify @option{-pthread},
 
 @c Maybe this chapter should be merged with the 'Standards' section,
 @c whenever that is written :-)
+
+@node Behavior on integer overflow
+@section Behavior on integer overflow
+@cindex integer overflow
+@cindex overflow handling
+
+Integer overflow is prohibited by the Fortran standard.  The behavior
+of gfortran on integer overflow is undefined by default.  Traditional
+code, like linear congruential pseudo-random number generators in old
+programs that rely on specific, non-standard behavior may generate
+unexpected results.  The @option{-fsanitize=undefined} option can be
+used to detect such code at runtime.
+
+It is recommended to use the intrinsic subroutine @code{RANDOM_NUMBER}
+for random number generators or, if the old behavior is desired, to
+use the @option{-fwrapv} option.  Note that this option can impact
+performance.
 
 @node Extensions
 @chapter Extensions
@@ -1806,7 +1823,7 @@ It consists of a set of compiler directives, library routines,
 and environment variables that influence run-time behavior.
 
 GNU Fortran strives to be compatible to the
-@uref{https://openmp.org/wp/openmp-specifications/,
+@uref{https://openmp.org/specifications/,
 OpenMP Application Program Interface v4.5}.
 
 To enable the processing of the OpenMP directive @code{!$omp} in
@@ -3247,6 +3264,13 @@ requires an explicit interface.
 @item @code{DEPRECATED} -- print a warning when using a such-tagged
 deprecated procedure, variable or parameter; the warning can be suppressed
 with @option{-Wno-deprecated-declarations}.
+@item @code{NOINLINE} -- prevent inlining given function.
+@item @code{NORETURN} -- add a hint that a given function cannot return.
+@item @code{WEAK} -- emit the declaration of an external symbol as a weak
+symbol rather than a global.  This is primarily useful in defining library
+functions that can be overridden in user code, though it can also be used with
+non-function declarations.  The overriding symbol must have the same type as
+the weak symbol.
 @end itemize
 
 
@@ -3764,8 +3788,7 @@ is used for dummy arguments; with @code{VALUE}, those variables are
 passed by value.
 
 For @code{OPTIONAL} dummy arguments, an absent argument is denoted
-by a NULL pointer, except for scalar dummy arguments of type
-@code{INTEGER}, @code{LOGICAL}, @code{REAL} and @code{COMPLEX}
+by a NULL pointer, except for scalar dummy arguments of intrinsic type
 which have the @code{VALUE} attribute.  For those, a hidden Boolean
 argument (@code{logical(kind=C_bool),value}) is used to indicate
 whether the argument is present.
@@ -3788,7 +3811,7 @@ The arguments are passed in the following order
 @code{CHARACTER} and no C binding is used
 @item The arguments in the order in which they appear in the Fortran
 declaration
-@item The the present status for optional arguments with value attribute,
+@item The present status for optional arguments with value attribute,
 which are internally passed by value
 @item The character length and/or coarray token and offset for the first
 argument which is a @code{CHARACTER} or a nonallocatable coarray dummy

@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -30,6 +30,7 @@ with Checks;
 with CStand;
 with Debug;          use Debug;
 with Elists;
+with Exp_Ch6;
 with Exp_Dbug;
 with Exp_Unst;
 with Fmap;
@@ -38,7 +39,6 @@ with Ghost;          use Ghost;
 with Inline;         use Inline;
 with Lib;            use Lib;
 with Lib.Load;       use Lib.Load;
-with Lib.Xref;
 with Live;           use Live;
 with Namet;          use Namet;
 with Nlists;         use Nlists;
@@ -69,6 +69,7 @@ with SCIL_LL;
 with Tbuild;         use Tbuild;
 with Types;          use Types;
 with VAST;
+with Warnsw;         use Warnsw;
 
 procedure Frontend is
 begin
@@ -481,7 +482,6 @@ begin
 
             --  Output waiting warning messages
 
-            Lib.Xref.Process_Deferred_References;
             Sem_Warn.Output_Non_Modified_In_Out_Warnings;
             Sem_Warn.Output_Unreferenced_Messages;
             Sem_Warn.Check_Unused_Withs;
@@ -523,6 +523,16 @@ begin
 
    if Debug_Flag_Underscore_VV then
       VAST.Check_Tree (Cunit (Main_Unit));
+   end if;
+
+   --  Validate all the subprogram calls; this work will be done by VAST; in
+   --  the meantime it is done to check extra formals and it can be disabled
+   --  using -gnatd_X (which also disables all the other assertions on extra
+   --  formals). It is invoked using pragma Debug to avoid adding any cost
+   --  when the compiler is built with assertions disabled.
+
+   if not Debug_Flag_Underscore_XX then
+      pragma Debug (Exp_Ch6.Validate_Subprogram_Calls (Cunit (Main_Unit)));
    end if;
 
    --  Dump the source now. Note that we do this as soon as the analysis

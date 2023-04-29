@@ -1,5 +1,5 @@
 /* Control flow optimization code for GNU compiler.
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -208,7 +208,7 @@ mark_effect (rtx exp, regset nonequal)
       return false;
 
     case SET:
-      if (rtx_equal_for_cselib_p (SET_DEST (exp), SET_SRC (exp)))
+      if (cselib_redundant_set_p (exp))
 	return false;
       dest = SET_DEST (exp);
       if (dest == pc_rtx)
@@ -2599,7 +2599,7 @@ trivially_empty_bb_p (basic_block bb)
    return value.  Fill in *RET and *USE with the return and use insns
    if any found, otherwise NULL.  All CLOBBERs are ignored.  */
 
-static bool
+bool
 bb_is_just_return (basic_block bb, rtx_insn **ret, rtx_insn **use)
 {
   *ret = *use = NULL;
@@ -3227,7 +3227,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual unsigned int execute (function *);
+  unsigned int execute (function *) final override;
 
 }; // class pass_jump
 
@@ -3274,11 +3274,11 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
   {
     return flag_thread_jumps && flag_expensive_optimizations;
   }
-  virtual unsigned int execute (function *);
+  unsigned int execute (function *) final override;
 
 }; // class pass_jump_after_combine
 
@@ -3322,7 +3322,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       cleanup_cfg (flag_crossjumping ? CLEANUP_CROSSJUMP : 0);
       return 0;

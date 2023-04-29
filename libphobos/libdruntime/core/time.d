@@ -2488,7 +2488,7 @@ private immutable long[__traits(allMembers, ClockType).length] _ticksPerSecond;
 // https://issues.dlang.org/show_bug.cgi?id=14863
 // The assert will occur when someone attempts to use _ticksPerSecond for that
 // value.
-extern(C) void _d_initMonoTime()
+extern(C) void _d_initMonoTime() @nogc nothrow
 {
     // We need a mutable pointer to the ticksPerSecond array. Although this
     // would appear to break immutability, it is logically the same as a static
@@ -2822,7 +2822,7 @@ struct TickDuration
     }
 
 
-    @trusted shared static this()
+    static pragma(crt_constructor) void time_initializer()
     {
         version (Windows)
         {
@@ -3362,7 +3362,7 @@ struct TickDuration
         $(D gettimeofday) (the decision is made when $(D TickDuration) is
         compiled), which unfortunately, is not monotonic, but if
         $(D mach_absolute_time) and $(D clock_gettime) aren't available, then
-        $(D gettimeofday) is the the best that there is.
+        $(D gettimeofday) is the best that there is.
 
         $(RED Warning):
             On some systems, the monotonic clock may stop counting when
@@ -3823,7 +3823,7 @@ unittest
 }
 
 version (Darwin)
-long machTicksPerSecond()
+long machTicksPerSecond() @nogc nothrow
 {
     // Be optimistic that ticksPerSecond (1e9*denom/numer) is integral. So far
     // so good on Darwin based platforms OS X, iOS.

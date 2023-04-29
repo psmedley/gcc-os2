@@ -558,7 +558,7 @@ private template optionValidator(A...)
     import std.format : format;
 
     enum fmt = "getopt validator: %s (at position %d)";
-    enum isReceiver(T) = isPointer!T || (is(T == function)) || (is(T == delegate));
+    enum isReceiver(T) = is(T == U*, U) || (is(T == function)) || (is(T == delegate));
     enum isOptionStr(T) = isSomeString!T || isSomeChar!T;
 
     auto validator()
@@ -1835,7 +1835,7 @@ void defaultGetoptFormatter(Output)(Output output, string text, Option[] opt, st
     assert(flag);
 }
 
-@safe unittest  // Delegates as callbacks
+@system unittest  // Delegates as callbacks
 {
     alias TwoArgOptionHandler = void delegate(string option, string value) @safe;
 

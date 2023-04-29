@@ -1,6 +1,6 @@
 // vector<bool> specialization -*- C++ -*-
 
-// Copyright (C) 2001-2022 Free Software Foundation, Inc.
+// Copyright (C) 2001-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -105,6 +105,18 @@ _GLIBCXX_BEGIN_NAMESPACE_CONTAINER
 	*_M_p &= ~_M_mask;
       return *this;
     }
+
+#if __cplusplus > 202002L
+    constexpr const _Bit_reference&
+    operator=(bool __x) const noexcept
+    {
+      if (__x)
+	*_M_p |= _M_mask;
+      else
+	*_M_p &= ~_M_mask;
+      return *this;
+    }
+#endif // C++23
 
     _GLIBCXX20_CONSTEXPR
     _Bit_reference&

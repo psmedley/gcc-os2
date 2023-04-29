@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -23,6 +23,7 @@
 --                                                                          --
 ------------------------------------------------------------------------------
 
+with Accessibility;  use Accessibility;
 with Aspects;        use Aspects;
 with Atree;          use Atree;
 with Checks;         use Checks;
@@ -65,6 +66,7 @@ with Tbuild;         use Tbuild;
 with Ttypes;         use Ttypes;
 with Uintp;          use Uintp;
 with Validsw;        use Validsw;
+with Warnsw;         use Warnsw;
 
 package body Exp_Ch5 is
 
@@ -292,8 +294,8 @@ package body Exp_Ch5 is
       return
         Nkind (Rhs) = N_Type_Conversion
           and then not Has_Compatible_Representation
-                         (Target_Type  => Etype (Rhs),
-                          Operand_Type => Etype (Expression (Rhs)));
+                         (Target_Typ  => Etype (Rhs),
+                          Operand_Typ => Etype (Expression (Rhs)));
    end Change_Of_Representation;
 
    ------------------------------
@@ -1594,48 +1596,107 @@ package body Exp_Ch5 is
       Rev    : Boolean) return Node_Id
    is
 
+      function Volatile_Or_Independent
+        (Exp : Node_Id; Typ : Entity_Id) return Boolean;
+      --  Exp is an expression of type Typ, or if there is no expression
+      --  involved, Exp is Empty. True if there are any volatile or independent
+      --  objects that should disable the optimization. We check the object
+      --  itself, all subcomponents, and if Exp is a slice of a component or
+      --  slice, we check the prefix and its type.
+      --
+      --  We disable the optimization when there are relevant volatile or
+      --  independent objects, because Copy_Bitfield can read and write bits
+      --  that are not part of the objects being copied.
+
+      -----------------------------
+      -- Volatile_Or_Independent --
+      -----------------------------
+
+      function Volatile_Or_Independent
+        (Exp : Node_Id; Typ : Entity_Id) return Boolean
+      is
+      begin
+         --  Initially, Exp is the left- or right-hand side. In recursive
+         --  calls, Exp is Empty if we're just checking a component type, and
+         --  Exp is the prefix if we're checking the prefix of a slice.
+
+         if Present (Exp)
+           and then (Is_Volatile_Object_Ref (Exp)
+                       or else Is_Independent_Object (Exp))
+         then
+            return True;
+         end if;
+
+         if Has_Volatile_Components (Typ)
+           or else Has_Independent_Components (Typ)
+         then
+            return True;
+         end if;
+
+         if Is_Array_Type (Typ) then
+            if Volatile_Or_Independent (Empty, Component_Type (Typ)) then
+               return True;
+            end if;
+
+         elsif Is_Record_Type (Typ) then
+            declare
+               Comp : Entity_Id := First_Component (Typ);
+            begin
+               while Present (Comp) loop
+                  if Volatile_Or_Independent (Empty, Comp) then
+                     return True;
+                  end if;
+
+                  Next_Component (Comp);
+               end loop;
+            end;
+         end if;
+
+         if Nkind (Exp) = N_Slice
+           and then Nkind (Prefix (Exp)) in
+                      N_Selected_Component | N_Indexed_Component | N_Slice
+         then
+            if Volatile_Or_Independent (Prefix (Exp), Etype (Prefix (Exp)))
+            then
+               return True;
+            end if;
+         end if;
+
+         return False;
+      end Volatile_Or_Independent;
+
+      function Slice_Of_Packed_Component (L : Node_Id) return Boolean is
+        (Nkind (L) = N_Slice
+         and then Nkind (Prefix (L)) = N_Indexed_Component
+         and then Is_Bit_Packed_Array (Etype (Prefix (Prefix (L)))));
+      --  L is the left-hand side Name. Returns True if L is a slice of a
+      --  component of a bit-packed array. The optimization is disabled in
+      --  that case, because Expand_Assign_Array_Bitfield_Fast cannot
+      --  currently handle that case correctly.
+
       L : constant Node_Id := Name (N);
       R : constant Node_Id := Expression (N);
       --  Left- and right-hand sides of the assignment statement
 
       Slices : constant Boolean :=
         Nkind (L) = N_Slice or else Nkind (R) = N_Slice;
-      L_Prefix_Comp : constant Boolean :=
-        --  True if the left-hand side is a slice of a component or slice
-        Nkind (L) = N_Slice
-          and then Nkind (Prefix (L)) in
-                     N_Selected_Component | N_Indexed_Component | N_Slice;
-      R_Prefix_Comp : constant Boolean :=
-        --  Likewise for the right-hand side
-        Nkind (R) = N_Slice
-          and then Nkind (Prefix (R)) in
-                     N_Selected_Component | N_Indexed_Component | N_Slice;
+
+   --  Start of processing for Expand_Assign_Array_Loop_Or_Bitfield
 
    begin
       --  Determine whether Copy_Bitfield or Fast_Copy_Bitfield is appropriate
       --  (will work, and will be more efficient than component-by-component
       --  copy). Copy_Bitfield doesn't work for reversed storage orders. It is
-      --  efficient for slices of bit-packed arrays. Copy_Bitfield can read and
-      --  write bits that are not part of the objects being copied, so we don't
-      --  want to use it if there are volatile or independent components. If
-      --  the Prefix of the slice is a component or slice, then it might be a
-      --  part of an object with some other volatile or independent components,
-      --  so we disable the optimization in that case as well. We could
-      --  complicate this code by actually looking for such volatile and
-      --  independent components.
+      --  efficient for slices of bit-packed arrays.
 
       if Is_Bit_Packed_Array (L_Type)
         and then Is_Bit_Packed_Array (R_Type)
         and then not Reverse_Storage_Order (L_Type)
         and then not Reverse_Storage_Order (R_Type)
-        and then Ndim = 1
         and then Slices
-        and then not Has_Volatile_Component (L_Type)
-        and then not Has_Volatile_Component (R_Type)
-        and then not Has_Independent_Components (L_Type)
-        and then not Has_Independent_Components (R_Type)
-        and then not L_Prefix_Comp
-        and then not R_Prefix_Comp
+        and then not Slice_Of_Packed_Component (L)
+        and then not Volatile_Or_Independent (L, L_Type)
+        and then not Volatile_Or_Independent (R, R_Type)
       then
          --  Here if Copy_Bitfield can work (except for the Rev test below).
          --  Determine whether to call Fast_Copy_Bitfield instead. If we
@@ -1848,27 +1909,14 @@ package body Exp_Ch5 is
             CI : constant List_Id := Component_Items (CL);
             VP : constant Node_Id := Variant_Part (CL);
 
-            Constrained_Typ : Entity_Id;
-            Alts            : List_Id;
-            DC              : Node_Id;
-            DCH             : List_Id;
-            Expr            : Node_Id;
-            Result          : List_Id;
-            V               : Node_Id;
+            Alts   : List_Id;
+            DC     : Node_Id;
+            DCH    : List_Id;
+            Expr   : Node_Id;
+            Result : List_Id;
+            V      : Node_Id;
 
          begin
-            --  Try to find a constrained type to extract discriminant values
-            --  from, so that the case statement built below gets an
-            --  opportunity to be folded by Expand_N_Case_Statement.
-
-            if U_U or else Is_Constrained (Etype (Rhs)) then
-               Constrained_Typ := Etype (Rhs);
-            elsif Is_Constrained (Etype (Expression (N))) then
-               Constrained_Typ := Etype (Expression (N));
-            else
-               Constrained_Typ := Empty;
-            end if;
-
             Result := Make_Field_Assigns (CI);
 
             if Present (VP) then
@@ -1890,13 +1938,38 @@ package body Exp_Ch5 is
                   Next_Non_Pragma (V);
                end loop;
 
-               if Present (Constrained_Typ) then
+               --  Try to find a constrained type or a derived type to extract
+               --  discriminant values from, so that the case statement built
+               --  below can be folded by Expand_N_Case_Statement.
+
+               if U_U or else Is_Constrained (Etype (Rhs)) then
                   Expr :=
                     New_Copy (Get_Discriminant_Value (
                       Entity (Name (VP)),
-                      Constrained_Typ,
-                      Discriminant_Constraint (Constrained_Typ)));
+                      Etype (Rhs),
+                      Discriminant_Constraint (Etype (Rhs))));
+
+               elsif Is_Constrained (Etype (Expression (N))) then
+                  Expr :=
+                    New_Copy (Get_Discriminant_Value (
+                      Entity (Name (VP)),
+                      Etype (Expression (N)),
+                      Discriminant_Constraint (Etype (Expression (N)))));
+
+               elsif Is_Derived_Type (Etype (Rhs))
+                 and then Present (Stored_Constraint (Etype (Rhs)))
+               then
+                  Expr :=
+                    New_Copy (Get_Discriminant_Value (
+                      Corresponding_Record_Component (Entity (Name (VP))),
+                      Etype (Etype (Rhs)),
+                      Stored_Constraint (Etype (Rhs))));
+
                else
+                  Expr := Empty;
+               end if;
+
+               if No (Expr) or else not Compile_Time_Known_Value (Expr) then
                   Expr :=
                     Make_Selected_Component (Loc,
                       Prefix        => Duplicate_Subexpr (Rhs),
@@ -2089,7 +2162,7 @@ package body Exp_Ch5 is
             --  from the Rhs by selected component because they are invisible
             --  in the type of the right-hand side.
 
-            if Stored_Constraint (R_Typ) /= No_Elist then
+            if Present (Stored_Constraint (R_Typ)) then
                declare
                   Assign    : Node_Id;
                   Discr_Val : Elmt_Id;
@@ -2234,9 +2307,15 @@ package body Exp_Ch5 is
              Expression => New_RHS));
 
       --  The left-hand side is not a direct name, but is side-effect free.
-      --  Capture its value in a temporary to avoid multiple evaluations.
+      --  Capture its value in a temporary to avoid generating a procedure.
+      --  We don't do this optimization if the target object's type may need
+      --  finalization actions, because we don't want extra finalizations to
+      --  be done for the temp object, and instead we use the more general
+      --  procedure-based approach below.
 
-      elsif Side_Effect_Free (LHS) then
+      elsif Side_Effect_Free (LHS)
+        and then not Needs_Finalization (Etype (LHS))
+      then
          Ent := Make_Temporary (Loc, 'T');
          Replace_Target_Name (New_RHS);
 
@@ -2374,11 +2453,10 @@ package body Exp_Ch5 is
 
       if Ada_Version >= Ada_2005 then
          declare
-            Call           : Node_Id;
-            Conctyp        : Entity_Id;
-            Ent            : Entity_Id;
-            Subprg         : Entity_Id;
-            RT_Subprg_Name : Node_Id;
+            Call      : Node_Id;
+            Ent       : Entity_Id;
+            Prottyp   : Entity_Id;
+            RT_Subprg : RE_Id;
 
          begin
             --  Handle chains of renamings
@@ -2398,35 +2476,27 @@ package body Exp_Ch5 is
 
             if Is_Expanded_Priority_Attribute (Ent) then
 
-               --  Look for the enclosing concurrent type
+               --  Look for the enclosing protected type
 
-               Conctyp := Current_Scope;
-               while not Is_Concurrent_Type (Conctyp) loop
-                  Conctyp := Scope (Conctyp);
+               Prottyp := Current_Scope;
+               while not Is_Protected_Type (Prottyp) loop
+                  Prottyp := Scope (Prottyp);
                end loop;
 
-               pragma Assert (Is_Protected_Type (Conctyp));
-
-               --  Generate the first actual of the call
-
-               Subprg := Current_Scope;
-               while not Present (Protected_Body_Subprogram (Subprg)) loop
-                  Subprg := Scope (Subprg);
-               end loop;
+               pragma Assert (Is_Protected_Type (Prottyp));
 
                --  Select the appropriate run-time call
 
-               if Number_Entries (Conctyp) = 0 then
-                  RT_Subprg_Name :=
-                    New_Occurrence_Of (RTE (RE_Set_Ceiling), Loc);
+               if Has_Entries (Prottyp) then
+                  RT_Subprg := RO_PE_Set_Ceiling;
                else
-                  RT_Subprg_Name :=
-                    New_Occurrence_Of (RTE (RO_PE_Set_Ceiling), Loc);
+                  RT_Subprg := RE_Set_Ceiling;
                end if;
 
                Call :=
                  Make_Procedure_Call_Statement (Loc,
-                   Name => RT_Subprg_Name,
+                   Name                   =>
+                     New_Occurrence_Of (RTE (RT_Subprg), Loc),
                    Parameter_Associations => New_List (
                      New_Copy_Tree (First (Parameter_Associations (Ent))),
                      Relocate_Node (Expression (N))));
@@ -3563,8 +3633,7 @@ package body Exp_Ch5 is
                         --  is ok here.
                         --
                         pragma Assert
-                          (not Is_Non_Empty_List
-                                 (Component_Associations (Pattern)));
+                          (Is_Empty_List (Component_Associations (Pattern)));
 
                         declare
                            Agg_Length : constant Node_Id :=
@@ -3872,7 +3941,9 @@ package body Exp_Ch5 is
    --  Start of processing for Expand_N_Case_Statement
 
    begin
-      if Extensions_Allowed and then not Is_Discrete_Type (Etype (Expr)) then
+      if Core_Extensions_Allowed
+        and then not Is_Discrete_Type (Etype (Expr))
+      then
          Rewrite (N, Expand_General_Case_Statement);
          Analyze (N);
          return;
@@ -4513,75 +4584,72 @@ package body Exp_Ch5 is
       --  Loop through elsif parts, dealing with constant conditions and
       --  possible condition actions that are present.
 
-      if Present (Elsif_Parts (N)) then
-         E := First (Elsif_Parts (N));
-         while Present (E) loop
+      E := First (Elsif_Parts (N));
+      while Present (E) loop
 
-            --  Do not consider controlled objects found in an if statement
-            --  which actually models an if expression because their early
-            --  finalization will affect the result of the expression.
+         --  Do not consider controlled objects found in an if statement which
+         --  actually models an if expression because their early finalization
+         --  will affect the result of the expression.
 
-            if not From_Conditional_Expression (N) then
-               Process_Statements_For_Controlled_Objects (E);
-            end if;
+         if not From_Conditional_Expression (N) then
+            Process_Statements_For_Controlled_Objects (E);
+         end if;
 
-            Adjust_Condition (Condition (E));
+         Adjust_Condition (Condition (E));
 
-            --  If there are condition actions, then rewrite the if statement
-            --  as indicated above. We also do the same rewrite for a True or
-            --  False condition. The further processing of this constant
-            --  condition is then done by the recursive call to expand the
-            --  newly created if statement
+         --  If there are condition actions, then rewrite the if statement as
+         --  indicated above. We also do the same rewrite for a True or False
+         --  condition. The further processing of this constant condition is
+         --  then done by the recursive call to expand the newly created if
+         --  statement
 
-            if Present (Condition_Actions (E))
-              or else Compile_Time_Known_Value (Condition (E))
-            then
-               New_If :=
-                 Make_If_Statement (Sloc (E),
-                   Condition       => Condition (E),
-                   Then_Statements => Then_Statements (E),
-                   Elsif_Parts     => No_List,
-                   Else_Statements => Else_Statements (N));
+         if Present (Condition_Actions (E))
+           or else Compile_Time_Known_Value (Condition (E))
+         then
+            New_If :=
+              Make_If_Statement (Sloc (E),
+                Condition       => Condition (E),
+                Then_Statements => Then_Statements (E),
+                Elsif_Parts     => No_List,
+                Else_Statements => Else_Statements (N));
 
-               --  Elsif parts for new if come from remaining elsif's of parent
+            --  Elsif parts for new if come from remaining elsif's of parent
 
-               while Present (Next (E)) loop
-                  if No (Elsif_Parts (New_If)) then
-                     Set_Elsif_Parts (New_If, New_List);
-                  end if;
-
-                  Append (Remove_Next (E), Elsif_Parts (New_If));
-               end loop;
-
-               Set_Else_Statements (N, New_List (New_If));
-
-               Insert_List_Before (New_If, Condition_Actions (E));
-
-               Remove (E);
-
-               if Is_Empty_List (Elsif_Parts (N)) then
-                  Set_Elsif_Parts (N, No_List);
+            while Present (Next (E)) loop
+               if No (Elsif_Parts (New_If)) then
+                  Set_Elsif_Parts (New_If, New_List);
                end if;
 
-               Analyze (New_If);
+               Append (Remove_Next (E), Elsif_Parts (New_If));
+            end loop;
 
-               --  Note this is not an implicit if statement, since it is part
-               --  of an explicit if statement in the source (or of an implicit
-               --  if statement that has already been tested). We set the flag
-               --  after calling Analyze to avoid generating extra warnings
-               --  specific to pure if statements, however (see
-               --  Sem_Ch5.Analyze_If_Statement).
+            Set_Else_Statements (N, New_List (New_If));
 
-               Preserve_Comes_From_Source (New_If, N);
-               return;
+            Insert_List_Before (New_If, Condition_Actions (E));
 
-            --  No special processing for that elsif part, move to next
+            Remove (E);
 
-            else
-               Next (E);
+            if Is_Empty_List (Elsif_Parts (N)) then
+               Set_Elsif_Parts (N, No_List);
             end if;
-         end loop;
-      end if;
+
+            Analyze (New_If);
+
+            --  Note this is not an implicit if statement, since it is part of
+            --  an explicit if statement in the source (or of an implicit if
+            --  statement that has already been tested). We set the flag after
+            --  calling Analyze to avoid generating extra warnings specific to
+            --  pure if statements, however (see Sem_Ch5.Analyze_If_Statement).
+
+            Preserve_Comes_From_Source (New_If, N);
+            return;
+
+         --  No special processing for that elsif part, move to next
+
+         else
+            Next (E);
+         end if;
+      end loop;
 
       --  Some more optimizations applicable if we still have an IF statement
 
@@ -4910,7 +4978,8 @@ package body Exp_Ch5 is
 
    --  In the optimized case, we make use of these:
 
-   --     procedure Next (Position : in out Cursor); -- instead of Iter.Next
+   --     procedure _Next (Position : in out Cursor); -- instead of Iter.Next
+   --        (or _Previous for reverse loops)
 
    --     function Pseudo_Reference
    --       (Container : aliased Vector'Class) return Reference_Control_Type;
@@ -4924,6 +4993,11 @@ package body Exp_Ch5 is
    --  The other three are added in the private part. (We're not supposed to
    --  pollute the namespace for clients. The compiler has no trouble breaking
    --  privacy to call things in the private part of an instance.)
+
+   --  Note that Next and Previous are renamed as _Next and _Previous with
+   --  leading underscores. Leading underscores are illegal in Ada, but we
+   --  allow them in the run-time library. This allows us to avoid polluting
+   --  the user-visible namespaces.
 
    --  Source:
 
@@ -4975,7 +5049,7 @@ package body Exp_Ch5 is
    --              X.Count := X.Count + 1;
    --              ...
    --
-   --              Next (Cur); -- or Prev
+   --              _Next (Cur); -- or _Previous
    --              --  This is instead of "Cur := Next (Iter, Cur);"
    --          end;
    --          --  No finalization here
@@ -5001,13 +5075,14 @@ package body Exp_Ch5 is
       Stats    : List_Id     := Statements (N);
       --  Maybe wrapped in a conditional if a filter is present
 
-      Cursor    : Entity_Id;
-      Decl      : Node_Id;
-      Iter_Type : Entity_Id;
-      Iterator  : Entity_Id;
-      Name_Init : Name_Id;
-      Name_Step : Name_Id;
-      New_Loop  : Node_Id;
+      Cursor         : Entity_Id;
+      Decl           : Node_Id;
+      Iter_Type      : Entity_Id;
+      Iterator       : Entity_Id;
+      Name_Init      : Name_Id;
+      Name_Step      : Name_Id;
+      Name_Fast_Step : Name_Id;
+      New_Loop       : Node_Id;
 
       Fast_Element_Access_Op : Entity_Id := Empty;
       Fast_Step_Op           : Entity_Id := Empty;
@@ -5035,9 +5110,11 @@ package body Exp_Ch5 is
       if Reverse_Present (I_Spec) then
          Name_Init := Name_Last;
          Name_Step := Name_Previous;
+         Name_Fast_Step := Name_uPrevious;
       else
          Name_Init := Name_First;
          Name_Step := Name_Next;
+         Name_Fast_Step := Name_uNext;
       end if;
 
       --  The type of the iterator is the return type of the Iterate function
@@ -5175,33 +5252,41 @@ package body Exp_Ch5 is
 
             Iter_Pack := Scope (Root_Type (Etype (Iter_Type)));
 
-            --  Find declarations needed for "for ... of" optimization
+            --  Find declarations needed for "for ... of" optimization.
             --  These declarations come from GNAT sources or sources
             --  derived from them. User code may include additional
             --  overloadings with similar names, and we need to perforn
             --  some reasonable resolution to find the needed primitives.
-            --  It is unclear whether this mechanism is fragile if a user
-            --  makes arbitrary changes to the private part of a package
-            --  that supports iterators.
+            --  Note that we use _Next or _Previous to avoid picking up
+            --  some arbitrary user-defined Next or Previous.
 
             Ent := First_Entity (Pack);
             while Present (Ent) loop
+               --  Get_Element_Access function with one parameter called
+               --  Position.
+
                if Chars (Ent) = Name_Get_Element_Access
+                 and then Ekind (Ent) = E_Function
                  and then Present (First_Formal (Ent))
                  and then Chars (First_Formal (Ent)) = Name_Position
                  and then No (Next_Formal (First_Formal (Ent)))
                then
+                  pragma Assert (No (Fast_Element_Access_Op));
                   Fast_Element_Access_Op := Ent;
 
-               elsif Chars (Ent) = Name_Step
-                 and then Ekind (Ent) = E_Procedure
-               then
+               --  Next or Prev procedure with one parameter called
+               --  Position.
+
+               elsif Chars (Ent) = Name_Fast_Step then
+                  pragma Assert (No (Fast_Step_Op));
                   Fast_Step_Op := Ent;
 
                elsif Chars (Ent) = Name_Reference_Control_Type then
+                  pragma Assert (No (Reference_Control_Type));
                   Reference_Control_Type := Ent;
 
                elsif Chars (Ent) = Name_Pseudo_Reference then
+                  pragma Assert (No (Pseudo_Reference));
                   Pseudo_Reference := Ent;
                end if;
 

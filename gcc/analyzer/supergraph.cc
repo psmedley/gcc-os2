@@ -1,5 +1,5 @@
 /* "Supergraph" classes that combine CFGs and callgraph into one digraph.
-   Copyright (C) 2019-2022 Free Software Foundation, Inc.
+   Copyright (C) 2019-2023 Free Software Foundation, Inc.
    Contributed by David Malcolm <dmalcolm@redhat.com>.
 
 This file is part of GCC.
@@ -19,6 +19,7 @@ along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
 #include "config.h"
+#define INCLUDE_MEMORY
 #include "system.h"
 #include "coretypes.h"
 #include "tree.h"
@@ -29,13 +30,13 @@ along with GCC; see the file COPYING3.  If not see
 #include "ggc.h"
 #include "basic-block.h"
 #include "function.h"
+#include "gimple.h"
+#include "gimple-iterator.h"
 #include "gimple-fold.h"
 #include "tree-eh.h"
 #include "gimple-expr.h"
 #include "is-a.h"
 #include "timevar.h"
-#include "gimple.h"
-#include "gimple-iterator.h"
 #include "gimple-pretty-print.h"
 #include "tree-pretty-print.h"
 #include "graphviz.h"
@@ -44,7 +45,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "bitmap.h"
 #include "cfganal.h"
 #include "function.h"
-#include "json.h"
 #include "analyzer/analyzer.h"
 #include "ordered-hash-map.h"
 #include "options.h"
@@ -62,7 +62,7 @@ namespace ana {
 /* Get the function of the ultimate alias target being called at EDGE,
    if any.  */
 
-static function *
+function *
 get_ultimate_function_for_cgraph_edge (cgraph_edge *edge)
 {
   cgraph_node *ultimate_node = edge->callee->ultimate_alias_target ();
@@ -74,12 +74,13 @@ get_ultimate_function_for_cgraph_edge (cgraph_edge *edge)
 /* Get the cgraph_edge, but only if there's an underlying function body.  */
 
 cgraph_edge *
-supergraph_call_edge (function *fun, gimple *stmt)
+supergraph_call_edge (function *fun, const gimple *stmt)
 {
-  gcall *call = dyn_cast<gcall *> (stmt);
+  const gcall *call = dyn_cast<const gcall *> (stmt);
   if (!call)
     return NULL;
-  cgraph_edge *edge = cgraph_node::get (fun->decl)->get_edge (stmt);
+  cgraph_edge *edge
+    = cgraph_node::get (fun->decl)->get_edge (const_cast <gimple *> (stmt));
   if (!edge)
     return NULL;
   if (!edge->callee)
@@ -854,13 +855,12 @@ void
 superedge::dump (pretty_printer *pp) const
 {
   pp_printf (pp, "edge: SN: %i -> SN: %i", m_src->m_index, m_dest->m_index);
-  char *desc = get_description (false);
-  if (strlen (desc) > 0)
+  label_text desc (get_description (false));
+  if (strlen (desc.get ()) > 0)
     {
       pp_space (pp);
-      pp_string (pp, desc);
+      pp_string (pp, desc.get ());
     }
-  free (desc);
 }
 
 /* Dump this superedge to stderr.  */
@@ -998,17 +998,15 @@ superedge::get_any_callgraph_edge () const
 /* Build a description of this superedge (e.g. "true" for the true
    edge of a conditional, or "case 42:" for a switch case).
 
-   The caller is responsible for freeing the result.
-
    If USER_FACING is false, the result also contains any underlying
    CFG edge flags. e.g. " (flags FALLTHRU | DFS_BACK)".  */
 
-char *
+label_text
 superedge::get_description (bool user_facing) const
 {
   pretty_printer pp;
   dump_label_to_pp (&pp, user_facing);
-  return xstrdup (pp_formatted_text (&pp));
+  return label_text::take (xstrdup (pp_formatted_text (&pp)));
 }
 
 /* Implementation of superedge::dump_label_to_pp for non-switch CFG
@@ -1155,7 +1153,29 @@ switch_cfg_superedge::dump_label_to_pp (pretty_printer *pp,
 	    pp_printf (pp, "default");
 	}
       pp_character (pp, '}');
+      if (implicitly_created_default_p ())
+	{
+	  pp_string (pp, " IMPLICITLY CREATED");
+	}
     }
+}
+
+/* Return true iff this edge is purely for an implicitly-created "default".  */
+
+bool
+switch_cfg_superedge::implicitly_created_default_p () const
+{
+  if (m_case_labels.length () != 1)
+    return false;
+
+  tree case_label = m_case_labels[0];
+  gcc_assert (TREE_CODE (case_label) == CASE_LABEL_EXPR);
+  if (CASE_LOW (case_label))
+    return false;
+
+  /* We have a single "default" case.
+     Assume that it was implicitly created if it has UNKNOWN_LOCATION.  */
+  return EXPR_LOCATION (case_label) == UNKNOWN_LOCATION;
 }
 
 /* Implementation of superedge::dump_label_to_pp for interprocedural

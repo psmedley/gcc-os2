@@ -1,5 +1,5 @@
 /* Consolidation of svalues and regions.
-   Copyright (C) 2020-2022 Free Software Foundation, Inc.
+   Copyright (C) 2020-2023 Free Software Foundation, Inc.
    Contributed by David Malcolm <dmalcolm@redhat.com>.
 
 This file is part of GCC.
@@ -19,6 +19,7 @@ along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
 #include "config.h"
+#define INCLUDE_MEMORY
 #include "system.h"
 #include "coretypes.h"
 #include "tree.h"
@@ -38,18 +39,11 @@ along with GCC; see the file COPYING3.  If not see
 #include "target.h"
 #include "fold-const.h"
 #include "tree-pretty-print.h"
-#include "tristate.h"
 #include "bitmap.h"
-#include "selftest.h"
-#include "function.h"
-#include "json.h"
 #include "analyzer/analyzer.h"
 #include "analyzer/analyzer-logging.h"
 #include "ordered-hash-map.h"
 #include "options.h"
-#include "cgraph.h"
-#include "cfg.h"
-#include "digraph.h"
 #include "analyzer/supergraph.h"
 #include "sbitmap.h"
 #include "analyzer/call-string.h"
@@ -68,6 +62,7 @@ namespace ana {
 
 region_model_manager::region_model_manager (logger *logger)
 : m_logger (logger),
+  m_empty_call_string (),
   m_next_region_id (0),
   m_root_region (alloc_region_id ()),
   m_stack_region (alloc_region_id (), &m_root_region),
@@ -79,8 +74,11 @@ region_model_manager::region_model_manager (logger *logger)
   m_fndecls_map (), m_labels_map (),
   m_globals_region (alloc_region_id (), &m_root_region),
   m_globals_map (),
+  m_thread_local_region (alloc_region_id (), &m_root_region),
+  m_errno_region (alloc_region_id (), &m_thread_local_region),
   m_store_mgr (this),
-  m_range_mgr (new bounded_ranges_manager ())
+  m_range_mgr (new bounded_ranges_manager ()),
+  m_known_fn_mgr (logger)
 {
 }
 
@@ -237,6 +235,17 @@ region_model_manager::get_or_create_int_cst (tree type, poly_int64 val)
   gcc_assert (type);
   tree tree_cst = build_int_cst (type, val);
   return get_or_create_constant_svalue (tree_cst);
+}
+
+/* Return the svalue * for the constant_svalue for the NULL pointer
+   of POINTER_TYPE, creating it if necessary.  */
+
+const svalue *
+region_model_manager::get_or_create_null_ptr (tree pointer_type)
+{
+  gcc_assert (pointer_type);
+  gcc_assert (POINTER_TYPE_P (pointer_type));
+  return get_or_create_int_cst (pointer_type, 0);
 }
 
 /* Return the svalue * for a unknown_svalue for TYPE (which can be NULL),
@@ -430,6 +439,17 @@ region_model_manager::maybe_fold_unaryop (tree type, enum tree_code op,
 	    }
       }
       break;
+    case NEGATE_EXPR:
+      {
+	/* -(-(VAL)) is VAL, for integer types.  */
+	if (const unaryop_svalue *unaryop = arg->dyn_cast_unaryop_svalue ())
+	  if (unaryop->get_op () == NEGATE_EXPR
+	      && type == unaryop->get_type ()
+	      && type
+	      && INTEGRAL_TYPE_P (type))
+	    return unaryop->get_arg ();
+      }
+      break;
     }
 
   /* Constants.  */
@@ -604,13 +624,16 @@ region_model_manager::maybe_fold_binop (tree type, enum tree_code op,
     case POINTER_PLUS_EXPR:
     case PLUS_EXPR:
       /* (VAL + 0) -> VAL.  */
-      if (cst1 && zerop (cst1) && type == arg0->get_type ())
-	return arg0;
+      if (cst1 && zerop (cst1))
+	return get_or_create_cast (type, arg0);
       break;
     case MINUS_EXPR:
       /* (VAL - 0) -> VAL.  */
-      if (cst1 && zerop (cst1) && type == arg0->get_type ())
-	return arg0;
+      if (cst1 && zerop (cst1))
+	return get_or_create_cast (type, arg0);
+      /* (0 - VAL) -> -VAL.  */
+      if (cst0 && zerop (cst0))
+	return get_or_create_unaryop (type, NEGATE_EXPR, arg1);
       break;
     case MULT_EXPR:
       /* (VAL * 0).  */
@@ -1141,10 +1164,11 @@ region_model_manager::get_or_create_unmergeable (const svalue *arg)
    and ITER_SVAL at POINT, creating it if necessary.  */
 
 const svalue *
-region_model_manager::get_or_create_widening_svalue (tree type,
-						     const program_point &point,
-						     const svalue *base_sval,
-						     const svalue *iter_sval)
+region_model_manager::
+get_or_create_widening_svalue (tree type,
+			       const function_point &point,
+			       const svalue *base_sval,
+			       const svalue *iter_sval)
 {
   gcc_assert (base_sval->get_kind () != SK_WIDENING);
   gcc_assert (iter_sval->get_kind () != SK_WIDENING);
@@ -1261,6 +1285,33 @@ get_or_create_asm_output_svalue (tree type,
   return asm_output_sval;
 }
 
+/* Return the svalue * of type TYPE for OUTPUT_IDX of a deterministic
+   asm stmt with string ASM_STRING with NUM_OUTPUTS outputs, given
+   INPUTS as inputs.  */
+
+const svalue *
+region_model_manager::
+get_or_create_asm_output_svalue (tree type,
+				 const char *asm_string,
+				 unsigned output_idx,
+				 unsigned num_outputs,
+				 const vec<const svalue *> &inputs)
+{
+  gcc_assert (inputs.length () <= asm_output_svalue::MAX_INPUTS);
+
+  if (const svalue *folded
+	= maybe_fold_asm_output_svalue (type, inputs))
+    return folded;
+
+  asm_output_svalue::key_t key (type, asm_string, output_idx, inputs);
+  if (asm_output_svalue **slot = m_asm_output_values_map.get (key))
+    return *slot;
+  asm_output_svalue *asm_output_sval
+    = new asm_output_svalue (type, asm_string, output_idx, num_outputs, inputs);
+  RETURN_UNKNOWN_IF_TOO_COMPLEX (asm_output_sval);
+  m_asm_output_values_map.put (key, asm_output_sval);
+  return asm_output_sval;
+}
 
 /* Return the svalue * of type TYPE for the result of a call to FNDECL
    with __attribute__((const)), given INPUTS as inputs.  */
@@ -1601,6 +1652,25 @@ region_model_manager::get_bit_range (const region *parent, tree type,
   return bit_range_reg;
 }
 
+/* Return the region that describes accessing the IDX-th variadic argument
+   within PARENT_FRAME, creating it if necessary.  */
+
+const var_arg_region *
+region_model_manager::get_var_arg_region (const frame_region *parent_frame,
+					  unsigned idx)
+{
+  gcc_assert (parent_frame);
+
+  var_arg_region::key_t key (parent_frame, idx);
+  if (var_arg_region *reg = m_var_arg_regions.get (key))
+    return reg;
+
+  var_arg_region *var_arg_reg
+    = new var_arg_region (alloc_region_id (), parent_frame, idx);
+  m_var_arg_regions.put (key, var_arg_reg);
+  return var_arg_reg;
+}
+
 /* If we see a tree code we don't know how to handle, rather than
    ICE or generate bogus results, create a dummy region, and notify
    CTXT so that it can mark the new state as being not properly
@@ -1622,11 +1692,22 @@ get_region_for_unexpected_tree_code (region_model_context *ctxt,
   return new_reg;
 }
 
-/* Return a new region describing a heap-allocated block of memory.  */
+/* Return a region describing a heap-allocated block of memory.
+   Reuse an existing heap_allocated_region is its id is not within
+   BASE_REGS_IN_USE.  */
 
 const region *
-region_model_manager::create_region_for_heap_alloc ()
+region_model_manager::
+get_or_create_region_for_heap_alloc (const bitmap &base_regs_in_use)
 {
+  /* Try to reuse an existing region, if it's unreferenced in the
+     client state.  */
+  for (auto existing_reg : m_managed_dynamic_regions)
+    if (!bitmap_bit_p (base_regs_in_use, existing_reg->get_id ()))
+      if (existing_reg->get_kind () == RK_HEAP_ALLOCATED)
+	return existing_reg;
+
+  /* All existing ones (if any) are in use; create a new one.  */
   region *reg
     = new heap_allocated_region (alloc_region_id (), &m_heap_region);
   m_managed_dynamic_regions.safe_push (reg);
@@ -1729,6 +1810,8 @@ void
 region_model_manager::log_stats (logger *logger, bool show_objs) const
 {
   LOG_SCOPE (logger);
+  logger->log ("call string consolidation");
+  m_empty_call_string.recursive_log (logger);
   logger->log ("svalue consolidation");
   log_uniq_map (logger, show_objs, "constant_svalue", m_constants_map);
   log_uniq_map (logger, show_objs, "unknown_svalue", m_unknowns_map);
@@ -1773,6 +1856,7 @@ region_model_manager::log_stats (logger *logger, bool show_objs) const
   log_uniq_map (logger, show_objs, "symbolic_region", m_symbolic_regions);
   log_uniq_map (logger, show_objs, "string_region", m_string_map);
   log_uniq_map (logger, show_objs, "bit_range_region", m_bit_range_regions);
+  log_uniq_map (logger, show_objs, "var_arg_region", m_var_arg_regions);
   logger->log ("  # managed dynamic regions: %i",
 	       m_managed_dynamic_regions.length ());
   m_store_mgr.log_stats (logger, show_objs);

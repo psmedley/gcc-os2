@@ -1,5 +1,5 @@
 /* Predictive commoning.
-   Copyright (C) 2005-2022 Free Software Foundation, Inc.
+   Copyright (C) 2005-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -1771,10 +1771,24 @@ ref_at_iteration (data_reference_p dr, int iter,
 	  ref = TREE_OPERAND (ref, 0);
 	}
     }
-  tree addr = fold_build_pointer_plus (DR_BASE_ADDRESS (dr), off);
+  /* We may not associate the constant offset across the pointer plus
+     expression because that might form a pointer to before the object
+     then.  But for some cases we can retain that to allow tree_could_trap_p
+     to return false - see gcc.dg/tree-ssa/predcom-1.c  */
+  tree addr, alias_ptr;
+  if (integer_zerop  (off))
+    {
+      alias_ptr = fold_convert (reference_alias_ptr_type (ref), coff);
+      addr = DR_BASE_ADDRESS (dr);
+    }
+  else
+    {
+      alias_ptr = build_zero_cst (reference_alias_ptr_type (ref));
+      off = size_binop (PLUS_EXPR, off, coff);
+      addr = fold_build_pointer_plus (DR_BASE_ADDRESS (dr), off);
+    }
   addr = force_gimple_operand_1 (unshare_expr (addr), stmts,
 				 is_gimple_mem_ref_addr, NULL_TREE);
-  tree alias_ptr = fold_convert (reference_alias_ptr_type (ref), coff);
   tree type = build_aligned_type (TREE_TYPE (ref),
 				  get_object_alignment (ref));
   ref = build2 (MEM_REF, type, addr, alias_ptr);
@@ -3514,8 +3528,8 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool
-  gate (function *)
+  bool
+  gate (function *) final override
   {
     if (flag_predictive_commoning != 0)
       return true;
@@ -3529,8 +3543,8 @@ public:
     return false;
   }
 
-  virtual unsigned int
-  execute (function *fun)
+  unsigned int
+  execute (function *fun) final override
   {
     bool allow_unroll_p = flag_predictive_commoning != 0;
     return run_tree_predictive_commoning (fun, allow_unroll_p);

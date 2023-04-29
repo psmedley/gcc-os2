@@ -1,5 +1,5 @@
 /* Functions related to building -*- C++ -*- classes and their related objects.
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
    Contributed by Michael Tiemann (tiemann@cygnus.com)
 
 This file is part of GCC.
@@ -3020,6 +3020,9 @@ warn_hidden (tree t)
 	tree binfo;
 	unsigned j;
 
+	if (IDENTIFIER_CDTOR_P (name))
+	  continue;
+
 	/* Iterate through all of the base classes looking for possibly
 	   hidden functions.  */
 	for (binfo = TYPE_BINFO (t), j = 0;
@@ -3034,31 +3037,43 @@ warn_hidden (tree t)
 	  continue;
 
 	/* Remove any overridden functions.  */
+	bool seen_non_override = false;
 	for (tree fndecl : ovl_range (fns))
 	  {
+	    bool any_override = false;
 	    if (TREE_CODE (fndecl) == FUNCTION_DECL
 		&& DECL_VINDEX (fndecl))
 	      {
 		/* If the method from the base class has the same
 		   signature as the method from the derived class, it
-		   has been overridden.  */
+		   has been overridden.  Note that we can't move on
+		   after finding one match: fndecl might override
+		   multiple base fns.  */
 		for (size_t k = 0; k < base_fndecls.length (); k++)
 		  if (base_fndecls[k]
 		      && same_signature_p (fndecl, base_fndecls[k]))
-		    base_fndecls[k] = NULL_TREE;
+		    {
+		      base_fndecls[k] = NULL_TREE;
+		      any_override = true;
+		    }
 	      }
+	    if (!any_override)
+	      seen_non_override = true;
 	  }
+
+	if (!seen_non_override && warn_overloaded_virtual == 1)
+	  /* All the derived fns override base virtuals.  */
+	  return;
 
 	/* Now give a warning for all base functions without overriders,
 	   as they are hidden.  */
-	tree base_fndecl;
-	FOR_EACH_VEC_ELT (base_fndecls, j, base_fndecl)
+	for (tree base_fndecl : base_fndecls)
 	  if (base_fndecl)
 	    {
 	      auto_diagnostic_group d;
 	      /* Here we know it is a hider, and no overrider exists.  */
 	      if (warning_at (location_of (base_fndecl),
-			      OPT_Woverloaded_virtual,
+			      OPT_Woverloaded_virtual_,
 			      "%qD was hidden", base_fndecl))
 		inform (location_of (fns), "  by %qD", fns);
 	    }
@@ -4780,8 +4795,9 @@ check_methods (tree t)
 
   /* Check whether the eligible special member functions (P0848) are
      user-provided.  add_method arranged that the CLASSTYPE_MEMBER_VEC only
-     has the eligible ones; TYPE_FIELDS also contains ineligible overloads,
-     which is why this needs to be separate from the loop above.  */
+     has the eligible ones, unless none are eligible; TYPE_FIELDS also contains
+     ineligible overloads, which is why this needs to be separate from the loop
+     above.  */
 
   if (tree dtor = CLASSTYPE_DESTRUCTOR (t))
     {
@@ -4792,9 +4808,23 @@ check_methods (tree t)
 	     in that class with an empty argument list to select the destructor
 	     for the class, also known as the selected destructor. The program
 	     is ill-formed if overload resolution fails. */
+	  int viable = 0;
+	  for (tree fn : ovl_range (dtor))
+	    if (constraints_satisfied_p (fn))
+	      ++viable;
+	  gcc_checking_assert (viable != 1);
+
 	  auto_diagnostic_group d;
-	  error_at (location_of (t), "destructor for %qT is ambiguous", t);
+	  if (viable == 0)
+	    error_at (location_of (t), "no viable destructor for %qT", t);
+	  else
+	    error_at (location_of (t), "destructor for %qT is ambiguous", t);
 	  print_candidates (dtor);
+
+	  /* Arbitrarily prune the overload set to a single function for
+	     sake of error recovery.  */
+	  tree *slot = find_member_slot (t, dtor_identifier);
+	  *slot = get_first_fn (dtor);
 	}
       else if (user_provided_p (dtor))
 	TYPE_HAS_NONTRIVIAL_DESTRUCTOR (t) = true;
@@ -4804,9 +4834,13 @@ check_methods (tree t)
     {
       if (!user_provided_p (fn))
 	/* Might be trivial.  */;
-      else if (copy_fn_p (fn))
+      else if (TREE_CODE (fn) == TEMPLATE_DECL)
+	/* Templates are never special members.  */;
+      else if (copy_fn_p (fn)
+	       && constraints_satisfied_p (fn))
 	TYPE_HAS_COMPLEX_COPY_CTOR (t) = true;
-      else if (move_fn_p (fn))
+      else if (move_fn_p (fn)
+	       && constraints_satisfied_p (fn))
 	TYPE_HAS_COMPLEX_MOVE_CTOR (t) = true;
     }
 
@@ -4814,9 +4848,13 @@ check_methods (tree t)
     {
       if (!user_provided_p (fn))
 	/* Might be trivial.  */;
-      else if (copy_fn_p (fn))
+      else if (TREE_CODE (fn) == TEMPLATE_DECL)
+	/* Templates are never special members.  */;
+      else if (copy_fn_p (fn)
+	       && constraints_satisfied_p (fn))
 	TYPE_HAS_COMPLEX_COPY_ASSIGN (t) = true;
-      else if (move_fn_p (fn))
+      else if (move_fn_p (fn)
+	       && constraints_satisfied_p (fn))
 	TYPE_HAS_COMPLEX_MOVE_ASSIGN (t) = true;
     }
 }
@@ -5494,8 +5532,8 @@ default_init_uninitialized_part (tree type)
       if (r)
 	return r;
     }
-  for (t = next_initializable_field (TYPE_FIELDS (type)); t;
-       t = next_initializable_field (DECL_CHAIN (t)))
+  for (t = next_aggregate_field (TYPE_FIELDS (type)); t;
+       t = next_aggregate_field (DECL_CHAIN (t)))
     if (!DECL_INITIAL (t) && !DECL_ARTIFICIAL (t))
       {
 	r = default_init_uninitialized_part (TREE_TYPE (t));
@@ -5605,7 +5643,7 @@ type_has_virtual_destructor (tree type)
 {
   tree dtor;
 
-  if (!CLASS_TYPE_P (type))
+  if (!NON_UNION_CLASS_TYPE_P (type))
     return false;
 
   gcc_assert (COMPLETE_TYPE_P (type));
@@ -6024,10 +6062,12 @@ check_bases_and_members (tree t)
   check_bases (t, &cant_have_const_ctor, &no_const_asn_ref);
 
   /* Deduce noexcept on destructor.  This needs to happen after we've set
-     triviality flags appropriately for our bases.  */
+     triviality flags appropriately for our bases, and before checking
+     overriden virtual functions via check_methods.  */
   if (cxx_dialect >= cxx11)
     if (tree dtor = CLASSTYPE_DESTRUCTOR (t))
-      deduce_noexcept_on_destructor (dtor);
+      for (tree fn : ovl_range (dtor))
+	deduce_noexcept_on_destructor (fn);
 
   /* Check all the method declarations.  */
   check_methods (t);
@@ -6436,7 +6476,15 @@ end_of_class (tree t, eoc_mode mode)
 	     size of the type (usually 1) for computing nvsize.  */
 	  size = TYPE_SIZE_UNIT (TREE_TYPE (field));
 
-	offset = size_binop (PLUS_EXPR, byte_position (field), size);
+	if (DECL_BIT_FIELD_TYPE (field))
+	  {
+	    offset = size_binop (PLUS_EXPR, bit_position (field),
+				 DECL_SIZE (field));
+	    offset = size_binop (CEIL_DIV_EXPR, offset, bitsize_unit_node);
+	    offset = fold_convert (sizetype, offset);
+	  }
+	else
+	  offset = size_binop (PLUS_EXPR, byte_position (field), size);
 	if (tree_int_cst_lt (result, offset))
 	  result = offset;
       }
@@ -7781,10 +7829,10 @@ finish_struct (tree t, tree attributes)
       bool ok = false;
       if (processing_template_decl)
 	{
-	  tree f = next_initializable_field (TYPE_FIELDS (t));
+	  tree f = next_aggregate_field (TYPE_FIELDS (t));
 	  if (f && TYPE_PTR_P (TREE_TYPE (f)))
 	    {
-	      f = next_initializable_field (DECL_CHAIN (f));
+	      f = next_aggregate_field (DECL_CHAIN (f));
 	      if (f && same_type_p (TREE_TYPE (f), size_type_node))
 		ok = true;
 	    }
@@ -8688,6 +8736,8 @@ instantiate_type (tree lhstype, tree rhs, tsubst_flags_t complain)
 
   complain &= ~tf_ptrmem_ok;
 
+  STRIP_ANY_LOCATION_WRAPPER (rhs);
+
   if (lhstype == unknown_type_node)
     {
       if (complain & tf_error)
@@ -8931,32 +8981,53 @@ is_really_empty_class (tree type, bool ignore_vptr)
 void
 maybe_note_name_used_in_class (tree name, tree decl)
 {
-  splay_tree names_used;
-
   /* If we're not defining a class, there's nothing to do.  */
   if (!(innermost_scope_kind() == sk_class
 	&& TYPE_BEING_DEFINED (current_class_type)
 	&& !LAMBDA_TYPE_P (current_class_type)))
     return;
 
-  /* If there's already a binding for this NAME, then we don't have
-     anything to worry about.  */
-  if (lookup_member (current_class_type, name,
-		     /*protect=*/0, /*want_type=*/false, tf_warning_or_error))
-    return;
+  const cp_binding_level *blev = nullptr;
+  if (const cxx_binding *binding = IDENTIFIER_BINDING (name))
+    blev = binding->scope;
+  const cp_binding_level *lev = current_binding_level;
 
-  if (!current_class_stack[current_class_depth - 1].names_used)
-    current_class_stack[current_class_depth - 1].names_used
-      = splay_tree_new (splay_tree_compare_pointers, 0, 0);
-  names_used = current_class_stack[current_class_depth - 1].names_used;
+  /* Record the binding in the names_used tables for classes inside blev.  */
+  for (int i = current_class_depth; i > 0; --i)
+    {
+      tree type = (i == current_class_depth
+		   ? current_class_type
+		   : current_class_stack[i].type);
 
-  splay_tree_insert (names_used,
-		     (splay_tree_key) name,
-		     (splay_tree_value) decl);
+      for (; lev; lev = lev->level_chain)
+	{
+	  if (lev == blev)
+	    /* We found the declaration.  */
+	    return;
+	  if (lev->kind == sk_class && lev->this_entity == type)
+	    /* This class is inside the declaration scope.  */
+	    break;
+	}
+
+      auto &names_used = current_class_stack[i-1].names_used;
+      if (!names_used)
+	names_used = splay_tree_new (splay_tree_compare_pointers, 0, 0);
+
+      tree use = build1_loc (input_location, VIEW_CONVERT_EXPR,
+			     TREE_TYPE (decl), decl);
+      EXPR_LOCATION_WRAPPER_P (use) = 1;
+      splay_tree_insert (names_used,
+			 (splay_tree_key) name,
+			 (splay_tree_value) use);
+    }
 }
 
 /* Note that NAME was declared (as DECL) in the current class.  Check
-   to see that the declaration is valid.  */
+   to see that the declaration is valid under [class.member.lookup]:
+
+   If [the result of a search in T for N at point P] differs from the result of
+   a search in T for N from immediately after the class-specifier of T, the
+   program is ill-formed, no diagnostic required.  */
 
 void
 note_name_declared_in_class (tree name, tree decl)
@@ -8971,7 +9042,7 @@ note_name_declared_in_class (tree name, tree decl)
     return;
   /* The C language allows members to be declared with a type of the same
      name, and the C++ standard says this diagnostic is not required.  So
-     allow it in extern "C" blocks unless predantic is specified.
+     allow it in extern "C" blocks unless pedantic is specified.
      Allow it in all cases if -ms-extensions is specified.  */
   if ((!pedantic && current_lang_name == lang_name_c)
       || flag_ms_extensions)
@@ -8979,17 +9050,31 @@ note_name_declared_in_class (tree name, tree decl)
   n = splay_tree_lookup (names_used, (splay_tree_key) name);
   if (n)
     {
+      tree use = (tree) n->value;
+      location_t loc = EXPR_LOCATION (use);
+      tree olddecl = OVL_FIRST (TREE_OPERAND (use, 0));
       /* [basic.scope.class]
 
 	 A name N used in a class S shall refer to the same declaration
 	 in its context and when re-evaluated in the completed scope of
 	 S.  */
-      if (permerror (location_of (decl),
-		     "declaration of %q#D changes meaning of %qD",
-		     decl, OVL_NAME (decl)))
-	inform (location_of ((tree) n->value),
-		"%qD declared here as %q#D",
-		OVL_NAME (decl), (tree) n->value);
+      auto ov = make_temp_override (global_dc->pedantic_errors);
+      if (TREE_CODE (decl) == TYPE_DECL
+	  && TREE_CODE (olddecl) == TYPE_DECL
+	  && same_type_p (TREE_TYPE (decl), TREE_TYPE (olddecl)))
+	/* Different declaration, but same meaning; just warn.  */;
+      else if (flag_permissive)
+	/* Let -fpermissive make it a warning like past versions.  */;
+      else
+	/* Make it an error.  */
+	global_dc->pedantic_errors = 1;
+      if (pedwarn (location_of (decl), OPT_Wchanges_meaning,
+		   "declaration of %q#D changes meaning of %qD",
+		   decl, OVL_NAME (decl)))
+	{
+	  inform (loc, "used here to mean %q#D", olddecl);
+	  inform (location_of (olddecl), "declared here" );
+	}
     }
 }
 

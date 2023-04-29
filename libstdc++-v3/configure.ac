@@ -58,6 +58,15 @@ else
   GLIBCXX_IS_NATIVE=true
 fi
 
+# In the case that we're building without headers, we won't have <stdio.h>
+# available. In these cases, we have to instruct autotools to never include
+# <stdio.h> as a part of default headers.
+m4_version_prereq([2.70], [], [
+if test "x$with_headers" = "xno"; then
+  ac_includes_default=`echo "$ac_includes_default" | sed '/^#include <stdio.h>$/d'`
+fi
+])
+
 # Sets up automake.  Must come after AC_CANONICAL_SYSTEM.  Each of the
 # following is magically included in AUTOMAKE_OPTIONS in each Makefile.am.
 #  1.x:  minimum required version
@@ -353,6 +362,30 @@ else
 
     AC_DEFINE(HAVE_ICONV)
     AC_DEFINE(HAVE_MEMALIGN)
+
+    case "${target}" in
+      *-rtems*)
+        case "${target}" in
+          bfin* | lm32* | mips* | moxie* | or1k* | v850*)
+            ;;
+          *)
+            AC_DEFINE(HAVE_TLS)
+            ;;
+        esac
+        AC_DEFINE(HAVE_ALIGNED_ALLOC)
+        AC_DEFINE(HAVE_AT_QUICK_EXIT)
+        AC_DEFINE(HAVE_LINK)
+        AC_DEFINE(HAVE_QUICK_EXIT)
+        AC_DEFINE(HAVE_READLINK)
+        AC_DEFINE(HAVE_SETENV)
+        AC_DEFINE(HAVE_SLEEP)
+        AC_DEFINE(HAVE_SOCKATMARK)
+        AC_DEFINE(HAVE_STRERROR_L)
+        AC_DEFINE(HAVE_SYMLINK)
+        AC_DEFINE(HAVE_TRUNCATE)
+        AC_DEFINE(HAVE_USLEEP)
+        ;;
+    esac
   elif test "x$with_headers" != "xno"; then
     GLIBCXX_CROSSCONFIG
   fi
@@ -391,12 +424,6 @@ fi
 GCC_CHECK_UNWIND_GETIPINFO
 
 GCC_LINUX_FUTEX([AC_DEFINE(HAVE_LINUX_FUTEX, 1, [Define if futex syscall is available.])])
-
-if test "$is_hosted" = yes; then
-# TODO: remove this and change src/c++11/compatibility-atomic-c++0x.cc to
-# use <stdint.h> instead of <gstdint.h>.
-GCC_HEADER_STDINT(include/gstdint.h)
-fi
 
 GLIBCXX_ENABLE_SYMVERS([yes])
 AC_SUBST(libtool_VERSION)
@@ -504,6 +531,12 @@ GLIBCXX_CHECK_SIZE_T_MANGLING
 
 # Check which release added std::exception_ptr for the target
 GLIBCXX_CHECK_EXCEPTION_PTR_SYMVER
+
+# For libsupc++/eh_alloc.cc defaults.
+GLIBCXX_EMERGENCY_EH_ALLOC
+
+# For src/c++20/tzdb.cc defaults.
+GLIBCXX_ZONEINFO_DIR
 
 # Define documentation rules conditionally.
 

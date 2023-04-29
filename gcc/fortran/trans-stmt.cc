@@ -1,5 +1,5 @@
 /* Statement translation -- generate GCC trees from gfc_code.
-   Copyright (C) 2002-2022 Free Software Foundation, Inc.
+   Copyright (C) 2002-2023 Free Software Foundation, Inc.
    Contributed by Paul Brook <paul@nowt.org>
    and Steven Bosscher <s.bosscher@student.tudelft.nl>
 
@@ -264,6 +264,7 @@ gfc_conv_elemental_dependencies (gfc_se * se, gfc_se * loopse,
       if (e->expr_type == EXPR_VARIABLE
 	    && e->rank && fsym
 	    && fsym->attr.intent != INTENT_IN
+	    && !fsym->attr.value
 	    && gfc_check_fncall_dependency (e, fsym->attr.intent,
 					    sym, arg0, check_variable))
 	{
@@ -443,7 +444,8 @@ gfc_trans_call (gfc_code * code, bool dependency_check,
       else
 	gfc_add_expr_to_block (&se.pre, se.expr);
 
-      gfc_add_block_to_block (&se.pre, &se.post);
+      gfc_add_block_to_block (&se.finalblock, &se.post);
+      gfc_add_block_to_block (&se.pre, &se.finalblock);
     }
 
   else
@@ -542,6 +544,7 @@ gfc_trans_call (gfc_code * code, bool dependency_check,
       gfc_trans_scalarizing_loops (&loop, &body);
       gfc_add_block_to_block (&se.pre, &loop.pre);
       gfc_add_block_to_block (&se.pre, &loop.post);
+      gfc_add_block_to_block (&se.pre, &loopse.finalblock);
       gfc_add_block_to_block (&se.pre, &se.post);
       gfc_cleanup_loop (&loop);
     }
@@ -2188,6 +2191,7 @@ trans_associate_var (gfc_symbol *sym, gfc_wrapped_block *block)
       gfc_expr *lhs;
       tree res;
       gfc_se se;
+      stmtblock_t final_block;
 
       gfc_init_se (&se, NULL);
 
@@ -2195,6 +2199,15 @@ trans_associate_var (gfc_symbol *sym, gfc_wrapped_block *block)
 	 allocation can take place automatically in gfc_trans_assignment.
 	 The frontend prevents them from being either allocated,
 	 deallocated or reallocated.  */
+      if (sym->ts.type == BT_DERIVED
+	  && sym->ts.u.derived->attr.alloc_comp)
+	{
+	  tmp = sym->backend_decl;
+	  tmp = gfc_nullify_alloc_comp (sym->ts.u.derived, tmp,
+				sym->attr.dimension ? sym->as->rank : 0);
+	  gfc_add_expr_to_block (&se.pre, tmp);
+	}
+
       if (sym->attr.allocatable)
 	{
 	  tmp = sym->backend_decl;
@@ -2205,8 +2218,32 @@ trans_associate_var (gfc_symbol *sym, gfc_wrapped_block *block)
 	}
 
       lhs = gfc_lval_expr_from_sym (sym);
+      lhs->must_finalize = 0;
       res = gfc_trans_assignment (lhs, e, false, true);
       gfc_add_expr_to_block (&se.pre, res);
+
+      gfc_init_block (&final_block);
+
+      if (sym->attr.associate_var
+	  && sym->ts.type == BT_DERIVED
+	  && sym->ts.u.derived->attr.defined_assign_comp
+	  && gfc_may_be_finalized (sym->ts)
+	  && e->expr_type == EXPR_FUNCTION)
+	{
+	  gfc_expr *ef;
+	  ef = gfc_lval_expr_from_sym (sym);
+	  gfc_add_finalizer_call (&final_block, ef);
+	  gfc_free_expr (ef);
+	}
+
+      if (sym->ts.type == BT_DERIVED
+	  && sym->ts.u.derived->attr.alloc_comp)
+	{
+	  tmp = sym->backend_decl;
+	  tmp = gfc_deallocate_alloc_comp (sym->ts.u.derived,
+					   tmp, 0);
+	  gfc_add_expr_to_block (&final_block, tmp);
+	}
 
       tmp = sym->backend_decl;
       if (e->expr_type == EXPR_FUNCTION
@@ -2242,6 +2279,8 @@ trans_associate_var (gfc_symbol *sym, gfc_wrapped_block *block)
       else
 	tmp = NULL_TREE;
 
+      gfc_add_expr_to_block (&final_block, tmp);
+      tmp = gfc_finish_block (&final_block);
       res = gfc_finish_block (&se.pre);
       gfc_add_init_cleanup (block, res, tmp);
       gfc_free_expr (lhs);
@@ -6346,7 +6385,10 @@ gfc_trans_allocate (gfc_code * code)
 	}
       gfc_add_block_to_block (&block, &se.pre);
       if (code->expr3->must_finalize)
-	gfc_add_block_to_block (&final_block, &se.post);
+	{
+	  gfc_add_block_to_block (&final_block, &se.finalblock);
+	  gfc_add_block_to_block (&final_block, &se.post);
+	}
       else
 	gfc_add_block_to_block (&post, &se.post);
 
@@ -6416,12 +6458,15 @@ gfc_trans_allocate (gfc_code * code)
       /* Deallocate any allocatable components in expressions that use a
 	 temporary object, i.e. are not a simple alias of to an EXPR_VARIABLE.
 	 E.g. temporaries of a function call need freeing of their components
-	 here.  */
+	 here. Explicit derived type allocation of class entities uses expr3
+	 to carry the default initializer. This must not be deallocated or
+	 finalized.  */
       if ((code->expr3->ts.type == BT_DERIVED
 	   || code->expr3->ts.type == BT_CLASS)
 	  && (code->expr3->expr_type != EXPR_VARIABLE || temp_obj_created)
 	  && code->expr3->ts.u.derived->attr.alloc_comp
-	  && !code->expr3->must_finalize)
+	  && !code->expr3->must_finalize
+	  && !code->ext.alloc.expr3_not_explicit)
 	{
 	  tmp = gfc_deallocate_alloc_comp (code->expr3->ts.u.derived,
 					   expr3, code->expr3->rank);
@@ -7006,8 +7051,13 @@ gfc_trans_allocate (gfc_code * code)
 	  gfc_expr *init_expr = gfc_expr_to_initialize (expr);
 	  gfc_expr *rhs = e3rhs ? e3rhs : gfc_copy_expr (code->expr3);
 	  flag_realloc_lhs = 0;
+
+	  /* Set the symbol to be artificial so that the result is not finalized.  */
+	  init_expr->symtree->n.sym->attr.artificial = 1;
 	  tmp = gfc_trans_assignment (init_expr, rhs, true, false, true,
 				      false);
+	  init_expr->symtree->n.sym->attr.artificial = 0;
+
 	  flag_realloc_lhs = realloc_lhs;
 	  /* Free the expression allocated for init_expr.  */
 	  gfc_free_expr (init_expr);
@@ -7130,7 +7180,8 @@ gfc_trans_allocate (gfc_code * code)
   if (code->expr1 && code->expr2)
     {
       const char *msg = "Attempt to allocate an allocated object";
-      tree slen, dlen, errmsg_str;
+      const char *oommsg = "Insufficient virtual memory";
+      tree slen, dlen, errmsg_str, oom_str, oom_loc;
       stmtblock_t errmsg_block;
 
       gfc_init_block (&errmsg_block);
@@ -7151,8 +7202,34 @@ gfc_trans_allocate (gfc_code * code)
 			     gfc_default_character_kind);
       dlen = gfc_finish_block (&errmsg_block);
 
-      tmp = fold_build2_loc (input_location, NE_EXPR, logical_type_node,
-			     stat, build_int_cst (TREE_TYPE (stat), 0));
+      tmp = fold_build2_loc (input_location, EQ_EXPR, logical_type_node,
+			     stat, build_int_cst (TREE_TYPE (stat),
+						  LIBERROR_ALLOCATION));
+
+      tmp = build3_v (COND_EXPR, tmp,
+		      dlen, build_empty_stmt (input_location));
+
+      gfc_add_expr_to_block (&block, tmp);
+
+      oom_str = gfc_create_var (pchar_type_node, "OOMMSG");
+      oom_loc = gfc_build_localized_cstring_const (oommsg);
+      gfc_add_modify (&errmsg_block, oom_str,
+		      gfc_build_addr_expr (pchar_type_node, oom_loc));
+
+      slen = build_int_cst (gfc_charlen_type_node, strlen (oommsg));
+      dlen = gfc_get_expr_charlen (code->expr2);
+      slen = fold_build2_loc (input_location, MIN_EXPR,
+			      TREE_TYPE (slen), dlen, slen);
+
+      gfc_trans_string_copy (&errmsg_block, dlen, errmsg,
+			     code->expr2->ts.kind,
+			     slen, oom_str,
+			     gfc_default_character_kind);
+      dlen = gfc_finish_block (&errmsg_block);
+
+      tmp = fold_build2_loc (input_location, EQ_EXPR, logical_type_node,
+			     stat, build_int_cst (TREE_TYPE (stat),
+						  LIBERROR_NO_MEMORY));
 
       tmp = build3_v (COND_EXPR, tmp,
 		      dlen, build_empty_stmt (input_location));

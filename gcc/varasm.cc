@@ -1,5 +1,5 @@
 /* Output variables, constants and external declarations, for GNU compiler.
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -61,10 +61,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "alloc-pool.h"
 #include "toplev.h"
 #include "opts.h"
-
-#ifdef XCOFF_DEBUGGING_INFO
-#include "xcoffout.h"		/* Needed for external data declarations.  */
-#endif
 
 /* The (assembler) name of the first globally-visible object output.  */
 extern GTY(()) const char *first_global_object_name;
@@ -2404,7 +2400,7 @@ assemble_variable (tree decl, int top_level ATTRIBUTE_UNUSED,
   else
     {
       /* Special-case handling of vtv comdat sections.  */
-      if (sect->named.name
+      if (SECTION_STYLE (sect) == SECTION_NAMED
 	  && (strcmp (sect->named.name, ".vtable_map_vars") == 0))
 	handle_vtv_comdat_section (sect, decl);
       else
@@ -2421,23 +2417,6 @@ assemble_variable (tree decl, int top_level ATTRIBUTE_UNUSED,
 	  assemble_zeros (asan_red_zone_size (size));
 	}
     }
-}
-
-
-/* Given a function declaration (FN_DECL), this function assembles the
-   function into the .preinit_array section.  */
-
-void
-assemble_vtv_preinit_initializer (tree fn_decl)
-{
-  section *sect;
-  unsigned flags = SECTION_WRITE;
-  rtx symbol = XEXP (DECL_RTL (fn_decl), 0);
-
-  flags |= SECTION_NOTYPE;
-  sect = get_section (".preinit_array", flags, fn_decl);
-  switch_to_section (sect);
-  assemble_addr_to_section (symbol, sect);
 }
 
 /* Return 1 if type TYPE contains any pointers.  */
@@ -5089,7 +5068,7 @@ initializer_constant_valid_p (tree value, tree endtype, bool reverse)
    an element of a "constant" initializer.  */
 
 bool
-initializer_constant_valid_for_bitfield_p (tree value)
+initializer_constant_valid_for_bitfield_p (const_tree value)
 {
   /* For bitfields we support integer constants or possibly nested aggregates
      of such.  */
@@ -5098,7 +5077,7 @@ initializer_constant_valid_for_bitfield_p (tree value)
     case CONSTRUCTOR:
       {
 	unsigned HOST_WIDE_INT idx;
-	tree elt;
+	const_tree elt;
 
 	FOR_EACH_CONSTRUCTOR_VALUE (CONSTRUCTOR_ELTS (value), idx, elt)
 	  if (!initializer_constant_valid_for_bitfield_p (elt))
@@ -6693,6 +6672,36 @@ init_varasm_once (void)
 #endif
 }
 
+/* Determine whether SYMBOL is used in any optimized function.  */
+
+static bool
+have_optimized_refs (struct symtab_node *symbol)
+{
+  struct ipa_ref *ref;
+
+  for (int i = 0; symbol->iterate_referring (i, ref); i++)
+    {
+      cgraph_node *cnode = dyn_cast <cgraph_node *> (ref->referring);
+
+      if (cnode && opt_for_fn (cnode->decl, optimize))
+	return true;
+    }
+
+  return false;
+}
+
+/* Check if promoting general-dynamic TLS access model to local-dynamic is
+   desirable for DECL.  */
+
+static bool
+optimize_dyn_tls_for_decl_p (const_tree decl)
+{
+  if (cfun)
+    return optimize;
+  return symtab->state >= IPA && have_optimized_refs (symtab_node::get (decl));
+}
+
+
 enum tls_model
 decl_default_tls_model (const_tree decl)
 {
@@ -6710,7 +6719,7 @@ decl_default_tls_model (const_tree decl)
 
   /* Local dynamic is inefficient when we're not combining the
      parts of the address.  */
-  else if (optimize && is_local)
+  else if (is_local && optimize_dyn_tls_for_decl_p (decl))
     kind = TLS_MODEL_LOCAL_DYNAMIC;
   else
     kind = TLS_MODEL_GLOBAL_DYNAMIC;
@@ -6920,11 +6929,16 @@ default_elf_asm_named_section (const char *name, unsigned int flags,
 	fprintf (asm_out_file, ",%d", flags & SECTION_ENTSIZE);
       if (flags & SECTION_LINK_ORDER)
 	{
-	  tree id = DECL_ASSEMBLER_NAME (decl);
-	  ultimate_transparent_alias_target (&id);
-	  const char *name = IDENTIFIER_POINTER (id);
-	  name = targetm.strip_name_encoding (name);
-	  fprintf (asm_out_file, ",%s", name);
+	  /* For now, only section "__patchable_function_entries"
+	     adopts flag SECTION_LINK_ORDER, internal label LPFE*
+	     was emitted in default_print_patchable_function_entry,
+	     just place it here for linked_to section.  */
+	  gcc_assert (!strcmp (name, "__patchable_function_entries"));
+	  fprintf (asm_out_file, ",");
+	  char buf[256];
+	  ASM_GENERATE_INTERNAL_LABEL (buf, "LPFE",
+				       current_function_funcdef_no);
+	  assemble_name_raw (asm_out_file, buf);
 	}
       if (HAVE_COMDAT_GROUP && (flags & SECTION_LINKONCE))
 	{
@@ -6985,7 +6999,6 @@ default_select_section (tree decl, int reloc,
     {
       if (! ((flag_pic && reloc)
 	     || !TREE_READONLY (decl)
-	     || TREE_SIDE_EFFECTS (decl)
 	     || !TREE_CONSTANT (decl)))
 	return readonly_data_section;
     }
@@ -7019,7 +7032,6 @@ categorize_decl_for_section (const_tree decl, int reloc)
       if (bss_initializer_p (decl))
 	ret = SECCAT_BSS;
       else if (! TREE_READONLY (decl)
-	       || TREE_SIDE_EFFECTS (decl)
 	       || (DECL_INITIAL (decl)
 		   && ! TREE_CONSTANT (DECL_INITIAL (decl))))
 	{
@@ -7060,7 +7072,6 @@ categorize_decl_for_section (const_tree decl, int reloc)
   else if (TREE_CODE (decl) == CONSTRUCTOR)
     {
       if ((reloc & targetm.asm_out.reloc_rw_mask ())
-	  || TREE_SIDE_EFFECTS (decl)
 	  || ! TREE_CONSTANT (decl))
 	ret = SECCAT_DATA;
       else
@@ -8477,25 +8488,21 @@ default_asm_output_ident_directive (const char *ident_str)
     fprintf (asm_out_file, "%s\"%s\"\n", ident_asm_op, ident_str);
 }
 
-
-/* This function ensures that vtable_map variables are not only
-   in the comdat section, but that each variable has its own unique
-   comdat name.  Without this the variables end up in the same section
-   with a single comdat name.
-
+/* Switch to a COMDAT section with COMDAT name of decl.
+   
    FIXME:  resolve_unique_section needs to deal better with
    decls with both DECL_SECTION_NAME and DECL_ONE_ONLY.  Once
    that is fixed, this if-else statement can be replaced with
    a single call to "switch_to_section (sect)".  */
 
-static void
-handle_vtv_comdat_section (section *sect, const_tree decl ATTRIBUTE_UNUSED)
+void
+switch_to_comdat_section (section *sect, tree decl)
 {
 #if defined (OBJECT_FORMAT_ELF)
   targetm.asm_out.named_section (sect->named.name,
 				 sect->named.common.flags
 				 | SECTION_LINKONCE,
-				 DECL_NAME (decl));
+				 decl);
   in_section = sect;
 #else
   /* Neither OBJECT_FORMAT_PE, nor OBJECT_FORMAT_COFF is set here.
@@ -8510,23 +8517,34 @@ handle_vtv_comdat_section (section *sect, const_tree decl ATTRIBUTE_UNUSED)
     {
       char *name;
 
-      if (TREE_CODE (DECL_NAME (decl)) == IDENTIFIER_NODE)
+      if (TREE_CODE (decl) == IDENTIFIER_NODE)
 	name = ACONCAT ((sect->named.name, "$",
-			 IDENTIFIER_POINTER (DECL_NAME (decl)), NULL));
+			 IDENTIFIER_POINTER (decl), NULL));
       else
 	name = ACONCAT ((sect->named.name, "$",
-			 IDENTIFIER_POINTER (DECL_COMDAT_GROUP (DECL_NAME (decl))),
+			 IDENTIFIER_POINTER (DECL_COMDAT_GROUP (decl)),
 			 NULL));
 
       targetm.asm_out.named_section (name,
 				     sect->named.common.flags
 				     | SECTION_LINKONCE,
-				     DECL_NAME (decl));
+				     decl);
       in_section = sect;
     }
   else
     switch_to_section (sect);
 #endif
+}
+
+/* This function ensures that vtable_map variables are not only
+   in the comdat section, but that each variable has its own unique
+   comdat name.  Without this the variables end up in the same section
+   with a single comdat name.  */
+
+static void
+handle_vtv_comdat_section (section *sect, const_tree decl ATTRIBUTE_UNUSED)
+{
+  switch_to_comdat_section(sect, DECL_NAME (decl));
 }
 
 #include "gt-varasm.h"

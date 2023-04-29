@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 2020-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 2020-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -217,7 +217,6 @@ begin -- Gen_IL.Gen.Gen_Entities
         Sm (No_Return, Flag),
         Sm (Overlays_Constant, Flag),
         Sm (Prev_Entity, Node_Id),
-        Sm (Reachable, Flag),
         Sm (Referenced, Flag),
         Sm (Referenced_As_LHS, Flag),
         Sm (Referenced_As_Out_Parameter, Flag),
@@ -1032,7 +1031,6 @@ begin -- Gen_IL.Gen.Gen_Entities
         Sm (Is_Invariant_Procedure, Flag),
         Sm (Is_Partial_Invariant_Procedure, Flag),
         Sm (Is_Predicate_Function, Flag),
-        Sm (Is_Predicate_Function_M, Flag),
         Sm (Is_Primitive_Wrapper, Flag),
         Sm (Is_Private_Primitive, Flag),
         Sm (LSP_Subprogram, Node_Id),
@@ -1040,6 +1038,7 @@ begin -- Gen_IL.Gen.Gen_Entities
         Sm (Next_Inlined_Subprogram, Node_Id),
         Sm (Original_Protected_Subprogram, Node_Id),
         Sm (Postconditions_Proc, Node_Id),
+        Sm (Predicate_Expression, Node_Id),
         Sm (Protected_Subprogram, Node_Id),
         Sm (Protection_Object, Node_Id),
         Sm (Related_Expression, Node_Id),
@@ -1047,7 +1046,8 @@ begin -- Gen_IL.Gen.Gen_Entities
         Sm (Thunk_Entity, Node_Id,
             Pre => "Is_Thunk (N)"),
         Sm (Wrapped_Entity, Node_Id,
-            Pre => "Is_Primitive_Wrapper (N)")));
+            Pre => "Is_Primitive_Wrapper (N)"),
+        Sm (Wrapped_Statements, Node_Id)));
 
    Cc (E_Operator, Subprogram_Kind,
        --  A predefined operator, appearing in Standard, or an implicitly
@@ -1081,7 +1081,6 @@ begin -- Gen_IL.Gen.Gen_Entities
         Sm (Is_Null_Init_Proc, Flag),
         Sm (Is_Partial_Invariant_Procedure, Flag),
         Sm (Is_Predicate_Function, Flag),
-        Sm (Is_Predicate_Function_M, Flag),
         Sm (Is_Primitive_Wrapper, Flag),
         Sm (Is_Private_Primitive, Flag),
         Sm (Is_Valued_Procedure, Flag),
@@ -1097,7 +1096,8 @@ begin -- Gen_IL.Gen.Gen_Entities
         Sm (Thunk_Entity, Node_Id,
             Pre => "Is_Thunk (N)"),
         Sm (Wrapped_Entity, Node_Id,
-            Pre => "Is_Primitive_Wrapper (N)")));
+            Pre => "Is_Primitive_Wrapper (N)"),
+        Sm (Wrapped_Statements, Node_Id)));
 
    Cc (E_Abstract_State, Overloadable_Kind,
        --  A state abstraction. Used to designate entities introduced by aspect
@@ -1136,7 +1136,8 @@ begin -- Gen_IL.Gen.Gen_Entities
         Sm (Protection_Object, Node_Id),
         Sm (Scope_Depth_Value, Unat),
         Sm (SPARK_Pragma, Node_Id),
-        Sm (SPARK_Pragma_Inherited, Flag)));
+        Sm (SPARK_Pragma_Inherited, Flag),
+        Sm (Wrapped_Statements, Node_Id)));
 
    Cc (E_Entry_Family, Entity_Kind,
        --  An entry family, created by an entry family declaration in a
@@ -1163,7 +1164,8 @@ begin -- Gen_IL.Gen.Gen_Entities
         Sm (Renamed_Or_Alias, Node_Id),
         Sm (Scope_Depth_Value, Unat),
         Sm (SPARK_Pragma, Node_Id),
-        Sm (SPARK_Pragma_Inherited, Flag)));
+        Sm (SPARK_Pragma_Inherited, Flag),
+        Sm (Wrapped_Statements, Node_Id)));
 
    Cc (E_Block, Entity_Kind,
        --  A block identifier, created by an explicit or implicit label on
@@ -1241,6 +1243,7 @@ begin -- Gen_IL.Gen.Gen_Entities
        --  implicit label declaration, not the occurrence of the label itself,
        --  which is simply a direct name referring to the label.
        (Sm (Enclosing_Scope, Node_Id),
+        Sm (Reachable, Flag),
         Sm (Renamed_Or_Alias, Node_Id)));
 
    Cc (E_Loop, Entity_Kind,

@@ -1,5 +1,5 @@
 /* Lower TLS operations to emulation functions.
-   Copyright (C) 2006-2022 Free Software Foundation, Inc.
+   Copyright (C) 2006-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -838,13 +838,16 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       /* If the target supports TLS natively, we need do nothing here.  */
       return !targetm.have_tls;
     }
 
-  virtual unsigned int execute (function *) { return ipa_lower_emutls (); }
+  unsigned int execute (function *) final override
+  {
+    return ipa_lower_emutls ();
+  }
 
 }; // class pass_ipa_lower_emutls
 

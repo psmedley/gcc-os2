@@ -1,5 +1,5 @@
 /* CPP Library. (Directive handling.)
-   Copyright (C) 1986-2022 Free Software Foundation, Inc.
+   Copyright (C) 1986-2023 Free Software Foundation, Inc.
    Contributed by Per Bothner, 1994-95.
    Based on CCCP program by Paul Rubin, June 1986
    Adapted to ANSI C, Richard Stallman, Jan 1987
@@ -158,7 +158,7 @@ static void cpp_pop_definition (cpp_reader *, struct def_pragma_macro *);
   D(elifndef,	T_ELIFNDEF,	STDC2X,    COND | ELIFDEF)		\
   D(error,	T_ERROR,	STDC89,    0)				\
   D(pragma,	T_PRAGMA,	STDC89,    IN_I)			\
-  D(warning,	T_WARNING,	EXTENSION, 0)				\
+  D(warning,	T_WARNING,	STDC2X,    0)				\
   D(include_next, T_INCLUDE_NEXT, EXTENSION, INCL | EXPAND)		\
   D(ident,	T_IDENT,	EXTENSION, IN_I)			\
   D(import,	T_IMPORT,	EXTENSION, INCL | EXPAND)  /* ObjC */	\
@@ -385,6 +385,21 @@ directive_diagnostics (cpp_reader *pfile, const directive *dir, int indented)
 	  && !(dir == &dtable[T_IMPORT] && CPP_OPTION (pfile, objc))
 	  && CPP_PEDANTIC (pfile))
 	cpp_error (pfile, CPP_DL_PEDWARN, "#%s is a GCC extension", dir->name);
+      else if (dir == &dtable[T_WARNING])
+	{
+	  if (CPP_PEDANTIC (pfile) && !CPP_OPTION (pfile, warning_directive))
+	    {
+	      if (CPP_OPTION (pfile, cplusplus))
+		cpp_error (pfile, CPP_DL_PEDWARN,
+			   "#%s before C++23 is a GCC extension", dir->name);
+	      else
+		cpp_error (pfile, CPP_DL_PEDWARN,
+			   "#%s before C2X is a GCC extension", dir->name);
+	    }
+	  else if (CPP_OPTION (pfile, cpp_warn_c11_c2x_compat) > 0)
+	    cpp_warning (pfile, CPP_W_C11_C2X_COMPAT,
+			 "#%s before C2X is a GCC extension", dir->name);
+	}
       else if (((dir->flags & DEPRECATED) != 0
 		|| (dir == &dtable[T_IMPORT] && !CPP_OPTION (pfile, objc)))
 	       && CPP_OPTION (pfile, cpp_warn_deprecated))
@@ -1550,15 +1565,15 @@ do_pragma (cpp_reader *pfile)
 	{
 	  /* Invalid name comes from macro expansion, _cpp_backup_tokens
 	     won't allow backing 2 tokens.  */
-	  /* ??? The token buffer is leaked.  Perhaps if def_pragma hook
-	     reads both tokens, we could perhaps free it, but if it doesn't,
-	     we don't know the exact lifespan.  */
-	  cpp_token *toks = XNEWVEC (cpp_token, 2);
+	  const auto tok_buff = _cpp_get_buff (pfile, 2 * sizeof (cpp_token));
+	  const auto toks = (cpp_token *)tok_buff->base;
 	  toks[0] = ns_token;
 	  toks[0].flags |= NO_EXPAND;
 	  toks[1] = *token;
-	  toks[1].flags |= NO_EXPAND;
+	  toks[1].flags |= NO_EXPAND | PREV_WHITE;
 	  _cpp_push_token_context (pfile, NULL, toks, 2);
+	  /* Arrange to free this buffer when no longer needed.  */
+	  pfile->context->buff = tok_buff;
 	}
       pfile->cb.def_pragma (pfile, pfile->directive_line);
     }
@@ -1981,7 +1996,12 @@ destringize_and_run (cpp_reader *pfile, const cpp_string *in,
 int
 _cpp_do__Pragma (cpp_reader *pfile, location_t expansion_loc)
 {
+  /* Make sure we don't invalidate the string token, if the closing parenthesis
+   ended up on a different line.  */
+  ++pfile->keep_tokens;
   const cpp_token *string = get__Pragma_string (pfile);
+  --pfile->keep_tokens;
+
   pfile->directive_result.type = CPP_PADDING;
 
   if (string)

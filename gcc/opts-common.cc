@@ -1,5 +1,5 @@
 /* Command line option handling.
-   Copyright (C) 2006-2022 Free Software Foundation, Inc.
+   Copyright (C) 2006-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -17,6 +17,7 @@ You should have received a copy of the GNU General Public License
 along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
+#define INCLUDE_STRING
 #include "config.h"
 #include "system.h"
 #include "intl.h"
@@ -25,6 +26,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "options.h"
 #include "diagnostic.h"
 #include "spellcheck.h"
+#include "opts-jobserver.h"
 
 static void prune_options (struct cl_decoded_option **, unsigned int *);
 
@@ -1110,7 +1112,8 @@ cancel_option (int opt_idx, int next_opt_idx, int orig_next_opt_idx)
   return false;
 }
 
-/* Filter out options canceled by the ones after them.  */
+/* Filter out options canceled by the ones after them, and related
+   rearrangement.  */
 
 static void
 prune_options (struct cl_decoded_option **decoded_options,
@@ -1123,6 +1126,8 @@ prune_options (struct cl_decoded_option **decoded_options,
     = XNEWVEC (struct cl_decoded_option, old_decoded_options_count);
   unsigned int i;
   const struct cl_option *option;
+  unsigned int options_to_prepend = 0;
+  unsigned int Wcomplain_wrong_lang_idx = 0;
   unsigned int fdiagnostics_color_idx = 0;
 
   /* Remove arguments which are negated by others after them.  */
@@ -1144,8 +1149,17 @@ prune_options (struct cl_decoded_option **decoded_options,
 	case OPT_SPECIAL_input_file:
 	  goto keep;
 
-	/* Do not save OPT_fdiagnostics_color_, just remember the last one.  */
+	/* Do not handle the following yet, just remember the last one.  */
+	case OPT_Wcomplain_wrong_lang:
+	  gcc_checking_assert (i != 0);
+	  if (Wcomplain_wrong_lang_idx == 0)
+	    ++options_to_prepend;
+	  Wcomplain_wrong_lang_idx = i;
+	  continue;
 	case OPT_fdiagnostics_color_:
+	  gcc_checking_assert (i != 0);
+	  if (fdiagnostics_color_idx == 0)
+	    ++options_to_prepend;
 	  fdiagnostics_color_idx = i;
 	  continue;
 
@@ -1189,15 +1203,29 @@ keep:
 	}
     }
 
-  if (fdiagnostics_color_idx >= 1)
+  /* For those not yet handled, put (only) the last at a front position after
+     'argv[0]', so they can take effect immediately.  */
+  if (options_to_prepend)
     {
-      /* We put the last -fdiagnostics-color= at the first position
-	 after argv[0] so it can take effect immediately.  */
-      memmove (new_decoded_options + 2, new_decoded_options + 1,
-	       sizeof (struct cl_decoded_option) 
-	       * (new_decoded_options_count - 1));
-      new_decoded_options[1] = old_decoded_options[fdiagnostics_color_idx];
-      new_decoded_options_count++;
+      const unsigned int argv_0 = 1;
+      memmove (new_decoded_options + argv_0 + options_to_prepend,
+	       new_decoded_options + argv_0,
+	       sizeof (struct cl_decoded_option)
+	       * (new_decoded_options_count - argv_0));
+      unsigned int options_prepended = 0;
+      if (Wcomplain_wrong_lang_idx != 0)
+	{
+	  new_decoded_options[argv_0 + options_prepended++]
+	    = old_decoded_options[Wcomplain_wrong_lang_idx];
+	  new_decoded_options_count++;
+	}
+      if (fdiagnostics_color_idx != 0)
+	{
+	  new_decoded_options[argv_0 + options_prepended++]
+	    = old_decoded_options[fdiagnostics_color_idx];
+	  new_decoded_options_count++;
+	}
+      gcc_checking_assert (options_to_prepend == options_prepended);
     }
 
   free (old_decoded_options);
@@ -1346,6 +1374,8 @@ candidates_list_and_hint (const char *arg, char *&str,
   int i;
   const char *candidate;
   char *p;
+
+  gcc_assert (!candidates.is_empty ());
 
   FOR_EACH_VEC_ELT (candidates, i, candidate)
     len += strlen (candidate) + 1;
@@ -2002,4 +2032,105 @@ void prepend_xassembler_to_collect_as_options (const char *collect_as_options,
       obstack_grow (o, opt, strlen (opt));
       obstack_1grow (o, '\'');
     }
+}
+
+jobserver_info::jobserver_info ()
+{
+  /* Traditionally, GNU make uses opened pipes for jobserver-auth,
+    e.g. --jobserver-auth=3,4.
+    Starting with GNU make 4.4, one can use --jobserver-style=fifo
+    and then named pipe is used: --jobserver-auth=fifo:/tmp/hcsparta.  */
+
+  /* Detect jobserver and drop it if it's not working.  */
+  string js_needle = "--jobserver-auth=";
+  string fifo_prefix = "fifo:";
+
+  const char *envval = getenv ("MAKEFLAGS");
+  if (envval != NULL)
+    {
+      string makeflags = envval;
+      size_t n = makeflags.rfind (js_needle);
+      if (n != string::npos)
+	{
+	  string ending = makeflags.substr (n + js_needle.size ());
+	  if (ending.find (fifo_prefix) == 0)
+	    {
+	      ending = ending.substr (fifo_prefix.size ());
+	      pipe_path = ending.substr (0, ending.find (' '));
+	      is_active = true;
+	    }
+	  else if (sscanf (makeflags.c_str () + n + js_needle.size (),
+			   "%d,%d", &rfd, &wfd) == 2
+	      && rfd > 0
+	      && wfd > 0
+	      && is_valid_fd (rfd)
+	      && is_valid_fd (wfd))
+	    is_active = true;
+	  else
+	    {
+	      string dup = makeflags.substr (0, n);
+	      size_t pos = makeflags.find (' ', n);
+	      if (pos != string::npos)
+		dup += makeflags.substr (pos);
+	      skipped_makeflags = "MAKEFLAGS=" + dup;
+	      error_msg
+		= "cannot access %<" + js_needle + "%> file descriptors";
+	    }
+	}
+      error_msg = "%<" + js_needle + "%> is not present in %<MAKEFLAGS%>";
+    }
+  else
+    error_msg = "%<MAKEFLAGS%> environment variable is unset";
+
+  if (!error_msg.empty ())
+    error_msg = "jobserver is not available: " + error_msg;
+}
+
+void
+jobserver_info::connect ()
+{
+  if (!pipe_path.empty ())
+    {
+#if HOST_HAS_O_NONBLOCK
+      pipefd = open (pipe_path.c_str (), O_RDWR | O_NONBLOCK);
+      is_connected = true;
+#else
+      is_connected = false;
+#endif
+    }
+  else
+    is_connected = true;
+}
+
+void
+jobserver_info::disconnect ()
+{
+  if (!pipe_path.empty ())
+    {
+      gcc_assert (close (pipefd) == 0);
+      pipefd = -1;
+    }
+}
+
+bool
+jobserver_info::get_token ()
+{
+  int fd = pipe_path.empty () ? rfd : pipefd;
+  char c;
+  unsigned n = read (fd, &c, 1);
+  if (n != 1)
+    {
+      gcc_assert (errno == EAGAIN);
+      return false;
+    }
+  else
+    return true;
+}
+
+void
+jobserver_info::return_token ()
+{
+  int fd = pipe_path.empty () ? wfd : pipefd;
+  char c = 'G';
+  gcc_assert (write (fd, &c, 1) == 1);
 }

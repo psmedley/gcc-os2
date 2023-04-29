@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -76,6 +76,7 @@ with Style;
 with Table;
 with Tbuild;         use Tbuild;
 with Uintp;          use Uintp;
+with Warnsw;         use Warnsw;
 
 package body Sem_Ch8 is
 
@@ -474,6 +475,10 @@ package body Sem_Ch8 is
    --  scope: the defining entity for U, unless U is a package instance, in
    --  which case we retrieve the entity of the instance spec.
 
+   procedure Error_Missing_With_Of_Known_Unit (Pkg : Node_Id);
+   --  Display an error message denoting a "with" is missing for a given known
+   --  package Pkg with its full path name.
+
    procedure Find_Expanded_Name (N : Node_Id);
    --  The input is a selected component known to be an expanded name. Verify
    --  legality of selector given the scope denoted by prefix, and change node
@@ -509,6 +514,7 @@ package body Sem_Ch8 is
 
    function Has_Implicit_Operator (N : Node_Id) return Boolean;
    --  N is an expanded name whose selector is an operator name (e.g. P."+").
+   --  Determine if N denotes an operator implicitly declared in prefix P: P's
    --  declarative part contains an implicit declaration of an operator if it
    --  has a declaration of a type to which one of the predefined operators
    --  apply. The existence of this routine is an implementation artifact. A
@@ -955,7 +961,7 @@ package body Sem_Ch8 is
             Set_Etype (Nam, T);
          end if;
       elsif Present (Subtype_Mark (N))
-        or else not Present (Access_Definition (N))
+        or else No (Access_Definition (N))
       then
          if Present (Subtype_Mark (N)) then
             Find_Type (Subtype_Mark (N));
@@ -3962,6 +3968,30 @@ package body Sem_Ch8 is
                  ("implicit operation& is not visible (RM 8.3 (15))",
                   Nam, Old_S);
             end if;
+
+         --  Check whether an expanded name used for the renamed subprogram
+         --  begins with the same name as the renaming itself, and if so,
+         --  issue an error about the prefix being hidden by the renaming.
+         --  We exclude generic instances from this checking, since such
+         --  normally illegal renamings can be constructed when expanding
+         --  instantiations.
+
+         elsif Nkind (Nam) = N_Expanded_Name and then not In_Instance then
+            declare
+               function Ult_Expanded_Prefix (N : Node_Id) return Node_Id is
+                 (if Nkind (N) /= N_Expanded_Name
+                  then N
+                  else Ult_Expanded_Prefix (Prefix (N)));
+               --  Returns the ultimate prefix of an expanded name
+
+            begin
+               if Chars (Entity (Ult_Expanded_Prefix (Nam))) = Chars (New_S)
+               then
+                  Error_Msg_Sloc := Sloc (N);
+                  Error_Msg_NE
+                    ("& is hidden by declaration#", Nam, New_S);
+               end if;
+            end;
          end if;
 
          Set_Convention (New_S, Convention (Old_S));
@@ -4532,7 +4562,7 @@ package body Sem_Ch8 is
       --  have at least one formal parameter, with the exceptions of the GNAT
       --  attribute 'Img, which GNAT treats as renameable.
 
-      if not Is_Non_Empty_List (Parameter_Specifications (Spec)) then
+      if Is_Empty_List (Parameter_Specifications (Spec)) then
          if Aname /= Name_Img then
             Error_Msg_N
               ("subprogram renaming an attribute must have formals", N);
@@ -4673,7 +4703,7 @@ package body Sem_Ch8 is
       --  want to deal with AST_Handler in ZFP mode.
 
       if not Configurable_Run_Time_Mode
-        and then not Present (Corresponding_Formal_Spec (N))
+        and then No (Corresponding_Formal_Spec (N))
         and then not Is_RTE (Etype (Nam), RE_AST_Handler)
       then
          declare
@@ -4858,6 +4888,20 @@ package body Sem_Ch8 is
 
          if Present (P)
            and then Nkind (P) = N_Parameter_Specification
+         then
+            null;
+
+         --  Don't replace a non-qualified discriminant in strict preanalysis
+         --  mode since it can lead to errors during full analysis when the
+         --  discriminant gets referenced later.
+
+         --  This can occur in situations where a protected type contains
+         --  an expression function which references a non-prefixed
+         --  discriminant.
+
+         elsif No (P)
+           and then Preanalysis_Active
+           and then Inside_Preanalysis_Without_Freezing = 0
          then
             null;
 
@@ -5332,6 +5376,81 @@ package body Sem_Ch8 is
          return Defining_Entity (U);
       end if;
    end Entity_Of_Unit;
+
+   --------------------------------------
+   -- Error_Missing_With_Of_Known_Unit --
+   --------------------------------------
+
+   procedure Error_Missing_With_Of_Known_Unit (Pkg : Node_Id) is
+      Selectors : array (1 .. 6) of Node_Id;
+      --  Contains the chars of the full package name up to maximum number
+      --  allowed as per Errout.Error_Msg_Name_# variables.
+
+      Count : Integer := Selectors'First;
+      --  Count of selector names forming the full package name
+
+      Current_Pkg : Node_Id := Parent (Pkg);
+
+   begin
+      Selectors (Count) := Pkg;
+
+      --  Gather all the selectors we can display
+
+      while Nkind (Current_Pkg) = N_Selected_Component
+        and then Is_Known_Unit (Current_Pkg)
+        and then Count < Selectors'Length
+      loop
+         Count             := Count + 1;
+         Selectors (Count) := Selector_Name (Current_Pkg);
+         Current_Pkg       := Parent (Current_Pkg);
+      end loop;
+
+      --  Display the error message based on the number of selectors found
+
+      case Count is
+         when 1 =>
+            Error_Msg_Node_1 := Selectors (1);
+            Error_Msg_N -- CODEFIX
+              ("\\missing `WITH &;`", Pkg);
+         when 2 =>
+            Error_Msg_Node_1 := Selectors (1);
+            Error_Msg_Node_2 := Selectors (2);
+            Error_Msg_N -- CODEFIX
+              ("\\missing `WITH &.&;`", Pkg);
+         when 3 =>
+            Error_Msg_Node_1 := Selectors (1);
+            Error_Msg_Node_2 := Selectors (2);
+            Error_Msg_Node_3 := Selectors (3);
+            Error_Msg_N -- CODEFIX
+              ("\\missing `WITH &.&.&;`", Pkg);
+         when 4 =>
+            Error_Msg_Node_1 := Selectors (1);
+            Error_Msg_Node_2 := Selectors (2);
+            Error_Msg_Node_3 := Selectors (3);
+            Error_Msg_Node_3 := Selectors (4);
+            Error_Msg_N -- CODEFIX
+              ("\\missing `WITH &.&.&.&;`", Pkg);
+         when 5 =>
+            Error_Msg_Node_1 := Selectors (1);
+            Error_Msg_Node_2 := Selectors (2);
+            Error_Msg_Node_3 := Selectors (3);
+            Error_Msg_Node_3 := Selectors (4);
+            Error_Msg_Node_3 := Selectors (5);
+            Error_Msg_N -- CODEFIX
+              ("\\missing `WITH &.&.&.&.&;`", Pkg);
+         when 6 =>
+            Error_Msg_Node_1 := Selectors (1);
+            Error_Msg_Node_2 := Selectors (2);
+            Error_Msg_Node_3 := Selectors (3);
+            Error_Msg_Node_4 := Selectors (4);
+            Error_Msg_Node_5 := Selectors (5);
+            Error_Msg_Node_6 := Selectors (6);
+            Error_Msg_N -- CODEFIX
+              ("\\missing `WITH &.&.&.&.&.&;`", Pkg);
+         when others =>
+            raise Program_Error;
+      end case;
+   end Error_Missing_With_Of_Known_Unit;
 
    ----------------------
    -- Find_Direct_Name --
@@ -5876,25 +5995,7 @@ package body Sem_Ch8 is
               and then N = Prefix (Parent (N))
               and then Is_Known_Unit (Parent (N))
             then
-               declare
-                  P : Node_Id := Parent (N);
-               begin
-                  Error_Msg_Name_1 := Chars (N);
-                  Error_Msg_Name_2 := Chars (Selector_Name (P));
-
-                  if Nkind (Parent (P)) = N_Selected_Component
-                    and then Is_Known_Unit (Parent (P))
-                  then
-                     P := Parent (P);
-                     Error_Msg_Name_3 := Chars (Selector_Name (P));
-                     Error_Msg_N -- CODEFIX
-                       ("\\missing `WITH %.%.%;`", N);
-
-                  else
-                     Error_Msg_N -- CODEFIX
-                       ("\\missing `WITH %.%;`", N);
-                  end if;
-               end;
+               Error_Missing_With_Of_Known_Unit (N);
             end if;
 
             --  Now check for possible misspellings
@@ -5961,21 +6062,6 @@ package body Sem_Ch8 is
          if Is_Type (Entity (N)) then
             Set_Etype (N, Entity (N));
 
-         --  The exception to this general rule are constants associated with
-         --  discriminals of protected types because for each protected op
-         --  a new set of discriminals is internally created by the frontend
-         --  (see Exp_Ch9.Set_Discriminals), and the current decoration of the
-         --  entity pointer may have been set as part of a preanalysis, where
-         --  discriminals still reference the first subprogram or entry to be
-         --  expanded (see Expand_Protected_Body_Declarations).
-
-         elsif Full_Analysis
-           and then Ekind (Entity (N)) = E_Constant
-           and then Present (Discriminal_Link (Entity (N)))
-           and then Is_Protected_Type (Scope (Discriminal_Link (Entity (N))))
-         then
-            goto Find_Name;
-
          else
             declare
                Entyp : constant Entity_Id := Etype (Entity (N));
@@ -5996,7 +6082,7 @@ package body Sem_Ch8 is
                --  If not that special case, then just reset the Etype
 
                else
-                  Set_Etype (N, Etype (Entity (N)));
+                  Set_Etype (N, Entyp);
                end if;
             end;
          end if;
@@ -6014,8 +6100,6 @@ package body Sem_Ch8 is
 
          return;
       end if;
-
-      <<Find_Name>>
 
       --  Preserve relevant elaboration-related attributes of the context which
       --  are no longer available or very expensive to recompute once analysis,
@@ -6909,9 +6993,9 @@ package body Sem_Ch8 is
                                            Standard_Standard)
                then
                   if not Error_Posted (N) then
-                     Error_Msg_Node_2 := Selector;
-                     Error_Msg_N -- CODEFIX
-                       ("missing `WITH &.&;`", Prefix (N));
+                     Error_Msg_NE
+                       ("& is not a visible entity of&", Prefix (N), Selector);
+                     Error_Missing_With_Of_Known_Unit (Prefix (N));
                   end if;
 
                --  If this is a selection from a dummy package, then suppress
@@ -7832,7 +7916,7 @@ package body Sem_Ch8 is
 
          if Is_Type (P_Type)
            and then (Has_Components (P_Type)
-                      or else (Extensions_Allowed
+                      or else (Core_Extensions_Allowed
                                 and then not Is_Concurrent_Type (P_Type)))
            and then not Is_Overloadable (P_Name)
            and then not Is_Type (P_Name)
@@ -8087,7 +8171,7 @@ package body Sem_Ch8 is
                        ("prefixed call is only allowed for objects of a "
                         & "tagged type unless -gnatX is used", N);
 
-                     if not Extensions_Allowed
+                     if not Core_Extensions_Allowed
                        and then
                          Try_Object_Operation (N, Allow_Extensions => True)
                      then
@@ -8650,7 +8734,10 @@ package body Sem_Ch8 is
             | Name_Op_Xor
          =>
             while Id /= Priv_Id loop
-               if Valid_Boolean_Arg (Id) and then Is_Base_Type (Id) then
+               if Is_Type (Id)
+                 and then Valid_Boolean_Arg (Id)
+                 and then Is_Base_Type (Id)
+               then
                   Add_Implicit_Operator (Id);
                   return True;
                end if;
@@ -8665,7 +8752,7 @@ package body Sem_Ch8 is
          =>
             while Id /= Priv_Id loop
                if Is_Type (Id)
-                 and then not Is_Limited_Type (Id)
+                 and then Valid_Equality_Arg (Id)
                  and then Is_Base_Type (Id)
                then
                   Add_Implicit_Operator (Standard_Boolean, Id);
@@ -8683,9 +8770,8 @@ package body Sem_Ch8 is
             | Name_Op_Lt
          =>
             while Id /= Priv_Id loop
-               if (Is_Scalar_Type (Id)
-                    or else (Is_Array_Type (Id)
-                              and then Is_Scalar_Type (Component_Type (Id))))
+               if Is_Type (Id)
+                 and then Valid_Comparison_Arg (Id)
                  and then Is_Base_Type (Id)
                then
                   Add_Implicit_Operator (Standard_Boolean, Id);
@@ -9140,8 +9226,33 @@ package body Sem_Ch8 is
      (Clause1 : Entity_Id;
       Clause2 : Entity_Id) return Entity_Id
    is
+      function Determine_Package_Scope (Clause : Node_Id) return Entity_Id;
+      --  Given a use clause, determine which package it belongs to
+
+      -----------------------------
+      -- Determine_Package_Scope --
+      -----------------------------
+
+      function Determine_Package_Scope (Clause : Node_Id) return Entity_Id is
+      begin
+         --  Check if the clause appears in the context area
+
+         --  Note we cannot employ Enclosing_Packge for use clauses within
+         --  context clauses since they are not actually "enclosed."
+
+         if Nkind (Parent (Clause)) = N_Compilation_Unit then
+            return Entity_Of_Unit (Unit (Parent (Clause)));
+         end if;
+
+         --  Otherwise, obtain the enclosing package normally
+
+         return Enclosing_Package (Clause);
+      end Determine_Package_Scope;
+
       Scope1 : Entity_Id;
       Scope2 : Entity_Id;
+
+   --  Start of processing for Most_Descendant_Use_Clause
 
    begin
       if Clause1 = Clause2 then
@@ -9151,17 +9262,17 @@ package body Sem_Ch8 is
       --  We determine which one is the most descendant by the scope distance
       --  to the ultimate parent unit.
 
-      Scope1 := Entity_Of_Unit (Unit (Parent (Clause1)));
-      Scope2 := Entity_Of_Unit (Unit (Parent (Clause2)));
+      Scope1 := Determine_Package_Scope (Clause1);
+      Scope2 := Determine_Package_Scope (Clause2);
       while Scope1 /= Standard_Standard
         and then Scope2 /= Standard_Standard
       loop
          Scope1 := Scope (Scope1);
          Scope2 := Scope (Scope2);
 
-         if not Present (Scope1) then
+         if No (Scope1) then
             return Clause1;
-         elsif not Present (Scope2) then
+         elsif No (Scope2) then
             return Clause2;
          end if;
       end loop;
@@ -9604,10 +9715,10 @@ package body Sem_Ch8 is
       --  we saved (we use Remove, since this list will not be used again).
 
       loop
-         Elmt := Last_Elmt (List);
+         Elmt := First_Elmt (List);
          exit when Elmt = No_Elmt;
          Set_Is_Immediately_Visible (Node (Elmt));
-         Remove_Last_Elmt (List);
+         Remove_Elmt (List, Elmt);
       end loop;
 
       --  Restore use clauses
@@ -9718,22 +9829,20 @@ package body Sem_Ch8 is
       Decl : Node_Id;
 
    begin
-      if Present (L) then
-         Decl := First (L);
-         while Present (Decl) loop
-            if Nkind (Decl) = N_Use_Package_Clause then
-               Chain_Use_Clause (Decl);
-               Use_One_Package (Decl, Name (Decl));
+      Decl := First (L);
+      while Present (Decl) loop
+         if Nkind (Decl) = N_Use_Package_Clause then
+            Chain_Use_Clause (Decl);
+            Use_One_Package (Decl, Name (Decl));
 
-            elsif Nkind (Decl) = N_Use_Type_Clause then
-               Chain_Use_Clause (Decl);
-               Use_One_Type (Subtype_Mark (Decl));
+         elsif Nkind (Decl) = N_Use_Type_Clause then
+            Chain_Use_Clause (Decl);
+            Use_One_Type (Subtype_Mark (Decl));
 
-            end if;
+         end if;
 
-            Next (Decl);
-         end loop;
-      end if;
+         Next (Decl);
+      end loop;
    end Set_Use;
 
    -----------------------------
@@ -10213,6 +10322,11 @@ package body Sem_Ch8 is
 
                   --  Potentially use-visible entity remains hidden
 
+                  if Warn_On_Hiding then
+                     Warn_On_Hiding_Entity (N, Hidden => Id, Visible => Prev,
+                                            On_Use_Clause => True);
+                  end if;
+
                   goto Next_Usable_Entity;
 
                --  A use clause within an instance hides outer global entities,
@@ -10509,20 +10623,6 @@ package body Sem_Ch8 is
       --  even if it is redundant at the place of the instantiation.
 
       elsif Redundant_Use (Id) then
-
-         --  We must avoid incorrectly setting the Current_Use_Clause when we
-         --  are working with a redundant clause that has already been linked
-         --  in the Prev_Use_Clause chain, otherwise the chain will break.
-
-         if Present (Current_Use_Clause (T))
-           and then Present (Prev_Use_Clause (Current_Use_Clause (T)))
-           and then Parent (Id) = Prev_Use_Clause (Current_Use_Clause (T))
-         then
-            null;
-         else
-            Set_Current_Use_Clause (T, Parent (Id));
-         end if;
-
          Set_Used_Operations (Parent (Id), New_Elmt_List);
 
       --  If the subtype mark designates a subtype in a different package,
@@ -10627,121 +10727,109 @@ package body Sem_Ch8 is
                --  Start of processing for Use_Clause_Known
 
                begin
-                  --  If both current use_type_clause and the use_type_clause
-                  --  for the type are at the compilation unit level, one of
-                  --  the units must be an ancestor of the other, and the
-                  --  warning belongs on the descendant.
+                  --  If the unit is a subprogram body that acts as spec, the
+                  --  context clause is shared with the constructed subprogram
+                  --  spec. Clearly there is no redundancy.
 
-                  if Nkind (Parent (Clause1)) = N_Compilation_Unit
-                       and then
-                     Nkind (Parent (Clause2)) = N_Compilation_Unit
+                  if Clause1 = Clause2 then
+                     return;
+                  end if;
+
+                  Unit1 := Unit (Enclosing_Comp_Unit_Node (Clause1));
+                  Unit2 := Unit (Enclosing_Comp_Unit_Node (Clause2));
+
+                  --  If both clauses are on same unit, or one is the body of
+                  --  the other, or one of them is in a subunit, report
+                  --  redundancy on the later one.
+
+                  if Unit1 = Unit2
+                    or else Nkind (Unit1) = N_Subunit
+                    or else
+                      (Nkind (Unit2) in N_Package_Body | N_Subprogram_Body
+                        and then Nkind (Unit1) /= Nkind (Unit2)
+                        and then Nkind (Unit1) /= N_Subunit)
                   then
-                     --  If the unit is a subprogram body that acts as spec,
-                     --  the context clause is shared with the constructed
-                     --  subprogram spec. Clearly there is no redundancy.
-
-                     if Clause1 = Clause2 then
-                        return;
-                     end if;
-
-                     Unit1 := Unit (Parent (Clause1));
-                     Unit2 := Unit (Parent (Clause2));
-
-                     --  If both clauses are on same unit, or one is the body
-                     --  of the other, or one of them is in a subunit, report
-                     --  redundancy on the later one.
-
-                     if Unit1 = Unit2 or else Nkind (Unit1) = N_Subunit then
-                        Error_Msg_Sloc := Sloc (Current_Use_Clause (T));
-                        Error_Msg_NE -- CODEFIX
-                          ("& is already use-visible through previous "
-                           & "use_type_clause #??", Clause1, T);
-                        return;
-
-                     elsif Nkind (Unit2) in N_Package_Body | N_Subprogram_Body
-                       and then Nkind (Unit1) /= Nkind (Unit2)
-                       and then Nkind (Unit1) /= N_Subunit
-                     then
-                        Error_Msg_Sloc := Sloc (Clause1);
-                        Error_Msg_NE -- CODEFIX
-                          ("& is already use-visible through previous "
-                           & "use_type_clause #??", Current_Use_Clause (T), T);
-                        return;
-                     end if;
-
-                     --  There is a redundant use_type_clause in a child unit.
-                     --  Determine which of the units is more deeply nested.
-                     --  If a unit is a package instance, retrieve the entity
-                     --  and its scope from the instance spec.
-
-                     Ent1 := Entity_Of_Unit (Unit1);
-                     Ent2 := Entity_Of_Unit (Unit2);
-
-                     if Scope (Ent2) = Standard_Standard then
-                        Error_Msg_Sloc := Sloc (Current_Use_Clause (T));
-                        Err_No := Clause1;
-
-                     elsif Scope (Ent1) = Standard_Standard then
-                        Error_Msg_Sloc := Sloc (Id);
-                        Err_No := Clause2;
-
-                     --  If both units are child units, we determine which one
-                     --  is the descendant by the scope distance to the
-                     --  ultimate parent unit.
-
-                     else
-                        declare
-                           S1 : Entity_Id;
-                           S2 : Entity_Id;
-
-                        begin
-                           S1 := Scope (Ent1);
-                           S2 := Scope (Ent2);
-                           while Present (S1)
-                             and then Present (S2)
-                             and then S1 /= Standard_Standard
-                             and then S2 /= Standard_Standard
-                           loop
-                              S1 := Scope (S1);
-                              S2 := Scope (S2);
-                           end loop;
-
-                           if S1 = Standard_Standard then
-                              Error_Msg_Sloc := Sloc (Id);
-                              Err_No := Clause2;
-                           else
-                              Error_Msg_Sloc := Sloc (Current_Use_Clause (T));
-                              Err_No := Clause1;
-                           end if;
-                        end;
-                     end if;
-
-                     if Parent (Id) /= Err_No then
-                        if Most_Descendant_Use_Clause
-                             (Err_No, Parent (Id)) = Parent (Id)
-                        then
-                           Error_Msg_Sloc := Sloc (Err_No);
-                           Err_No := Parent (Id);
-                        end if;
-
-                        Error_Msg_NE -- CODEFIX
-                          ("& is already use-visible through previous "
-                           & "use_type_clause #??", Err_No, Id);
-                     end if;
-
-                  --  Case where current use_type_clause and use_type_clause
-                  --  for the type are not both at the compilation unit level.
-                  --  In this case we don't have location information.
-
-                  else
+                     Error_Msg_Sloc := Sloc (Clause1);
                      Error_Msg_NE -- CODEFIX
                        ("& is already use-visible through previous "
-                        & "use_type_clause??", Id, T);
+                        & "use_type_clause #??", Clause2, T);
+                     return;
+                  end if;
+
+                  --  If there is a redundant use_type_clause in a child unit
+                  --  determine which of the units is more deeply nested. If a
+                  --  unit is a package instance, retrieve the entity and its
+                  --  scope from the instance spec.
+
+                  Ent1 := Entity_Of_Unit (Unit1);
+                  Ent2 := Entity_Of_Unit (Unit2);
+
+                  --  When the scope of both units' entities are
+                  --  Standard_Standard then neither Unit1 or Unit2 are child
+                  --  units - so return in that case.
+
+                  if Scope (Ent1) = Standard_Standard
+                    and then Scope (Ent2) = Standard_Standard
+                  then
+                     return;
+
+                  --  Otherwise, determine if one of the units is not a child
+
+                  elsif Scope (Ent2) = Standard_Standard then
+                     Error_Msg_Sloc := Sloc (Clause2);
+                     Err_No := Clause1;
+
+                  elsif Scope (Ent1) = Standard_Standard then
+                     Error_Msg_Sloc := Sloc (Id);
+                     Err_No := Clause2;
+
+                  --  If both units are child units, we determine which one is
+                  --  the descendant by the scope distance to the ultimate
+                  --  parent unit.
+
+                  else
+                     declare
+                        S1 : Entity_Id;
+                        S2 : Entity_Id;
+
+                     begin
+                        S1 := Scope (Ent1);
+                        S2 := Scope (Ent2);
+                        while Present (S1)
+                          and then Present (S2)
+                          and then S1 /= Standard_Standard
+                          and then S2 /= Standard_Standard
+                        loop
+                           S1 := Scope (S1);
+                           S2 := Scope (S2);
+                        end loop;
+
+                        if S1 = Standard_Standard then
+                           Error_Msg_Sloc := Sloc (Id);
+                           Err_No := Clause2;
+                        else
+                           Error_Msg_Sloc := Sloc (Clause2);
+                           Err_No := Clause1;
+                        end if;
+                     end;
+                  end if;
+
+                  if Parent (Id) /= Err_No then
+                     if Most_Descendant_Use_Clause
+                          (Err_No, Parent (Id)) = Parent (Id)
+                     then
+                        Error_Msg_Sloc := Sloc (Err_No);
+                        Err_No := Parent (Id);
+                     end if;
+
+                     Error_Msg_NE -- CODEFIX
+                       ("& is already use-visible through previous "
+                        & "use_type_clause #??", Err_No, Id);
                   end if;
                end Use_Clause_Known;
 
-            --  Here if Current_Use_Clause is not set for T, another case where
-            --  we do not have the location information available.
+            --  Here Current_Use_Clause is not set for T, so we do not have the
+            --  location information available.
 
             else
                Error_Msg_NE -- CODEFIX

@@ -1,6 +1,6 @@
 /* Gimple IR support functions.
 
-   Copyright (C) 2007-2022 Free Software Foundation, Inc.
+   Copyright (C) 2007-2023 Free Software Foundation, Inc.
    Contributed by Aldy Hernandez <aldyh@redhat.com>
 
 This file is part of GCC.
@@ -44,6 +44,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "stringpool.h"
 #include "attribs.h"
 #include "asan.h"
+#include "ubsan.h"
 #include "langhooks.h"
 #include "attr-fnspec.h"
 #include "ipa-modref-tree.h"
@@ -421,6 +422,19 @@ gimple_build_call_from_tree (tree t, tree fnptrtype)
   return call;
 }
 
+/* Build a gcall to __builtin_unreachable as rewritten by
+   -fsanitize=unreachable.  */
+
+gcall *
+gimple_build_builtin_unreachable (location_t loc)
+{
+  tree data = NULL_TREE;
+  tree fn = sanitize_unreachable_fn (&data, loc);
+  gcall *g = gimple_build_call (fn, data != NULL_TREE, data);
+  gimple_call_set_ctrl_altering (g, true);
+  gimple_set_location (g, loc);
+  return g;
+}
 
 /* Build a GIMPLE_ASSIGN statement.
 
@@ -1264,6 +1278,18 @@ gimple_build_omp_atomic_store (tree val, enum omp_memory_order mo)
     = as_a <gomp_atomic_store *> (gimple_alloc (GIMPLE_OMP_ATOMIC_STORE, 0));
   gimple_omp_atomic_store_set_val (p, val);
   gimple_omp_atomic_set_memory_order (p, mo);
+  return p;
+}
+
+/* Build a GIMPLE_ASSUME statement.  */
+
+gimple *
+gimple_build_assume (tree guard, gimple_seq body)
+{
+  gimple_statement_assume *p
+    = as_a <gimple_statement_assume *> (gimple_alloc (GIMPLE_ASSUME, 0));
+  gimple_assume_set_guard (p, guard);
+  *gimple_assume_body_ptr (p) = body;
   return p;
 }
 
@@ -2112,6 +2138,13 @@ gimple_copy (gimple *stmt)
 	  gimple_omp_masked_set_clauses (copy, t);
 	  goto copy_omp_body;
 
+	case GIMPLE_ASSUME:
+	  new_seq = gimple_seq_copy (gimple_assume_body (stmt));
+	  *gimple_assume_body_ptr (copy) = new_seq;
+	  gimple_assume_set_guard (copy,
+				   unshare_expr (gimple_assume_guard (stmt)));
+	  break;
+
 	case GIMPLE_TRANSACTION:
 	  new_seq = gimple_seq_copy (gimple_transaction_body (
 				       as_a <gtransaction *> (stmt)));
@@ -2366,7 +2399,6 @@ get_gimple_rhs_num_ops (enum tree_code code)
       || (SYM) == BIT_INSERT_EXPR) ? GIMPLE_TERNARY_RHS			    \
    : ((SYM) == CONSTRUCTOR						    \
       || (SYM) == OBJ_TYPE_REF						    \
-      || (SYM) == ASSERT_EXPR						    \
       || (SYM) == ADDR_EXPR						    \
       || (SYM) == WITH_SIZE_EXPR					    \
       || (SYM) == SSA_NAME) ? GIMPLE_SINGLE_RHS				    \
@@ -2379,48 +2411,6 @@ const unsigned char gimple_rhs_class_table[] = {
 
 #undef DEFTREECODE
 #undef END_OF_BASE_TREE_CODES
-
-/* Canonicalize a tree T for use in a COND_EXPR as conditional.  Returns
-   a canonicalized tree that is valid for a COND_EXPR or NULL_TREE, if
-   we failed to create one.  */
-
-tree
-canonicalize_cond_expr_cond (tree t)
-{
-  /* Strip conversions around boolean operations.  */
-  if (CONVERT_EXPR_P (t)
-      && (truth_value_p (TREE_CODE (TREE_OPERAND (t, 0)))
-          || TREE_CODE (TREE_TYPE (TREE_OPERAND (t, 0)))
-	     == BOOLEAN_TYPE))
-    t = TREE_OPERAND (t, 0);
-
-  /* For !x use x == 0.  */
-  if (TREE_CODE (t) == TRUTH_NOT_EXPR)
-    {
-      tree top0 = TREE_OPERAND (t, 0);
-      t = build2 (EQ_EXPR, TREE_TYPE (t),
-		  top0, build_int_cst (TREE_TYPE (top0), 0));
-    }
-  /* For cmp ? 1 : 0 use cmp.  */
-  else if (TREE_CODE (t) == COND_EXPR
-	   && COMPARISON_CLASS_P (TREE_OPERAND (t, 0))
-	   && integer_onep (TREE_OPERAND (t, 1))
-	   && integer_zerop (TREE_OPERAND (t, 2)))
-    {
-      tree top0 = TREE_OPERAND (t, 0);
-      t = build2 (TREE_CODE (top0), TREE_TYPE (t),
-		  TREE_OPERAND (top0, 0), TREE_OPERAND (top0, 1));
-    }
-  /* For x ^ y use x != y.  */
-  else if (TREE_CODE (t) == BIT_XOR_EXPR)
-    t = build2 (NE_EXPR, TREE_TYPE (t),
-		TREE_OPERAND (t, 0), TREE_OPERAND (t, 1));
-  
-  if (is_gimple_condexpr (t))
-    return t;
-
-  return NULL_TREE;
-}
 
 /* Build a GIMPLE_CALL identical to STMT but skipping the arguments in
    the positions marked by the set ARGS_TO_SKIP.  */

@@ -1,6 +1,6 @@
 // Concept-constrained comparison implementations -*- C++ -*-
 
-// Copyright (C) 2019-2022 Free Software Foundation, Inc.
+// Copyright (C) 2019-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -57,7 +57,11 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 
 #ifdef __cpp_lib_concepts
 // Define this here, included by all the headers that need to define it.
+#if __cplusplus > 202002L
+#define __cpp_lib_ranges 202202L
+#else
 #define __cpp_lib_ranges 202110L
+#endif
 
 namespace ranges
 {

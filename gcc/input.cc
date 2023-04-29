@@ -1,5 +1,5 @@
 /* Data and functions related to line maps and input files.
-   Copyright (C) 2004-2022 Free Software Foundation, Inc.
+   Copyright (C) 2004-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -28,6 +28,12 @@ along with GCC; see the file COPYING3.  If not see
 #ifndef HAVE_ICONV
 #define HAVE_ICONV 0
 #endif
+
+const char *
+special_fname_builtin ()
+{
+  return _("<built-in>");
+}
 
 /* Input charset configuration.  */
 static const char *default_charset_callback (const char *)
@@ -61,6 +67,7 @@ public:
   {
     return m_missing_trailing_newline;
   }
+  char_span get_full_file_content ();
 
   void inc_use_count () { m_use_count++; }
 
@@ -275,7 +282,7 @@ expand_location_1 (location_t loc,
 
   xloc.data = block;
   if (loc <= BUILTINS_LOCATION)
-    xloc.file = loc == UNKNOWN_LOCATION ? NULL : _("<built-in>");
+    xloc.file = loc == UNKNOWN_LOCATION ? NULL : special_fname_builtin ();
 
   return xloc;
 }
@@ -451,6 +458,20 @@ file_cache::add_file (const char *file_path)
   if (!r->create (in_context, file_path, fp, highest_use_count))
     return NULL;
   return r;
+}
+
+/* Get a borrowed char_span to the full content of this file
+   as decoded according to the input charset, encoded as UTF-8.  */
+
+char_span
+file_cache_slot::get_full_file_content ()
+{
+  char *line;
+  ssize_t line_len;
+  while (get_next_line (&line, &line_len))
+    {
+    }
+  return char_span (m_data, m_nb_read);
 }
 
 /* Populate this slot for use on FILE_PATH and FP, dropping any
@@ -646,6 +667,37 @@ file_cache_slot::maybe_read_data ()
   return read_data ();
 }
 
+/* Helper function for file_cache_slot::get_next_line (), to find the end of
+   the next line.  Returns with the memchr convention, i.e. nullptr if a line
+   terminator was not found.  We need to determine line endings in the same
+   manner that libcpp does: any of \n, \r\n, or \r is a line ending.  */
+
+static char *
+find_end_of_line (char *s, size_t len)
+{
+  for (const auto end = s + len; s != end; ++s)
+    {
+      if (*s == '\n')
+	return s;
+      if (*s == '\r')
+	{
+	  const auto next = s + 1;
+	  if (next == end)
+	    {
+	      /* Don't find the line ending if \r is the very last character
+		 in the buffer; we do not know if it's the end of the file or
+		 just the end of what has been read so far, and we wouldn't
+		 want to break in the middle of what's actually a \r\n
+		 sequence.  Instead, we will handle the case of a file ending
+		 in a \r later.  */
+	      break;
+	    }
+	  return (*next == '\n' ? next : s);
+	}
+    }
+  return nullptr;
+}
+
 /* Read a new line from file FP, using C as a cache for the data
    coming from the file.  Upon successful completion, *LINE is set to
    the beginning of the line found.  *LINE points directly in the
@@ -671,17 +723,16 @@ file_cache_slot::get_next_line (char **line, ssize_t *line_len)
 
   char *next_line_start = NULL;
   size_t len = 0;
-  char *line_end = (char *) memchr (line_start, '\n', remaining_size);
+  char *line_end = find_end_of_line (line_start, remaining_size);
   if (line_end == NULL)
     {
-      /* We haven't found the end-of-line delimiter in the cache.
-	 Fill the cache with more data from the file and look for the
-	 '\n'.  */
+      /* We haven't found an end-of-line delimiter in the cache.
+	 Fill the cache with more data from the file and look again.  */
       while (maybe_read_data ())
 	{
 	  line_start = m_data + m_line_start_idx;
 	  remaining_size = m_nb_read - m_line_start_idx;
-	  line_end = (char *) memchr (line_start, '\n', remaining_size);
+	  line_end = find_end_of_line (line_start, remaining_size);
 	  if (line_end != NULL)
 	    {
 	      next_line_start = line_end + 1;
@@ -690,14 +741,22 @@ file_cache_slot::get_next_line (char **line, ssize_t *line_len)
 	}
       if (line_end == NULL)
 	{
-	  /* We've loadded all the file into the cache and still no
-	     '\n'.  Let's say the line ends up at one byte passed the
+	  /* We've loaded all the file into the cache and still no
+	     terminator.  Let's say the line ends up at one byte past the
 	     end of the file.  This is to stay consistent with the case
-	     of when the line ends up with a '\n' and line_end points to
-	     that terminal '\n'.  That consistency is useful below in
-	     the len calculation.  */
-	  line_end = m_data + m_nb_read ;
-	  m_missing_trailing_newline = true;
+	     of when the line ends up with a terminator and line_end points to
+	     that.  That consistency is useful below in the len calculation.
+
+	     If the file ends in a \r, we didn't identify it as a line
+	     terminator above, so do that now instead.  */
+	  line_end = m_data + m_nb_read;
+	  if (m_nb_read && line_end[-1] == '\r')
+	    {
+	      --line_end;
+	      m_missing_trailing_newline = false;
+	    }
+	  else
+	    m_missing_trailing_newline = true;
 	}
       else
 	m_missing_trailing_newline = false;
@@ -711,9 +770,8 @@ file_cache_slot::get_next_line (char **line, ssize_t *line_len)
   if (m_fp && ferror (m_fp))
     return false;
 
-  /* At this point, we've found the end of the of line.  It either
-     points to the '\n' or to one byte after the last byte of the
-     file.  */
+  /* At this point, we've found the end of the of line.  It either points to
+     the line terminator or to one byte after the last byte of the file.  */
   gcc_assert (line_end != NULL);
 
   len = line_end - line_start;
@@ -912,6 +970,110 @@ location_get_source_line (const char *file_path, int line)
   return char_span (buffer, len);
 }
 
+/* Return a NUL-terminated copy of the source text between two locations, or
+   NULL if the arguments are invalid.  The caller is responsible for freeing
+   the return value.  */
+
+char *
+get_source_text_between (location_t start, location_t end)
+{
+  expanded_location expstart =
+    expand_location_to_spelling_point (start, LOCATION_ASPECT_START);
+  expanded_location expend =
+    expand_location_to_spelling_point (end, LOCATION_ASPECT_FINISH);
+
+  /* If the locations are in different files or the end comes before the
+     start, give up and return nothing.  */
+  if (!expstart.file || !expend.file)
+    return NULL;
+  if (strcmp (expstart.file, expend.file) != 0)
+    return NULL;
+  if (expstart.line > expend.line)
+    return NULL;
+  if (expstart.line == expend.line
+      && expstart.column > expend.column)
+    return NULL;
+  /* These aren't real column numbers, give up.  */
+  if (expstart.column == 0 || expend.column == 0)
+    return NULL;
+
+  /* For a single line we need to trim both edges.  */
+  if (expstart.line == expend.line)
+    {
+      char_span line = location_get_source_line (expstart.file, expstart.line);
+      if (line.length () < 1)
+	return NULL;
+      int s = expstart.column - 1;
+      int len = expend.column - s;
+      if (line.length () < (size_t)expend.column)
+	return NULL;
+      return line.subspan (s, len).xstrdup ();
+    }
+
+  struct obstack buf_obstack;
+  obstack_init (&buf_obstack);
+
+  /* Loop through all lines in the range and append each to buf; may trim
+     parts of the start and end lines off depending on column values.  */
+  for (int lnum = expstart.line; lnum <= expend.line; ++lnum)
+    {
+      char_span line = location_get_source_line (expstart.file, lnum);
+      if (line.length () < 1 && (lnum != expstart.line && lnum != expend.line))
+	continue;
+
+      /* For the first line in the range, only start at expstart.column */
+      if (lnum == expstart.line)
+	{
+	  unsigned off = expstart.column - 1;
+	  if (line.length () < off)
+	    return NULL;
+	  line = line.subspan (off, line.length() - off);
+	}
+      /* For the last line, don't go past expend.column */
+      else if (lnum == expend.line)
+	{
+	  if (line.length () < (size_t)expend.column)
+	    return NULL;
+	  line = line.subspan (0, expend.column);
+	}
+
+      /* Combine spaces at the beginning of later lines.  */
+      if (lnum > expstart.line)
+	{
+	  unsigned off;
+	  for (off = 0; off < line.length(); ++off)
+	    if (line[off] != ' ' && line[off] != '\t')
+	      break;
+	  if (off > 0)
+	    {
+	      obstack_1grow (&buf_obstack, ' ');
+	      line = line.subspan (off, line.length() - off);
+	    }
+	}
+
+      /* This does not include any trailing newlines.  */
+      obstack_grow (&buf_obstack, line.get_buffer (), line.length ());
+    }
+
+  /* NUL-terminate and finish the buf obstack.  */
+  obstack_1grow (&buf_obstack, 0);
+  const char *buf = (const char *) obstack_finish (&buf_obstack);
+
+  return xstrdup (buf);
+}
+
+/* Get a borrowed char_span to the full content of FILE_PATH
+   as decoded according to the input charset, encoded as UTF-8.  */
+
+char_span
+get_source_file_content (const char *file_path)
+{
+  diagnostic_file_cache_init ();
+
+  file_cache_slot *c = global_dc->m_file_cache->lookup_or_add_file (file_path);
+  return c->get_full_file_content ();
+}
+
 /* Determine if FILE_PATH missing a trailing newline on its final line.
    Only valid to call once all of the file has been loaded, by
    requesting a line number beyond the end of the file.  */
@@ -1045,7 +1207,8 @@ make_location (location_t caret, location_t start, location_t finish)
   location_t combined_loc = COMBINE_LOCATION_DATA (line_table,
 						   pure_loc,
 						   src_range,
-						   NULL);
+						   NULL,
+						   0);
   return combined_loc;
 }
 
@@ -1055,7 +1218,7 @@ location_t
 make_location (location_t caret, source_range src_range)
 {
   location_t pure_loc = get_pure_location (caret);
-  return COMBINE_LOCATION_DATA (line_table, pure_loc, src_range, NULL);
+  return COMBINE_LOCATION_DATA (line_table, pure_loc, src_range, NULL, 0);
 }
 
 /* An expanded_location stores the column in byte units.  This function
@@ -1729,6 +1892,37 @@ get_location_within_string (cpp_reader *pfile,
   return NULL;
 }
 
+/* Associate the DISCRIMINATOR with LOCUS, and return a new locus. */
+
+location_t
+location_with_discriminator (location_t locus, int discriminator)
+{
+  tree block = LOCATION_BLOCK (locus);
+  source_range src_range = get_range_from_loc (line_table, locus);
+  locus = get_pure_location (locus);
+
+  if (locus == UNKNOWN_LOCATION)
+    return locus;
+
+  return COMBINE_LOCATION_DATA (line_table, locus, src_range, block, discriminator);
+}
+
+/* Return TRUE if LOCUS represents a location with a discriminator.  */
+
+bool
+has_discriminator (location_t locus)
+{
+  return get_discriminator_from_loc (locus) != 0;
+}
+
+/* Return the discriminator for LOCUS.  */
+
+int
+get_discriminator_from_loc (location_t locus)
+{
+  return get_discriminator_from_loc (line_table, locus);
+}
+
 #if CHECKING_P
 
 namespace selftest {
@@ -2033,7 +2227,7 @@ test_unknown_location ()
 static void
 test_builtins ()
 {
-  assert_loceq (_("<built-in>"), 0, 0, BUILTINS_LOCATION);
+  assert_loceq (special_fname_builtin (), 0, 0, BUILTINS_LOCATION);
   ASSERT_PRED1 (is_location_from_builtin_token, BUILTINS_LOCATION);
 }
 
@@ -2310,7 +2504,7 @@ class ebcdic_execution_charset : public lexer_test_options
       s_singleton = NULL;
     }
 
-  void apply (lexer_test &test) FINAL OVERRIDE
+  void apply (lexer_test &test) final override
   {
     cpp_options *cpp_opts = cpp_get_options (test.m_parser);
     cpp_opts->narrow_charset = "IBM1047";
@@ -2375,7 +2569,7 @@ class lexer_diagnostic_sink : public lexer_test_options
       free (str);
   }
 
-  void apply (lexer_test &test) FINAL OVERRIDE
+  void apply (lexer_test &test) final override
   {
     cpp_callbacks *callbacks = cpp_get_callbacks (test.m_parser);
     callbacks->diagnostic = on_diagnostic;
@@ -3724,8 +3918,7 @@ for_each_line_table_case (void (*testcase) (const line_table_case &))
     {
       /* ...and use each of the "interesting" location values as
 	 the starting location within line_table.  */
-      const int num_boundary_locations
-	= sizeof (boundary_locations) / sizeof (boundary_locations[0]);
+      const int num_boundary_locations = ARRAY_SIZE (boundary_locations);
       for (int loc_idx = 0; loc_idx < num_boundary_locations; loc_idx++)
 	{
 	  line_table_case c (default_range_bits, boundary_locations[loc_idx]);
@@ -3879,7 +4072,104 @@ void test_cpp_utf8 ()
 	  ASSERT_EQ (byte_col2, byte_col);
       }
   }
+}
 
+static bool
+check_cpp_valid_utf8_p (const char *str)
+{
+  return cpp_valid_utf8_p (str, strlen (str));
+}
+
+/* Check that cpp_valid_utf8_p works as expected.  */
+
+static void
+test_cpp_valid_utf8_p ()
+{
+  ASSERT_TRUE (check_cpp_valid_utf8_p ("hello world"));
+
+  /* 2-byte char (pi).  */
+  ASSERT_TRUE (check_cpp_valid_utf8_p("\xcf\x80"));
+
+  /* 3-byte chars (the Japanese word "mojibake").  */
+  ASSERT_TRUE (check_cpp_valid_utf8_p
+	       (
+		/* U+6587 CJK UNIFIED IDEOGRAPH-6587
+		   UTF-8: 0xE6 0x96 0x87
+		   C octal escaped UTF-8: \346\226\207.  */
+		"\346\226\207"
+		/* U+5B57 CJK UNIFIED IDEOGRAPH-5B57
+		   UTF-8: 0xE5 0xAD 0x97
+		   C octal escaped UTF-8: \345\255\227.  */
+		"\345\255\227"
+		/* U+5316 CJK UNIFIED IDEOGRAPH-5316
+		   UTF-8: 0xE5 0x8C 0x96
+		   C octal escaped UTF-8: \345\214\226.  */
+		"\345\214\226"
+		/* U+3051 HIRAGANA LETTER KE
+		   UTF-8: 0xE3 0x81 0x91
+		   C octal escaped UTF-8: \343\201\221.  */
+		"\343\201\221"));
+
+  /* 4-byte char: an emoji.  */
+  ASSERT_TRUE (check_cpp_valid_utf8_p ("\xf0\x9f\x98\x82"));
+
+  /* Control codes, including the NUL byte.  */
+  ASSERT_TRUE (cpp_valid_utf8_p ("\r\n\v\0\1", 5));
+
+  ASSERT_FALSE (check_cpp_valid_utf8_p ("\xf0!\x9f!\x98!\x82!"));
+
+  /* Unexpected continuation bytes.  */
+  for (unsigned char continuation_byte = 0x80;
+       continuation_byte <= 0xbf;
+       continuation_byte++)
+    ASSERT_FALSE (cpp_valid_utf8_p ((const char *)&continuation_byte, 1));
+
+  /* "Lonely start characters" for 2-byte sequences.  */
+  {
+    unsigned char buf[2];
+    buf[1] = ' ';
+    for (buf[0] = 0xc0;
+	 buf[0] <= 0xdf;
+	 buf[0]++)
+      ASSERT_FALSE (cpp_valid_utf8_p ((const char *)buf, 2));
+  }
+
+  /* "Lonely start characters" for 3-byte sequences.  */
+  {
+    unsigned char buf[2];
+    buf[1] = ' ';
+    for (buf[0] = 0xe0;
+	 buf[0] <= 0xef;
+	 buf[0]++)
+      ASSERT_FALSE (cpp_valid_utf8_p ((const char *)buf, 2));
+  }
+
+  /* "Lonely start characters" for 4-byte sequences.  */
+  {
+    unsigned char buf[2];
+    buf[1] = ' ';
+    for (buf[0] = 0xf0;
+	 buf[0] <= 0xf4;
+	 buf[0]++)
+      ASSERT_FALSE (cpp_valid_utf8_p ((const char *)buf, 2));
+  }
+
+  /* Invalid start characters (formerly valid for 5-byte and 6-byte
+     sequences).  */
+  {
+    unsigned char buf[2];
+    buf[1] = ' ';
+    for (buf[0] = 0xf5;
+	 buf[0] <= 0xfd;
+	 buf[0]++)
+      ASSERT_FALSE (cpp_valid_utf8_p ((const char *)buf, 2));
+  }
+
+  /* Impossible bytes.  */
+  ASSERT_FALSE (check_cpp_valid_utf8_p ("\xc0"));
+  ASSERT_FALSE (check_cpp_valid_utf8_p ("\xc1"));
+  ASSERT_FALSE (check_cpp_valid_utf8_p ("\xfe"));
+  ASSERT_FALSE (check_cpp_valid_utf8_p ("\xff"));
 }
 
 /* Run all of the selftests within this file.  */
@@ -3925,6 +4215,7 @@ input_cc_tests ()
   test_line_offset_overflow ();
 
   test_cpp_utf8 ();
+  test_cpp_valid_utf8_p ();
 }
 
 } // namespace selftest

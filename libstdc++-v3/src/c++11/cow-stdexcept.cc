@@ -1,6 +1,6 @@
 // Methods for Exception Support for -*- C++ -*-
 
-// Copyright (C) 2014-2022 Free Software Foundation, Inc.
+// Copyright (C) 2014-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -199,6 +199,10 @@ _GLIBCXX_END_NAMESPACE_VERSION
 // in this case.
 #if _GLIBCXX_USE_WEAK_REF
 #ifdef _GLIBCXX_USE_C99_STDINT_TR1
+
+#include <stdint.h>
+
+using std::size_t;
 
 extern "C" {
 

@@ -1,5 +1,5 @@
 /* AddressSanitizer, a fast memory error detector.
-   Copyright (C) 2012-2022 Free Software Foundation, Inc.
+   Copyright (C) 2012-2023 Free Software Foundation, Inc.
    Contributed by Kostya Serebryany <kcc@google.com>
 
 This file is part of GCC.
@@ -64,6 +64,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-inline.h"
 #include "tree-ssa.h"
 #include "tree-eh.h"
+#include "diagnostic-core.h"
 
 /* AddressSanitizer finds out-of-bounds and use-after-free bugs
    with <2x slowdown on average.
@@ -387,6 +388,46 @@ bool
 asan_memintrin (void)
 {
   return (sanitize_flags_p (SANITIZE_ADDRESS) && param_asan_memintrin);
+}
+
+
+/* Support for --param asan-kernel-mem-intrinsic-prefix=1.  */
+static GTY(()) rtx asan_memfn_rtls[3];
+
+rtx
+asan_memfn_rtl (tree fndecl)
+{
+  int i;
+  const char *f, *p;
+  char buf[sizeof ("__hwasan_memmove")];
+
+  switch (DECL_FUNCTION_CODE (fndecl))
+    {
+    case BUILT_IN_MEMCPY: i = 0; f = "memcpy"; break;
+    case BUILT_IN_MEMSET: i = 1; f = "memset"; break;
+    case BUILT_IN_MEMMOVE: i = 2; f = "memmove"; break;
+    default: gcc_unreachable ();
+    }
+  if (asan_memfn_rtls[i] == NULL_RTX)
+    {
+      tree save_name = DECL_NAME (fndecl);
+      tree save_assembler_name = DECL_ASSEMBLER_NAME (fndecl);
+      rtx save_rtl = DECL_RTL (fndecl);
+      if (flag_sanitize & SANITIZE_KERNEL_HWADDRESS)
+	p = "__hwasan_";
+      else
+	p = "__asan_";
+      strcpy (buf, p);
+      strcat (buf, f);
+      DECL_NAME (fndecl) = get_identifier (buf);
+      DECL_ASSEMBLER_NAME_RAW (fndecl) = NULL_TREE;
+      SET_DECL_RTL (fndecl, NULL_RTX);
+      asan_memfn_rtls[i] = DECL_RTL (fndecl);
+      DECL_NAME (fndecl) = save_name;
+      DECL_ASSEMBLER_NAME_RAW (fndecl) = save_assembler_name;
+      SET_DECL_RTL (fndecl, save_rtl);
+    }
+  return asan_memfn_rtls[i];
 }
 
 
@@ -1818,6 +1859,11 @@ asan_emit_stack_protection (rtx base, rtx pbase, unsigned int alignb,
   tree str_cst, decl, id;
   int use_after_return_class = -1;
 
+  /* Don't emit anything when doing error recovery, the assertions
+     might fail e.g. if a function had a frame offset overflow.  */
+  if (seen_error ())
+    return NULL;
+
   if (shadow_ptr_types[0] == NULL_TREE)
     asan_init_shadow_ptr_types ();
 
@@ -2945,6 +2991,7 @@ maybe_instrument_call (gimple_stmt_iterator *iter)
 	  switch (DECL_FUNCTION_CODE (callee))
 	    {
 	    case BUILT_IN_UNREACHABLE:
+	    case BUILT_IN_UNREACHABLE_TRAP:
 	    case BUILT_IN_TRAP:
 	      /* Don't instrument these.  */
 	      return false;
@@ -3240,7 +3287,17 @@ asan_add_global (tree decl, tree type, vec<constructor_elt, va_gc> *v)
     pp_string (&asan_pp, "<unknown>");
   str_cst = asan_pp_string (&asan_pp);
 
-  pp_string (&module_name_pp, main_input_filename);
+  if (!in_lto_p)
+    pp_string (&module_name_pp, main_input_filename);
+  else
+    {
+      const_tree tu = get_ultimate_context ((const_tree)decl);
+      if (tu != NULL_TREE)
+	pp_string (&module_name_pp, IDENTIFIER_POINTER (DECL_NAME (tu)));
+      else
+	pp_string (&module_name_pp, aux_base_name);
+    }
+
   module_name_cst = asan_pp_string (&module_name_pp);
 
   if (asan_needs_local_alias (decl))
@@ -3470,14 +3527,22 @@ initialize_sanitizer_builtins (void)
 
 #include "sanitizer.def"
 
-  /* -fsanitize=object-size uses __builtin_object_size, but that might
-     not be available for e.g. Fortran at this point.  We use
-     DEF_SANITIZER_BUILTIN here only as a convenience macro.  */
-  if ((flag_sanitize & SANITIZE_OBJECT_SIZE)
-      && !builtin_decl_implicit_p (BUILT_IN_OBJECT_SIZE))
-    DEF_SANITIZER_BUILTIN_1 (BUILT_IN_OBJECT_SIZE, "object_size",
-			     BT_FN_SIZE_CONST_PTR_INT,
-			     ATTR_PURE_NOTHROW_LEAF_LIST);
+  /* -fsanitize=object-size uses __builtin_dynamic_object_size and
+     __builtin_object_size, but they might not be available for e.g. Fortran at
+     this point.  We use DEF_SANITIZER_BUILTIN here only as a convenience
+     macro.  */
+  if (flag_sanitize & SANITIZE_OBJECT_SIZE)
+    {
+      if (!builtin_decl_implicit_p (BUILT_IN_OBJECT_SIZE))
+	DEF_SANITIZER_BUILTIN_1 (BUILT_IN_OBJECT_SIZE, "object_size",
+				 BT_FN_SIZE_CONST_PTR_INT,
+				 ATTR_PURE_NOTHROW_LEAF_LIST);
+      if (!builtin_decl_implicit_p (BUILT_IN_DYNAMIC_OBJECT_SIZE))
+	DEF_SANITIZER_BUILTIN_1 (BUILT_IN_DYNAMIC_OBJECT_SIZE,
+				 "dynamic_object_size",
+				 BT_FN_SIZE_CONST_PTR_INT,
+				 ATTR_PURE_NOTHROW_LEAF_LIST);
+    }
 
 #undef DEF_SANITIZER_BUILTIN_1
 #undef DEF_SANITIZER_BUILTIN
@@ -4214,9 +4279,15 @@ public:
   {}
 
   /* opt_pass methods: */
-  opt_pass * clone () { return new pass_asan (m_ctxt); }
-  virtual bool gate (function *) { return gate_asan () || gate_hwasan (); }
-  virtual unsigned int execute (function *) { return asan_instrument (); }
+  opt_pass * clone () final override { return new pass_asan (m_ctxt); }
+  bool gate (function *) final override
+  {
+    return gate_asan () || gate_hwasan ();
+  }
+  unsigned int execute (function *) final override
+  {
+    return asan_instrument ();
+  }
 
 }; // class pass_asan
 
@@ -4251,11 +4322,14 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       return !optimize && (gate_asan () || gate_hwasan ());
     }
-  virtual unsigned int execute (function *) { return asan_instrument (); }
+  unsigned int execute (function *) final override
+  {
+    return asan_instrument ();
+  }
 
 }; // class pass_asan_O0
 

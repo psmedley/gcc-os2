@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -198,6 +198,9 @@ package body Sprint is
    --  and print the aspect specifications followed by a terminating semicolon.
    --  For the case of Semicolon False, no semicolon is removed or output, and
    --  all the aspects are printed on a single line.
+
+   procedure Sprint_At_End_Proc (Node : Node_Id);
+   --  Print At_End_Proc attribute if present
 
    procedure Sprint_Bar_List (List : List_Id);
    --  Print the given list with items separated by vertical bars
@@ -750,6 +753,22 @@ package body Sprint is
       end if;
    end Sprint_Aspect_Specifications;
 
+   ------------------------
+   -- Sprint_At_End_Proc --
+   ------------------------
+
+   procedure Sprint_At_End_Proc (Node : Node_Id) is
+   begin
+      if Present (At_End_Proc (Node)) then
+         Write_Indent_Str ("at end");
+         Indent_Begin;
+         Write_Indent;
+         Sprint_Node (At_End_Proc (Node));
+         Write_Char (';');
+         Indent_End;
+      end if;
+   end Sprint_At_End_Proc;
+
    ---------------------
    -- Sprint_Bar_List --
    ---------------------
@@ -1226,6 +1245,7 @@ package body Sprint is
             end if;
 
             Write_Char (';');
+            Sprint_At_End_Proc (Node);
 
          when N_Call_Marker =>
             null;
@@ -1341,9 +1361,13 @@ package body Sprint is
          when N_Iterated_Component_Association =>
             Set_Debug_Sloc;
             Write_Str (" for ");
-            Write_Id (Defining_Identifier (Node));
-            Write_Str (" in ");
-            Sprint_Bar_List (Discrete_Choices (Node));
+            if Present (Iterator_Specification (Node)) then
+               Sprint_Node (Iterator_Specification (Node));
+            else
+               Write_Id (Defining_Identifier (Node));
+               Write_Str (" in ");
+               Sprint_Bar_List (Discrete_Choices (Node));
+            end if;
             Write_Str (" => ");
             Sprint_Node (Expression (Node));
 
@@ -1642,6 +1666,7 @@ package body Sprint is
             Write_Indent_Str ("end ");
             Write_Id (Defining_Identifier (Node));
             Write_Char (';');
+            Sprint_At_End_Proc (Node);
 
          when N_Entry_Body_Formal_Part =>
             if Present (Entry_Index_Specification (Node)) then
@@ -2160,14 +2185,7 @@ package body Sprint is
                Indent_End;
             end if;
 
-            if Present (At_End_Proc (Node)) then
-               Write_Indent_Str ("at end");
-               Indent_Begin;
-               Write_Indent;
-               Sprint_Node (At_End_Proc (Node));
-               Write_Char (';');
-               Indent_End;
-            end if;
+            Sprint_At_End_Proc (Node);
 
          when N_Identifier =>
             Set_Debug_Sloc;
@@ -2306,6 +2324,11 @@ package body Sprint is
             end if;
 
             Sprint_Node (Name (Node));
+
+            if Present (Iterator_Filter (Node)) then
+               Write_Str (" when ");
+               Sprint_Node (Iterator_Filter (Node));
+            end if;
 
          when N_Itype_Reference =>
             Write_Indent_Str_Sloc ("reference ");
@@ -2690,6 +2713,7 @@ package body Sprint is
             Sprint_End_Label
               (Handled_Statement_Sequence (Node), Defining_Unit_Name (Node));
             Write_Char (';');
+            Sprint_At_End_Proc (Node);
 
          when N_Package_Body_Stub =>
             Write_Indent_Str_Sloc ("package body ");
@@ -3132,7 +3156,9 @@ package body Sprint is
          when N_Real_Literal =>
             Write_Ureal_With_Col_Check_Sloc (Realval (Node));
 
-         when N_Real_Range_Specification =>
+         when N_Real_Range_Specification
+            | N_Signed_Integer_Type_Definition
+         =>
             Write_Str_With_Col_Check_Sloc ("range ");
             Sprint_Node (Low_Bound (Node));
             Write_Str (" .. ");
@@ -3248,12 +3274,6 @@ package body Sprint is
 
             Write_Indent_Str ("end select;");
 
-         when N_Signed_Integer_Type_Definition =>
-            Write_Str_With_Col_Check_Sloc ("range ");
-            Sprint_Node (Low_Bound (Node));
-            Write_Str (" .. ");
-            Sprint_Node (High_Bound (Node));
-
          when N_Single_Protected_Declaration =>
             Write_Indent_Str_Sloc ("protected ");
             Write_Id (Defining_Identifier (Node));
@@ -3293,6 +3313,38 @@ package body Sprint is
             Set_Debug_Sloc;
             Write_String_Table_Entry (Strval (Node));
 
+         when N_Interpolated_String_Literal =>
+            Write_Char ('{');
+
+            declare
+               Str_Elem : Node_Id := First (Expressions (Node));
+               Is_First : Boolean := True;
+
+            begin
+               while Present (Str_Elem) loop
+                  if not Is_First then
+                     Write_Str (" & ");
+                  end if;
+
+                  if Nkind (Str_Elem) = N_String_Literal then
+                     Sprint_Node (Str_Elem);
+
+                  else
+                     Write_Char ('"');
+                     Write_Char ('{');
+                     Sprint_Node (Str_Elem);
+                     Write_Char ('}');
+                     Write_Char ('"');
+                  end if;
+
+                  Is_First := False;
+
+                  Next (Str_Elem);
+               end loop;
+            end;
+
+            Write_Char ('}');
+
          when N_Subprogram_Body =>
 
             --  Output extra blank line unless we are in freeze actions
@@ -3321,6 +3373,7 @@ package body Sprint is
               (Handled_Statement_Sequence (Node),
                  Defining_Unit_Name (Specification (Node)));
             Write_Char (';');
+            Sprint_At_End_Proc (Node);
 
             if Is_List_Member (Node)
               and then Present (Next (Node))
@@ -3393,6 +3446,7 @@ package body Sprint is
             Sprint_End_Label
               (Handled_Statement_Sequence (Node), Defining_Identifier (Node));
             Write_Char (';');
+            Sprint_At_End_Proc (Node);
 
          when N_Task_Body_Stub =>
             Write_Indent_Str_Sloc ("task body ");

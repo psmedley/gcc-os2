@@ -1,5 +1,5 @@
 /* Symbol table.
-   Copyright (C) 2012-2022 Free Software Foundation, Inc.
+   Copyright (C) 2012-2023 Free Software Foundation, Inc.
    Contributed by Jan Hubicka
 
 This file is part of GCC.
@@ -748,12 +748,13 @@ symtab_node::clone_reference (ipa_ref *ref, gimple *stmt)
   return ref2;
 }
 
-/* Find the structure describing a reference to REFERRED_NODE
-   and associated with statement STMT.  */
+/* Find the structure describing a reference to REFERRED_NODE of USE_TYPE and
+   associated with statement STMT or LTO_STMT_UID.  */
 
 ipa_ref *
 symtab_node::find_reference (symtab_node *referred_node,
-			     gimple *stmt, unsigned int lto_stmt_uid)
+			     gimple *stmt, unsigned int lto_stmt_uid,
+			     enum ipa_ref_use use_type)
 {
   ipa_ref *r = NULL;
   int i;
@@ -761,6 +762,7 @@ symtab_node::find_reference (symtab_node *referred_node,
   for (i = 0; iterate_reference (i, r); i++)
     if (r->referred == referred_node
 	&& !r->speculative
+	&& r->use == use_type
 	&& ((stmt && r->stmt == stmt)
 	    || (lto_stmt_uid && r->lto_stmt_uid == lto_stmt_uid)
 	    || (!stmt && !lto_stmt_uid && !r->stmt && !r->lto_stmt_uid)))
@@ -894,7 +896,8 @@ symtab_node::dump_base (FILE *f)
   };
 
   fprintf (f, "%s (%s)", dump_asm_name (), name ());
-  dump_addr (f, " @", (void *)this);
+  if (dump_flags & TDF_ADDRESS)
+    dump_addr (f, " @", (void *)this);
   fprintf (f, "\n  Type: %s", symtab_type_names[type]);
 
   if (definition)

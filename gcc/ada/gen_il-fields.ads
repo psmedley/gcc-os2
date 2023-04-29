@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 2020-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 2020-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -69,7 +69,6 @@ package Gen_IL.Fields is
       Address_Warning_Posted,
       Aggregate_Bounds,
       Aliased_Present,
-      Alloc_For_BIP_Return,
       All_Others,
       All_Present,
       Alternatives,
@@ -88,7 +87,6 @@ package Gen_IL.Fields is
       Body_Required,
       Body_To_Inline,
       Box_Present,
-      By_Ref,
       Char_Literal_Value,
       Chars,
       Check_Address_Alignment,
@@ -97,7 +95,9 @@ package Gen_IL.Fields is
       Class_Present,
       Classifications,
       Cleanup_Actions,
+      Comes_From_Check_Or_Contract,
       Comes_From_Extended_Return_Statement,
+      Comes_From_Iterator,
       Compile_Time_Known_Aggregate,
       Component_Associations,
       Component_Clauses,
@@ -118,7 +118,6 @@ package Gen_IL.Fields is
       Contract_Test_Cases,
       Controlling_Argument,
       Conversion_OK,
-      Convert_To_Return_False,
       Corresponding_Aspect,
       Corresponding_Body,
       Corresponding_Entry_Body,
@@ -185,13 +184,12 @@ package Gen_IL.Fields is
       First_Inlined_Subprogram,
       First_Name,
       First_Named_Actual,
-      First_Real_Statement,
       First_Subtype_Link,
       Float_Truncate,
       Formal_Type_Definition,
       Forwards_OK,
+      For_Special_Return_Object,
       From_Aspect_Specification,
-      From_At_End,
       From_At_Mod,
       From_Conditional_Expression,
       From_Default,
@@ -757,7 +755,6 @@ package Gen_IL.Fields is
       Is_Partial_Invariant_Procedure,
       Is_Potentially_Use_Visible,
       Is_Predicate_Function,
-      Is_Predicate_Function_M,
       Is_Preelaborated,
       Is_Primitive,
       Is_Primitive_Wrapper,
@@ -852,6 +849,7 @@ package Gen_IL.Fields is
       Partial_View_Has_Unknown_Discr,
       Pending_Access_Types,
       Postconditions_Proc,
+      Predicate_Expression,
       Prev_Entity,
       Prival,
       Prival_Link,
@@ -933,7 +931,8 @@ package Gen_IL.Fields is
       Warnings_Off_Used_Unmodified,
       Warnings_Off_Used_Unreferenced,
       Was_Hidden,
-      Wrapped_Entity
+      Wrapped_Entity,
+      Wrapped_Statements
 
       --  End of entity fields.
      ); -- Opt_Field_Enum

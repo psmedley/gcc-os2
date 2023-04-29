@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1996-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1996-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -1444,7 +1444,7 @@ package Exp_Dbug is
    --  placed within the wrapper package of the instance, and the entity in
    --  these declarations is encoded in a complex way that GDB does not handle
    --  well. These new renaming declarations appear within the body of the
-   --  subprogram, and are redundant from a visibility point of view, but They
+   --  subprogram, and are redundant from a visibility point of view, but they
    --  should have no measurable performance impact, and require no special
    --  decoding in the debugger.
 

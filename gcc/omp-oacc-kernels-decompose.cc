@@ -1,7 +1,7 @@
 /* Decompose OpenACC 'kernels' constructs into parts, a sequence of compute
    constructs
 
-   Copyright (C) 2020-2022 Free Software Foundation, Inc.
+   Copyright (C) 2020-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -189,6 +189,7 @@ adjust_region_code_walk_stmt_fn (gimple_stmt_iterator *gsi_p,
     case GIMPLE_GOTO:
     case GIMPLE_SWITCH:
     case GIMPLE_ASM:
+    case GIMPLE_ASSUME:
     case GIMPLE_TRANSACTION:
     case GIMPLE_RETURN:
       /* Statement that might constitute some looping/control flow pattern.  */
@@ -239,7 +240,13 @@ visit_loops_in_gang_single_region (gimple_stmt_iterator *gsi_p,
     case GIMPLE_OMP_FOR:
       /*TODO Given the current 'adjust_region_code' algorithm, this is
 	actually...  */
+#if 0
       gcc_unreachable ();
+#else
+      /* ..., but due to bugs (PR100400), we may actually come here.
+	 Reliably catch this, regardless of checking level.  */
+      internal_error ("PR100400");
+#endif
 
       {
 	tree clauses = gimple_omp_for_clauses (stmt);
@@ -1609,12 +1616,12 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
   {
     return (flag_openacc
 	    && param_openacc_kernels == OPENACC_KERNELS_DECOMPOSE);
   }
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
   {
     return omp_oacc_kernels_decompose ();
   }

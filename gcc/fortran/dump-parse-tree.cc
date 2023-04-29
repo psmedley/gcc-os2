@@ -1,5 +1,5 @@
 /* Parse tree dumper
-   Copyright (C) 2003-2022 Free Software Foundation, Inc.
+   Copyright (C) 2003-2023 Free Software Foundation, Inc.
    Contributed by Steven Bosscher
 
 This file is part of GCC.
@@ -36,6 +36,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "gfortran.h"
 #include "constructor.h"
 #include "version.h"
+#include "parse.h"  /* For gfc_ascii_statement.  */
 
 /* Keep track of indentation for symbol tree dumps.  */
 static int show_level = 0;
@@ -893,7 +894,7 @@ show_attr (symbol_attribute *attr, const char * module)
   if (attr->pdt_string)
     fputs (" PDT-STRING", dumpfile);
   if (attr->omp_udr_artificial_var)
-    fputs (" OMP-UDT-ARTIFICIAL-VAR", dumpfile);
+    fputs (" OMP-UDR-ARTIFICIAL-VAR", dumpfile);
   if (attr->omp_declare_target)
     fputs (" OMP-DECLARE-TARGET", dumpfile);
   if (attr->omp_declare_target_link)
@@ -1337,8 +1338,15 @@ show_omp_namelist (int list_type, gfc_omp_namelist *n)
 	  if (n->u2.ns != ns_iter)
 	    {
 	      if (n != n2)
-		fputs (list_type == OMP_LIST_AFFINITY
-		       ? ") AFFINITY(" : ") DEPEND(", dumpfile);
+		{
+		  fputs (") ", dumpfile);
+		  if (list_type == OMP_LIST_AFFINITY)
+		    fputs ("AFFINITY (", dumpfile);
+		  else if (n->u.depend_doacross_op == OMP_DOACROSS_SINK_FIRST)
+		    fputs ("DOACROSS (", dumpfile);
+		  else
+		    fputs ("DEPEND (", dumpfile);
+		}
 	      if (n->u2.ns)
 		{
 		  fputs ("ITERATOR(", dumpfile);
@@ -1348,6 +1356,29 @@ show_omp_namelist (int list_type, gfc_omp_namelist *n)
 		}
 	    }
 	  ns_iter = n->u2.ns;
+	}
+      if (list_type == OMP_LIST_ALLOCATE)
+	{
+	  if (n->expr)
+	    {
+	      fputs ("allocator(", dumpfile);
+	      show_expr (n->expr);
+	      fputc (')', dumpfile);
+	    }
+	  if (n->expr && n->u.align)
+	    fputc (',', dumpfile);
+	  if (n->u.align)
+	    {
+	      fputs ("allocator(", dumpfile);
+	      show_expr (n->u.align);
+	      fputc (')', dumpfile);
+	    }
+	  if (n->expr || n->u.align)
+	    fputc (':', dumpfile);
+	  fputs (n->sym->name, dumpfile);
+	  if (n->next)
+	    fputs (") ALLOCATE(", dumpfile);
+	  continue;
 	}
       if (list_type == OMP_LIST_REDUCTION)
 	switch (n->u.reduction_op)
@@ -1374,20 +1405,25 @@ show_omp_namelist (int list_type, gfc_omp_namelist *n)
 	  default: break;
 	  }
       else if (list_type == OMP_LIST_DEPEND)
-	switch (n->u.depend_op)
+	switch (n->u.depend_doacross_op)
 	  {
 	  case OMP_DEPEND_IN: fputs ("in:", dumpfile); break;
 	  case OMP_DEPEND_OUT: fputs ("out:", dumpfile); break;
 	  case OMP_DEPEND_INOUT: fputs ("inout:", dumpfile); break;
+	  case OMP_DEPEND_INOUTSET: fputs ("inoutset:", dumpfile); break;
 	  case OMP_DEPEND_DEPOBJ: fputs ("depobj:", dumpfile); break;
 	  case OMP_DEPEND_MUTEXINOUTSET:
 	    fputs ("mutexinoutset:", dumpfile);
 	    break;
 	  case OMP_DEPEND_SINK_FIRST:
+	  case OMP_DOACROSS_SINK_FIRST:
 	    fputs ("sink:", dumpfile);
 	    while (1)
 	      {
-		fprintf (dumpfile, "%s", n->sym->name);
+		if (!n->sym)
+		  fputs ("omp_cur_iteration", dumpfile);
+		else
+		  fprintf (dumpfile, "%s", n->sym->name);
 		if (n->expr)
 		  {
 		    fputc ('+', dumpfile);
@@ -1395,9 +1431,13 @@ show_omp_namelist (int list_type, gfc_omp_namelist *n)
 		  }
 		if (n->next == NULL)
 		  break;
-		else if (n->next->u.depend_op != OMP_DEPEND_SINK)
+		else if (n->next->u.depend_doacross_op != OMP_DOACROSS_SINK)
 		  {
-		    fputs (") DEPEND(", dumpfile);
+		    if (n->next->u.depend_doacross_op
+			== OMP_DOACROSS_SINK_FIRST)
+		      fputs (") DOACROSS(", dumpfile);
+		    else
+		      fputs (") DEPEND(", dumpfile);
 		    break;
 		  }
 		fputc (',', dumpfile);
@@ -1413,18 +1453,23 @@ show_omp_namelist (int list_type, gfc_omp_namelist *n)
 	  case OMP_MAP_TO: fputs ("to:", dumpfile); break;
 	  case OMP_MAP_FROM: fputs ("from:", dumpfile); break;
 	  case OMP_MAP_TOFROM: fputs ("tofrom:", dumpfile); break;
+	  case OMP_MAP_ALWAYS_TO: fputs ("always,to:", dumpfile); break;
+	  case OMP_MAP_ALWAYS_FROM: fputs ("always,from:", dumpfile); break;
+	  case OMP_MAP_ALWAYS_TOFROM: fputs ("always,tofrom:", dumpfile); break;
+	  case OMP_MAP_DELETE: fputs ("delete:", dumpfile); break;
+	  case OMP_MAP_RELEASE: fputs ("release:", dumpfile); break;
 	  default: break;
 	  }
-      else if (list_type == OMP_LIST_LINEAR)
-	switch (n->u.linear_op)
+      else if (list_type == OMP_LIST_LINEAR && n->u.linear.old_modifier)
+	switch (n->u.linear.op)
 	  {
 	  case OMP_LINEAR_REF: fputs ("ref(", dumpfile); break;
 	  case OMP_LINEAR_VAL: fputs ("val(", dumpfile); break;
 	  case OMP_LINEAR_UVAL: fputs ("uval(", dumpfile); break;
 	  default: break;
 	  }
-      fprintf (dumpfile, "%s", n->sym->name);
-      if (list_type == OMP_LIST_LINEAR && n->u.linear_op != OMP_LINEAR_DEFAULT)
+      fprintf (dumpfile, "%s", n->sym ? n->sym->name : "omp_all_memory");
+      if (list_type == OMP_LIST_LINEAR && n->u.linear.op != OMP_LINEAR_DEFAULT)
 	fputc (')', dumpfile);
       if (n->expr)
 	{
@@ -1437,6 +1482,34 @@ show_omp_namelist (int list_type, gfc_omp_namelist *n)
   gfc_current_ns = ns_curr;
 }
 
+static void
+show_omp_assumes (gfc_omp_assumptions *assume)
+{
+  for (int i = 0; i < assume->n_absent; i++)
+    {
+      fputs (" ABSENT (", dumpfile);
+      fputs (gfc_ascii_statement (assume->absent[i], true), dumpfile);
+      fputc (')', dumpfile);
+    }
+  for (int i = 0; i < assume->n_contains; i++)
+    {
+      fputs (" CONTAINS (", dumpfile);
+      fputs (gfc_ascii_statement (assume->contains[i], true), dumpfile);
+      fputc (')', dumpfile);
+    }
+  for (gfc_expr_list *el = assume->holds; el; el = el->next)
+    {
+      fputs (" HOLDS (", dumpfile);
+      show_expr (el->expr);
+      fputc (')', dumpfile);
+    }
+  if (assume->no_openmp)
+    fputs (" NO_OPENMP", dumpfile);
+  if (assume->no_openmp_routines)
+    fputs (" NO_OPENMP_ROUTINES", dumpfile);
+  if (assume->no_parallelism)
+    fputs (" NO_PARALLELISM", dumpfile);
+}
 
 /* Show OpenMP or OpenACC clauses.  */
 
@@ -1668,7 +1741,14 @@ show_omp_clauses (gfc_omp_clauses *omp_clauses)
 	  case OMP_LIST_AFFINITY: type = "AFFINITY"; break;
 	  case OMP_LIST_ALIGNED: type = "ALIGNED"; break;
 	  case OMP_LIST_LINEAR: type = "LINEAR"; break;
-	  case OMP_LIST_DEPEND: type = "DEPEND"; break;
+	  case OMP_LIST_DEPEND:
+	    if (omp_clauses->lists[list_type]
+		&& (omp_clauses->lists[list_type]->u.depend_doacross_op
+		    == OMP_DOACROSS_SINK_FIRST))
+	      type = "DOACROSS";
+	    else
+	      type = "DEPEND";
+	    break;
 	  case OMP_LIST_MAP: type = "MAP"; break;
 	  case OMP_LIST_TO: type = "TO"; break;
 	  case OMP_LIST_FROM: type = "FROM"; break;
@@ -1678,6 +1758,7 @@ show_omp_clauses (gfc_omp_clauses *omp_clauses)
 	  case OMP_LIST_IN_REDUCTION: type = "IN_REDUCTION"; break;
 	  case OMP_LIST_TASK_REDUCTION: type = "TASK_REDUCTION"; break;
 	  case OMP_LIST_DEVICE_RESIDENT: type = "DEVICE_RESIDENT"; break;
+	  case OMP_LIST_ENTER: type = "ENTER"; break;
 	  case OMP_LIST_LINK: type = "LINK"; break;
 	  case OMP_LIST_USE_DEVICE: type = "USE_DEVICE"; break;
 	  case OMP_LIST_CACHE: type = "CACHE"; break;
@@ -1887,6 +1968,8 @@ show_omp_clauses (gfc_omp_clauses *omp_clauses)
     fputs (" DESTROY", dumpfile);
   if (omp_clauses->depend_source)
     fputs (" DEPEND(source)", dumpfile);
+  if (omp_clauses->doacross_source)
+    fputs (" DOACROSS(source:)", dumpfile);
   if (omp_clauses->capture)
     fputs (" CAPTURE", dumpfile);
   if (omp_clauses->depobj_update != OMP_DEPEND_UNSET)
@@ -1898,6 +1981,7 @@ show_omp_clauses (gfc_omp_clauses *omp_clauses)
 	case OMP_DEPEND_IN: deptype = "IN"; break;
 	case OMP_DEPEND_OUT: deptype = "OUT"; break;
 	case OMP_DEPEND_INOUT: deptype = "INOUT"; break;
+	case OMP_DEPEND_INOUTSET: deptype = "INOUTSET"; break;
 	case OMP_DEPEND_MUTEXINOUTSET: deptype = "MUTEXINOUTSET"; break;
 	default: gcc_unreachable ();
 	}
@@ -1966,6 +2050,8 @@ show_omp_clauses (gfc_omp_clauses *omp_clauses)
       show_expr (omp_clauses->message);
       fputc (')', dumpfile);
     }
+  if (omp_clauses->assume)
+    show_omp_assumes (omp_clauses->assume);
 }
 
 /* Show a single OpenMP or OpenACC directive node and everything underneath it
@@ -1995,6 +2081,7 @@ show_omp_node (int level, gfc_code *c)
     case EXEC_OACC_CACHE: name = "CACHE"; is_oacc = true; break;
     case EXEC_OACC_ENTER_DATA: name = "ENTER DATA"; is_oacc = true; break;
     case EXEC_OACC_EXIT_DATA: name = "EXIT DATA"; is_oacc = true; break;
+    case EXEC_OMP_ASSUME: name = "ASSUME"; break;
     case EXEC_OMP_ATOMIC: name = "ATOMIC"; break;
     case EXEC_OMP_BARRIER: name = "BARRIER"; break;
     case EXEC_OMP_CANCEL: name = "CANCEL"; break;
@@ -2096,6 +2183,7 @@ show_omp_node (int level, gfc_code *c)
     case EXEC_OACC_CACHE:
     case EXEC_OACC_ENTER_DATA:
     case EXEC_OACC_EXIT_DATA:
+    case EXEC_OMP_ASSUME:
     case EXEC_OMP_CANCEL:
     case EXEC_OMP_CANCELLATION_POINT:
     case EXEC_OMP_DISTRIBUTE:
@@ -3321,6 +3409,7 @@ show_code_node (int level, gfc_code *c)
     case EXEC_OACC_CACHE:
     case EXEC_OACC_ENTER_DATA:
     case EXEC_OACC_EXIT_DATA:
+    case EXEC_OMP_ASSUME:
     case EXEC_OMP_ATOMIC:
     case EXEC_OMP_CANCEL:
     case EXEC_OMP_CANCELLATION_POINT:
@@ -3499,6 +3588,13 @@ show_namespace (gfc_namespace *ns)
 	}
     }
 
+  if (ns->omp_assumes)
+    {
+      show_indent ();
+      fprintf (dumpfile, "!$OMP ASSUMES");
+      show_omp_assumes (ns->omp_assumes);
+    }
+
   fputc ('\n', dumpfile);
   show_indent ();
   fputs ("code:", dumpfile);
@@ -3600,7 +3696,12 @@ get_c_type_name (gfc_typespec *ts, gfc_array_spec *as, const char **pre,
 	  if (c_interop_kinds_table[i].f90_type == ts->type
 	      && c_interop_kinds_table[i].value == ts->kind)
 	    {
+	      /* Skip over 'c_'. */
 	      *type_name = c_interop_kinds_table[i].name + 2;
+	      if (strcmp (*type_name, "long_long") == 0)
+		*type_name = "long long";
+	      if (strcmp (*type_name, "long_double") == 0)
+		*type_name = "long double";
 	      if (strcmp (*type_name, "signed_char") == 0)
 		*type_name = "signed char";
 	      else if (strcmp (*type_name, "size_t") == 0)
@@ -3813,7 +3914,7 @@ write_proc (gfc_symbol *sym, bool bind_c)
       if (sym->formal)
 	fputs (", ", dumpfile);
     }
-      
+
   for (f = sym->formal; f; f = f->next)
     {
       gfc_symbol *s;

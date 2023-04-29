@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * written by Walter Bright
  * https://www.digitalmars.com
  * Distributed under the Boost Software License, Version 1.0.
@@ -33,7 +33,9 @@ public:
     Loc loc;
     unsigned char kind;
 
-    const char *toChars() const;
+    DYNCAST dyncast() const override { return DYNCAST_INITIALIZER; }
+
+    const char *toChars() const override final;
 
     ErrorInitializer   *isErrorInitializer();
     VoidInitializer    *isVoidInitializer();
@@ -42,33 +44,33 @@ public:
     ExpInitializer     *isExpInitializer();
     CInitializer       *isCInitializer();
 
-    void accept(Visitor *v) { v->visit(this); }
+    void accept(Visitor *v) override { v->visit(this); }
 };
 
-class VoidInitializer : public Initializer
+class VoidInitializer final : public Initializer
 {
 public:
     Type *type;         // type that this will initialize to
 
-    void accept(Visitor *v) { v->visit(this); }
+    void accept(Visitor *v) override { v->visit(this); }
 };
 
-class ErrorInitializer : public Initializer
+class ErrorInitializer final : public Initializer
 {
 public:
-    void accept(Visitor *v) { v->visit(this); }
+    void accept(Visitor *v) override { v->visit(this); }
 };
 
-class StructInitializer : public Initializer
+class StructInitializer final : public Initializer
 {
 public:
     Identifiers field;  // of Identifier *'s
     Initializers value; // parallel array of Initializer *'s
 
-    void accept(Visitor *v) { v->visit(this); }
+    void accept(Visitor *v) override { v->visit(this); }
 };
 
-class ArrayInitializer : public Initializer
+class ArrayInitializer final : public Initializer
 {
 public:
     Expressions index;  // indices
@@ -76,20 +78,21 @@ public:
     unsigned dim;       // length of array being initialized
     Type *type;         // type that array will be used to initialize
     bool sem;           // true if semantic() is run
+    bool isCarray;      // C array semantics
 
     bool isAssociativeArray() const;
     Expression *toAssocArrayLiteral();
 
-    void accept(Visitor *v) { v->visit(this); }
+    void accept(Visitor *v) override { v->visit(this); }
 };
 
-class ExpInitializer : public Initializer
+class ExpInitializer final : public Initializer
 {
 public:
     bool expandTuples;
     Expression *exp;
 
-    void accept(Visitor *v) { v->visit(this); }
+    void accept(Visitor *v) override { v->visit(this); }
 };
 
 struct Designator
@@ -104,14 +107,14 @@ struct DesigInit
     Initializer *initializer;
 };
 
-class CInitializer : public Initializer
+class CInitializer final : public Initializer
 {
 public:
     DesigInits initializerList;
     Type *type;         // type that array will be used to initialize
     bool sem;           // true if semantic() is run
 
-    void accept(Visitor *v) { v->visit(this); }
+    void accept(Visitor *v) override { v->visit(this); }
 };
 
 Expression *initializerToExpression(Initializer *init, Type *t = NULL, const bool isCfile = false);

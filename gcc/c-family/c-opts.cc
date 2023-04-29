@@ -1,5 +1,5 @@
 /* C/ObjC/C++ command line option handling.
-   Copyright (C) 2002-2022 Free Software Foundation, Inc.
+   Copyright (C) 2002-2023 Free Software Foundation, Inc.
    Contributed by Neil Booth.
 
 This file is part of GCC.
@@ -41,6 +41,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "mkdeps.h"
 #include "dumpfile.h"
 #include "file-prefix-map.h"    /* add_*_prefix_map()  */
+#include "context.h"
 
 #ifndef DOLLARS_IN_IDENTIFIERS
 # define DOLLARS_IN_IDENTIFIERS true
@@ -99,10 +100,6 @@ static size_t deferred_count;
 
 /* Number of deferred options scanned for -include.  */
 static size_t include_cursor;
-
-/* Dump files/flags to use during parsing.  */
-static FILE *original_dump_file = NULL;
-static dump_flags_t original_dump_flags;
 
 /* Whether any standard preincluded header has been preincluded.  */
 static bool done_preinclude;
@@ -303,7 +300,7 @@ c_common_handle_option (size_t scode, const char *arg, HOST_WIDE_INT value,
       result = false;
       break;
 
-    case OPT__output_pch_:
+    case OPT__output_pch:
       pch_file = arg;
       break;
 
@@ -537,6 +534,7 @@ c_common_handle_option (size_t scode, const char *arg, HOST_WIDE_INT value,
 
     case OPT_finput_charset_:
       cpp_opts->input_charset = arg;
+      cpp_opts->cpp_input_charset_explicit = 1;
       break;
 
     case OPT_ftemplate_depth_:
@@ -814,17 +812,9 @@ c_common_post_options (const char **pfilename)
   C_COMMON_OVERRIDE_OPTIONS;
 #endif
 
-  /* Excess precision other than "fast" requires front-end
-     support.  */
-  if (c_dialect_cxx ())
-    {
-      if (flag_excess_precision == EXCESS_PRECISION_STANDARD)
-	sorry ("%<-fexcess-precision=standard%> for C++");
-      flag_excess_precision = EXCESS_PRECISION_FAST;
-    }
-  else if (flag_excess_precision == EXCESS_PRECISION_DEFAULT)
+  if (flag_excess_precision == EXCESS_PRECISION_DEFAULT)
     flag_excess_precision = (flag_iso ? EXCESS_PRECISION_STANDARD
-				      : EXCESS_PRECISION_FAST);
+			     : EXCESS_PRECISION_FAST);
 
   /* ISO C restricts floating-point expression contraction to within
      source-language expressions (-ffp-contract=on, currently an alias
@@ -977,7 +967,7 @@ c_common_post_options (const char **pfilename)
 
   /* Change flag_abi_version to be the actual current ABI level, for the
      benefit of c_cpp_builtins, and to make comparison simpler.  */
-  const int latest_abi_version = 17;
+  const int latest_abi_version = 18;
   /* Generate compatibility aliases for ABI v13 (8.2) by default.  */
   const int abi_compat_default = 13;
 
@@ -1049,6 +1039,13 @@ c_common_post_options (const char **pfilename)
   else if (warn_narrowing == -1)
     warn_narrowing = 0;
 
+  if (cxx_dialect >= cxx20)
+    {
+      /* Don't warn about C++20 compatibility changes in C++20 or later.  */
+      warn_cxx20_compat = 0;
+      cpp_opts->cpp_warn_cxx20_compat = 0;
+    }
+
   /* C++17 has stricter evaluation order requirements; let's use some of them
      for earlier C++ as well, so chaining works as expected.  */
   if (c_dialect_cxx ()
@@ -1062,9 +1059,14 @@ c_common_post_options (const char **pfilename)
   if (flag_sized_deallocation == -1)
     flag_sized_deallocation = (cxx_dialect >= cxx14);
 
-  /* char8_t support is new in C++20.  */
+  /* Pedwarn about invalid constexpr functions before C++23.  */
+  if (warn_invalid_constexpr == -1)
+    warn_invalid_constexpr = (cxx_dialect < cxx23);
+
+  /* char8_t support is implicitly enabled in C++20 and C2X.  */
   if (flag_char8_t == -1)
-    flag_char8_t = (cxx_dialect >= cxx20);
+    flag_char8_t = (cxx_dialect >= cxx20) || flag_isoc2x;
+  cpp_opts->unsigned_utf8char = flag_char8_t ? 1 : cpp_opts->unsigned_char;
 
   if (flag_extern_tls_init)
     {
@@ -1092,9 +1094,6 @@ c_common_post_options (const char **pfilename)
      work with the standard.  */
   if (cxx_dialect >= cxx20 || flag_concepts_ts)
     flag_concepts = 1;
-  else if (flag_concepts)
-    /* For -std=c++17 -fconcepts, imply -fconcepts-ts.  */
-    flag_concepts_ts = 1;
 
   if (num_in_fnames > 1)
     error ("too many filenames given; type %<%s %s%> for usage",
@@ -1147,6 +1146,17 @@ c_common_post_options (const char **pfilename)
     lang_hooks.preprocess_options (parse_in);
   cpp_post_options (parse_in);
   init_global_opts_from_cpp (&global_options, cpp_get_options (parse_in));
+  /* For C++23 and explicit -finput-charset=UTF-8, turn on -Winvalid-utf8
+     by default and make it a pedwarn unless -Wno-invalid-utf8.  */
+  if (cxx_dialect >= cxx23
+      && cpp_opts->cpp_input_charset_explicit
+      && strcmp (cpp_opts->input_charset, "UTF-8") == 0
+      && (cpp_opts->cpp_warn_invalid_utf8
+	  || !global_options_set.x_warn_invalid_utf8))
+    {
+      global_options.x_warn_invalid_utf8 = 1;
+      cpp_opts->cpp_warn_invalid_utf8 = cpp_opts->cpp_pedantic ? 2 : 1;
+    }
 
   /* Let diagnostics infrastructure know how to convert input files the same
      way libcpp will do it, namely using the configured input charset and
@@ -1226,15 +1236,13 @@ c_common_init (void)
 void
 c_common_parse_file (void)
 {
-  unsigned int i;
-
-  i = 0;
-  for (;;)
+  auto dumps = g->get_dumps ();
+  for (unsigned int i = 0;;)
     {
       c_finish_options ();
       /* Open the dump file to use for the original dump output
          here, to be used during parsing for the current file.  */
-      original_dump_file = dump_begin (TDI_original, &original_dump_flags);
+      dumps->dump_start (TDI_original, &dump_flags);
       pch_init ();
       push_file_scope ();
       c_parse_file ();
@@ -1248,29 +1256,15 @@ c_common_parse_file (void)
       cpp_clear_file_cache (parse_in);
       this_input_filename
 	= cpp_read_main_file (parse_in, in_fnames[i]);
-      if (original_dump_file)
-        {
-          dump_end (TDI_original, original_dump_file);
-          original_dump_file = NULL;
-        }
       /* If an input file is missing, abandon further compilation.
 	 cpplib has issued a diagnostic.  */
       if (!this_input_filename)
 	break;
+      dumps->dump_finish (TDI_original);
     }
 
   c_parse_final_cleanups ();
-}
-
-/* Returns the appropriate dump file for PHASE to dump with FLAGS.  */
-
-FILE *
-get_dump_info (int phase, dump_flags_t *flags)
-{
-  gcc_assert (phase == TDI_original);
-
-  *flags = original_dump_flags;
-  return original_dump_file;
+  dumps->dump_finish (TDI_original);
 }
 
 /* Common finish hook for the C, ObjC and C++ front ends.  */
@@ -1299,6 +1293,12 @@ c_common_finish (void)
 			 deps_file);
 	}
     }
+
+  /* When we call cpp_finish (), it may generate some diagnostics using
+     locations it remembered from the preprocessing phase, e.g. for
+     -Wunused-macros.  So inform c_cpp_diagnostic () not to override those
+     locations with input_location, which would be incorrect now.  */
+  override_libcpp_locations = false;
 
   /* For performance, avoid tearing down cpplib's internal structures
      with cpp_destroy ().  */
@@ -1477,7 +1477,7 @@ c_finish_options (void)
     {
       const line_map_ordinary *bltin_map
 	= linemap_check_ordinary (linemap_add (line_table, LC_RENAME, 0,
-					       _("<built-in>"), 0));
+					       special_fname_builtin (), 0));
       cb_file_change (parse_in, bltin_map);
       linemap_line_start (line_table, 0, 1);
 

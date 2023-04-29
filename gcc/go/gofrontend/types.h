@@ -535,7 +535,7 @@ class Type
   make_nil_type();
 
   static Type*
-  make_call_multiple_result_type(Call_expression*);
+  make_call_multiple_result_type();
 
   static Struct_type*
   make_struct_type(Struct_field_list* fields, Location);
@@ -2800,7 +2800,7 @@ class Array_type : public Type
 
   // Return an expression for the pointer to the values in an array.
   Expression*
-  get_value_pointer(Gogo*, Expression* array, bool is_lvalue) const;
+  get_value_pointer(Gogo*, Expression* array) const;
 
   // Return an expression for the length of an array with this type.
   Expression*
@@ -3271,15 +3271,6 @@ class Interface_type : public Type
   bool
   methods_are_finalized() const
   { return this->methods_are_finalized_; }
-
-  // Sort embedded interfaces by name. Needed when we are preparing
-  // to emit types into the export data.
-  void
-  sort_embedded()
-  {
-    if (parse_methods_ != NULL)
-      parse_methods_->sort_by_name();
-  }
 
  protected:
   int

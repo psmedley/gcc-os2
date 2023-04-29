@@ -1,5 +1,5 @@
 /* decl.cc -- Lower D frontend declarations to GCC trees.
-   Copyright (C) 2006-2022 Free Software Foundation, Inc.
+   Copyright (C) 2006-2023 Free Software Foundation, Inc.
 
 GCC is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -57,6 +57,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "alloc-pool.h"
 #include "symbol-summary.h"
 #include "symtab-thunks.h"
+#include "gimple-expr.h"
 
 #include "d-tree.h"
 #include "d-target.h"
@@ -99,7 +100,7 @@ mangle_internal_decl (Dsymbol *decl, const char *name, const char *suffix)
   return ident;
 }
 
-/* Returns true if DECL is from the gcc.attribute module.  */
+/* Returns true if DECL is from the gcc.attributes module.  */
 
 static bool
 gcc_attribute_p (Dsymbol *decl)
@@ -114,6 +115,113 @@ gcc_attribute_p (Dsymbol *decl)
     }
 
   return false;
+}
+
+/* Return the DECL_RESULT for the function declaration DECL, create it if it
+   doesn't already exist.  */
+
+static tree
+get_fndecl_result (FuncDeclaration *decl)
+{
+  tree fndecl = get_symbol_decl (decl);
+  tree resdecl = DECL_RESULT (fndecl);
+
+  if (resdecl != NULL_TREE)
+    return resdecl;
+
+  resdecl = build_decl (make_location_t (decl->loc), RESULT_DECL,
+			NULL_TREE, TREE_TYPE (TREE_TYPE (fndecl)));
+
+  DECL_ARTIFICIAL (resdecl) = 1;
+  DECL_IGNORED_P (resdecl) = 1;
+  DECL_CONTEXT (resdecl) = fndecl;
+  DECL_RESULT (fndecl) = resdecl;
+  return resdecl;
+}
+
+/* Return the list of PARAM_DECLs for the function declaration DECL, create it
+   if it doesn't already exist.  */
+
+static tree
+get_fndecl_arguments (FuncDeclaration *decl)
+{
+  tree fndecl = get_symbol_decl (decl);
+  tree param_list = DECL_ARGUMENTS (fndecl);
+
+  if (param_list != NULL_TREE)
+    return param_list;
+
+  if (decl->fbody)
+    {
+      /* Handle special arguments first.  */
+
+      /* `this' parameter:
+	 For nested functions, D still generates a vthis, but it
+	 should not be referenced in any expression.  */
+      if (decl->vthis)
+	{
+	  tree parm_decl = get_symbol_decl (decl->vthis);
+	  DECL_ARTIFICIAL (parm_decl) = 1;
+	  TREE_READONLY (parm_decl) = 1;
+
+	  if (decl->vthis->type == Type::tvoidptr)
+	    {
+	      /* Replace generic pointer with back-end closure type
+		 (this wins for gdb).  */
+	      tree frame_type = FRAMEINFO_TYPE (get_frameinfo (decl));
+	      gcc_assert (frame_type != NULL_TREE);
+	      TREE_TYPE (parm_decl) = build_pointer_type (frame_type);
+	    }
+
+	  param_list = chainon (param_list, parm_decl);
+	}
+
+      /* `_arguments' parameter.  */
+      if (decl->v_arguments)
+	{
+	  tree parm_decl = get_symbol_decl (decl->v_arguments);
+	  param_list = chainon (param_list, parm_decl);
+	}
+
+      /* Now add on formal function parameters.  */
+      size_t n_parameters = decl->parameters ? decl->parameters->length : 0;
+
+      for (size_t i = 0; i < n_parameters; i++)
+	{
+	  VarDeclaration *param = (*decl->parameters)[i];
+	  tree parm_decl = get_symbol_decl (param);
+
+	  /* Type `noreturn` is a terminator, as no other arguments can possibly
+	     be evaluated after it.  */
+	  if (TREE_TYPE (parm_decl) == noreturn_type_node)
+	    break;
+
+	  /* Chain them in the correct order.  */
+	  param_list = chainon (param_list, parm_decl);
+	}
+    }
+  else
+    {
+      /* Build parameters from the function type.  */
+      tree fntype = TREE_TYPE (fndecl);
+
+      for (tree t = TYPE_ARG_TYPES (fntype); t; t = TREE_CHAIN (t))
+	{
+	  if (t == void_list_node)
+	    break;
+
+	  tree param = build_decl (DECL_SOURCE_LOCATION (fndecl),
+				   PARM_DECL, NULL_TREE, TREE_VALUE (t));
+	  DECL_ARG_TYPE (param) = TREE_TYPE (param);
+	  DECL_ARTIFICIAL (param) = 1;
+	  DECL_IGNORED_P (param) = 1;
+	  DECL_CONTEXT (param) = fndecl;
+	  param_list = chainon (param_list, param);
+	}
+    }
+
+  DECL_ARGUMENTS (fndecl) = param_list;
+  return param_list;
 }
 
 /* Implements the visitor interface to lower all Declaration AST classes
@@ -149,13 +257,13 @@ public:
 
   /* This should be overridden by each declaration class.  */
 
-  void visit (Dsymbol *)
+  void visit (Dsymbol *) final override
   {
   }
 
   /* Compile a D module, and all members of it.  */
 
-  void visit (Module *d)
+  void visit (Module *d) final override
   {
     if (d->semanticRun >= PASS::obj)
       return;
@@ -166,7 +274,7 @@ public:
 
   /* Write the imported symbol to debug.  */
 
-  void visit (Import *d)
+  void visit (Import *d) final override
   {
     if (d->semanticRun >= PASS::obj)
       return;
@@ -197,8 +305,16 @@ public:
 	    tree name = (alias != NULL)
 	      ? get_identifier (alias->toChars ()) : NULL_TREE;
 
-	    debug_hooks->imported_module_or_decl (decl, name, context,
-						  false, false);
+	    if (TREE_CODE (decl) != TREE_LIST)
+	      debug_hooks->imported_module_or_decl (decl, name, context,
+						    false, false);
+	    else
+	      {
+		/* Overload sets return a list of imported decls.  */
+		for (; decl != NULL_TREE; decl = TREE_CHAIN (decl))
+		  debug_hooks->imported_module_or_decl (TREE_VALUE (decl), name,
+							context, false, false);
+	      }
 	  }
       }
     else
@@ -218,23 +334,23 @@ public:
 
   /* Expand any local variables found in tuples.  */
 
-  void visit (TupleDeclaration *d)
+  void visit (TupleDeclaration *d) final override
   {
     for (size_t i = 0; i < d->objects->length; i++)
       {
 	RootObject *o = (*d->objects)[i];
 	if (o->dyncast () == DYNCAST_EXPRESSION)
 	  {
-	    DsymbolExp *de = ((Expression *) o)->isDsymbolExp ();
-	    if (de != NULL && de->s->isDeclaration ())
-	      this->build_dsymbol (de->s);
+	    VarExp *ve = ((Expression *) o)->isVarExp ();
+	    if (ve)
+	      this->build_dsymbol (ve->var);
 	  }
       }
   }
 
   /* Walk over all declarations in the attribute scope.  */
 
-  void visit (AttribDeclaration *d)
+  void visit (AttribDeclaration *d) final override
   {
     Dsymbols *ds = d->include (NULL);
 
@@ -248,7 +364,7 @@ public:
   /* Pragmas are a way to pass special information to the compiler and to add
      vendor specific extensions to D.  */
 
-  void visit (PragmaDeclaration *d)
+  void visit (PragmaDeclaration *d) final override
   {
     if (d->ident == Identifier::idPool ("lib")
 	|| d->ident == Identifier::idPool ("startaddress"))
@@ -266,7 +382,7 @@ public:
   /* Conditional compilation is the process of selecting which code to compile
      and which code to not compile.  Look for version conditions that may  */
 
-  void visit (ConditionalDeclaration *d)
+  void visit (ConditionalDeclaration *d) final override
   {
     bool old_condition = this->in_version_unittest_;
 
@@ -284,7 +400,7 @@ public:
 
   /* Walk over all members in the namespace scope.  */
 
-  void visit (Nspace *d)
+  void visit (Nspace *d) final override
   {
     if (isError (d) || !d->members)
       return;
@@ -298,7 +414,7 @@ public:
      voldemort type, then it's members must be compiled before the parent
      function finishes.  */
 
-  void visit (TemplateDeclaration *d)
+  void visit (TemplateDeclaration *d) final override
   {
     /* Type cannot be directly named outside of the scope it's declared in, so
        the only way it can be escaped is if the function has auto return.  */
@@ -329,7 +445,7 @@ public:
 
   /* Walk over all members in the instantiated template.  */
 
-  void visit (TemplateInstance *d)
+  void visit (TemplateInstance *d) final override
   {
     if (isError (d)|| !d->members)
       return;
@@ -343,7 +459,7 @@ public:
 
   /* Walk over all members in the mixin template scope.  */
 
-  void visit (TemplateMixin *d)
+  void visit (TemplateMixin *d) final override
   {
     if (isError (d)|| !d->members)
       return;
@@ -355,7 +471,7 @@ public:
   /* Write out compiler generated TypeInfo, initializer and functions for the
      given struct declaration, walking over all static members.  */
 
-  void visit (StructDeclaration *d)
+  void visit (StructDeclaration *d) final override
   {
     if (d->semanticRun >= PASS::obj)
       return;
@@ -367,6 +483,10 @@ public:
 	return;
       }
 
+    /* Don't emit any symbols from gcc.attributes module.  */
+    if (gcc_attribute_p (d))
+      return;
+
     /* Add this decl to the current binding level.  */
     tree ctype = build_ctype (d->type);
     if (TYPE_NAME (ctype))
@@ -375,10 +495,6 @@ public:
     /* Anonymous structs/unions only exist as part of others,
        do not output forward referenced structs.  */
     if (d->isAnonymous () || !d->members)
-      return;
-
-    /* Don't emit any symbols from gcc.attribute module.  */
-    if (gcc_attribute_p (d))
       return;
 
     /* Generate TypeInfo.  */
@@ -447,8 +563,8 @@ public:
 	    if (fd2->isFuture ())
 	      continue;
 
-	    if (fd->leastAsSpecialized (fd2) != MATCH::nomatch
-		|| fd2->leastAsSpecialized (fd) != MATCH::nomatch)
+	    if (fd->leastAsSpecialized (fd2, NULL) != MATCH::nomatch
+		|| fd2->leastAsSpecialized (fd, NULL) != MATCH::nomatch)
 	      {
 		error_at (make_location_t (fd->loc), "use of %qs",
 			  fd->toPrettyChars ());
@@ -470,7 +586,7 @@ public:
   /* Write out compiler generated TypeInfo, initializer and vtables for the
      given class declaration, walking over all static members.  */
 
-  void visit (ClassDeclaration *d)
+  void visit (ClassDeclaration *d) final override
   {
     if (d->semanticRun >= PASS::obj)
       return;
@@ -481,6 +597,11 @@ public:
 		  "had semantic errors when compiling");
 	return;
       }
+
+    /* Add this decl to the current binding level.  */
+    tree ctype = TREE_TYPE (build_ctype (d->type));
+    if (TYPE_NAME (ctype))
+      d_pushdecl (TYPE_NAME (ctype));
 
     if (!d->members)
       return;
@@ -533,18 +654,13 @@ public:
       = build_constructor (TREE_TYPE (vtblsym->csym), elms);
     d_finish_decl (vtblsym->csym);
 
-    /* Add this decl to the current binding level.  */
-    tree ctype = TREE_TYPE (build_ctype (d->type));
-    if (TYPE_NAME (ctype))
-      d_pushdecl (TYPE_NAME (ctype));
-
     d->semanticRun = PASS::obj;
   }
 
   /* Write out compiler generated TypeInfo and vtables for the given interface
      declaration, walking over all static members.  */
 
-  void visit (InterfaceDeclaration *d)
+  void visit (InterfaceDeclaration *d) final override
   {
     if (d->semanticRun >= PASS::obj)
       return;
@@ -555,6 +671,11 @@ public:
 		  "had semantic errors when compiling");
 	return;
       }
+
+    /* Add this decl to the current binding level.  */
+    tree ctype = TREE_TYPE (build_ctype (d->type));
+    if (TYPE_NAME (ctype))
+      d_pushdecl (TYPE_NAME (ctype));
 
     if (!d->members)
       return;
@@ -576,18 +697,13 @@ public:
     DECL_INITIAL (d->csym) = layout_classinfo (d);
     d_finish_decl (d->csym);
 
-    /* Add this decl to the current binding level.  */
-    tree ctype = TREE_TYPE (build_ctype (d->type));
-    if (TYPE_NAME (ctype))
-      d_pushdecl (TYPE_NAME (ctype));
-
     d->semanticRun = PASS::obj;
   }
 
   /* Write out compiler generated TypeInfo and initializer for the given
      enum declaration.  */
 
-  void visit (EnumDeclaration *d)
+  void visit (EnumDeclaration *d) final override
   {
     if (d->semanticRun >= PASS::obj)
       return;
@@ -598,6 +714,11 @@ public:
 		  "had semantic errors when compiling");
 	return;
       }
+
+    /* Add this decl to the current binding level.  */
+    tree ctype = build_ctype (d->type);
+    if (TREE_CODE (ctype) == ENUMERAL_TYPE && TYPE_NAME (ctype))
+      d_pushdecl (TYPE_NAME (ctype));
 
     if (d->isAnonymous ())
       return;
@@ -615,18 +736,13 @@ public:
 	d_finish_decl (d->sinit);
       }
 
-    /* Add this decl to the current binding level.  */
-    tree ctype = build_ctype (d->type);
-    if (TYPE_NAME (ctype))
-      d_pushdecl (TYPE_NAME (ctype));
-
     d->semanticRun = PASS::obj;
   }
 
   /* Finish up a variable declaration and push it into the current scope.
      This can either be a static, local or manifest constant.  */
 
-  void visit (VarDeclaration *d)
+  void visit (VarDeclaration *d) final override
   {
     if (d->semanticRun >= PASS::obj)
       return;
@@ -656,7 +772,7 @@ public:
 	return;
       }
 
-    if (d->aliassym)
+    if (d->aliasTuple)
       {
 	this->build_dsymbol (d->toAlias ());
 	return;
@@ -673,9 +789,13 @@ public:
 	    rest_of_decl_compilation (decl, 1, 0);
 	  }
       }
-    else if (d->isDataseg () && !(d->storage_class & STCextern))
+    else if (d->isDataseg ())
       {
 	tree decl = get_symbol_decl (d);
+
+	/* Only need to build the VAR_DECL for extern declarations.  */
+	if (d->storage_class & STCextern)
+	  return;
 
 	/* Duplicated VarDeclarations map to the same symbol.  Check if this
 	   is the one declaration which will be emitted.  */
@@ -701,7 +821,7 @@ public:
 		DECL_INITIAL (decl) = build_expr (e, true);
 	      }
 	  }
-	else
+	else if (!d->type->isZeroInit ())
 	  {
 	    /* Use default initializer for the type.  */
 	    if (TypeStruct *ts = d->type->isTypeStruct ())
@@ -756,7 +876,7 @@ public:
   /* Generate and compile a static TypeInfo declaration, but only if it is
      needed in the current compilation.  */
 
-  void visit (TypeInfoDeclaration *d)
+  void visit (TypeInfoDeclaration *d) final override
   {
     if (d->semanticRun >= PASS::obj)
       return;
@@ -773,14 +893,18 @@ public:
   /* Finish up a function declaration and compile it all the way
      down to assembler language output.  */
 
-  void visit (FuncDeclaration *d)
+  void visit (FuncDeclaration *d) final override
   {
     /* Already generated the function.  */
     if (d->semanticRun >= PASS::obj)
       return;
 
-    /* Don't emit any symbols from gcc.attribute module.  */
+    /* Don't emit any symbols from gcc.attributes module.  */
     if (gcc_attribute_p (d))
+      return;
+
+    /* Front-end decided this function doesn't require code generation.  */
+    if (d->skipCodegen ())
       return;
 
     /* Not emitting unittest functions.  */
@@ -816,8 +940,12 @@ public:
     /* Ensure all semantic passes have run.  */
     if (d->semanticRun < PASS::semantic3)
       {
+	gcc_assert (!doing_semantic_analysis_p);
+
+	doing_semantic_analysis_p = true;
 	d->functionSemantic3 ();
 	Module::runDeferredSemantic3 ();
+	doing_semantic_analysis_p = false;
       }
 
     if (global.errors)
@@ -844,66 +972,17 @@ public:
       message ("function  %s", d->toPrettyChars ());
 
     tree old_context = start_function (d);
+    tree param_list = get_fndecl_arguments (d);
 
-    tree parm_decl = NULL_TREE;
-    tree param_list = NULL_TREE;
-
-    /* Special arguments...  */
-
-    /* `this' parameter:
-       For nested functions, D still generates a vthis, but it
-       should not be referenced in any expression.  */
-    if (d->vthis)
-      {
-	parm_decl = get_symbol_decl (d->vthis);
-	DECL_ARTIFICIAL (parm_decl) = 1;
-	TREE_READONLY (parm_decl) = 1;
-
-	if (d->vthis->type == Type::tvoidptr)
-	  {
-	    /* Replace generic pointer with back-end closure type
-	       (this wins for gdb).  */
-	    tree frame_type = FRAMEINFO_TYPE (get_frameinfo (d));
-	    gcc_assert (frame_type != NULL_TREE);
-	    TREE_TYPE (parm_decl) = build_pointer_type (frame_type);
-	  }
-
-	param_list = chainon (param_list, parm_decl);
-	d_function_chain->static_chain = parm_decl;
-      }
-
-    /* _arguments parameter.  */
-    if (d->v_arguments)
-      {
-	parm_decl = get_symbol_decl (d->v_arguments);
-	param_list = chainon (param_list, parm_decl);
-      }
-
-    /* formal function parameters.  */
-    const size_t n_parameters = d->parameters ? d->parameters->length : 0;
-
-    for (size_t i = 0; i < n_parameters; i++)
-      {
-	VarDeclaration *param = (*d->parameters)[i];
-
-	parm_decl = get_symbol_decl (param);
-
-	/* Type `noreturn` is a terminator, as no other arguments can possibly
-	   be evaluated after it.  */
-	if (TREE_TYPE (parm_decl) == noreturn_type_node)
-	  break;
-
-	/* Chain them in the correct order.  */
-	param_list = chainon (param_list, parm_decl);
-      }
-
-    DECL_ARGUMENTS (fndecl) = param_list;
     DECL_IN_UNITTEST_CONDITION_P (fndecl) = this->in_version_unittest_;
     rest_of_decl_compilation (fndecl, 1, 0);
 
     /* If this is a member function that nested (possibly indirectly) in another
        function, construct an expession for this member function's static chain
        by going through parent link of nested classes.  */
+    if (d->vthis)
+      d_function_chain->static_chain = get_symbol_decl (d->vthis);
+
     if (d->isThis ())
       {
 	AggregateDeclaration *ad = d->isThis ();
@@ -918,7 +997,7 @@ public:
 	    ad = pd->isAggregateDeclaration ();
 	    if (ad == NULL)
 	      {
-		cfun->language->static_chain = this_tree;
+		d_function_chain->static_chain = this_tree;
 		break;
 	      }
 	  }
@@ -979,7 +1058,7 @@ public:
 	var = build_address (var);
 
 	tree init = build_call_expr (builtin_decl_explicit (BUILT_IN_VA_START),
-				     2, var, parm_decl);
+				     2, var, tree_last (param_list));
 	declare_local_var (d->v_argptr);
 	add_stmt (init);
 
@@ -1015,22 +1094,6 @@ build_decl_tree (Dsymbol *d)
   input_location = saved_location;
 }
 
-/* Returns true if function FD is defined or instantiated in a root module.  */
-
-static bool
-function_defined_in_root_p (FuncDeclaration *fd)
-{
-  Module *md = fd->getModule ();
-  if (md && md->isRoot ())
-    return true;
-
-  TemplateInstance *ti = fd->isInstantiated ();
-  if (ti && ti->minst && ti->minst->isRoot ())
-    return true;
-
-  return false;
-}
-
 /* Returns true if function FD always needs to be implicitly defined, such as
    it was declared `pragma(inline)'.  */
 
@@ -1054,7 +1117,8 @@ function_needs_inline_definition_p (FuncDeclaration *fd)
 
   /* Check whether function will be regularly defined later in the current
      translation unit.  */
-  if (function_defined_in_root_p (fd))
+  Module *md = fd->getModule ();
+  if (md && md->isRoot ())
     return false;
 
   /* Non-inlineable functions are always external.  */
@@ -1395,6 +1459,12 @@ get_symbol_decl (Declaration *decl)
 	  DECL_NO_INSTRUMENT_FUNCTION_ENTRY_EXIT (decl->csym) = 1;
 	}
 
+      /* In [expression/function_literals], function literals (aka lambdas)
+	 enable embedding anonymous functions and anonymous delegates directly
+	 into expressions.  They are defined in each referencing module.  */
+      if (fd->isFuncLiteralDeclaration ())
+	DECL_SET_LAMBDA_FUNCTION (decl->csym, true);
+
       /* Mark compiler generated functions as artificial.  */
       if (fd->isGenerated ())
 	DECL_ARTIFICIAL (decl->csym) = 1;
@@ -1436,26 +1506,13 @@ get_symbol_decl (Declaration *decl)
   if (decl->storage_class & STCvolatile)
     TREE_THIS_VOLATILE (decl->csym) = 1;
 
-  /* Visibility attributes are used by the debugger.  */
-  if (decl->visibility.kind == Visibility::private_)
-    TREE_PRIVATE (decl->csym) = 1;
-  else if (decl->visibility.kind == Visibility::protected_)
-    TREE_PROTECTED (decl->csym) = 1;
+  /* Symbol was marked register.  */
+  if (decl->storage_class & STCregister)
+    DECL_REGISTER (decl->csym) = 1;
 
-  /* Likewise, so could the deprecated attribute.  */
+  /* Symbol was declared with deprecated attribute.  */
   if (decl->storage_class & STCdeprecated)
     TREE_DEPRECATED (decl->csym) = 1;
-
-#if TARGET_DLLIMPORT_DECL_ATTRIBUTES
-  /* Have to test for import first.  */
-  if (decl->isImportedSymbol ())
-    {
-      insert_decl_attribute (decl->csym, "dllimport");
-      DECL_DLLIMPORT_P (decl->csym) = 1;
-    }
-  else if (decl->isExport ())
-    insert_decl_attribute (decl->csym, "dllexport");
-#endif
 
   if (decl->isDataseg () || decl->isCodeseg () || decl->isThreadlocal ())
     {
@@ -1466,6 +1523,9 @@ get_symbol_decl (Declaration *decl)
       TREE_STATIC (decl->csym) = 1;
       /* The decl has not been defined -- yet.  */
       DECL_EXTERNAL (decl->csym) = 1;
+
+      /* Visibility attributes are used by the debugger.  */
+      set_visibility_for_decl (decl->csym, decl);
 
       DECL_INSTANTIATED (decl->csym) = (decl->isInstantiated () != NULL);
       set_linkage_for_decl (decl->csym);
@@ -1482,6 +1542,18 @@ get_symbol_decl (Declaration *decl)
 
   /* Apply any user attributes that may affect semantic meaning.  */
   apply_user_attributes (decl, decl->csym);
+
+  /* Handle any conflicts between D language attributes and compiler-recognized
+   * user attributes.  */
+  if (VAR_P (decl->csym) && DECL_HARD_REGISTER (decl->csym))
+    {
+      if (decl->storage_class & STCextern)
+	error_at (make_location_t (decl->loc), "explicit register variable "
+		  "%qs declared %<extern%>", decl->toChars ());
+      else if (decl->isThreadlocal ())
+	error_at (make_location_t (decl->loc), "explicit register variable "
+		  "%qs declared thread local", decl->toChars ());
+    }
 
   /* %% Probably should be a little more intelligent about setting this.  */
   TREE_USED (decl->csym) = 1;
@@ -1552,11 +1624,7 @@ declare_local_var (VarDeclaration *var)
 tree
 build_local_temp (tree type)
 {
-  tree decl = build_decl (input_location, VAR_DECL, NULL_TREE, type);
-
-  DECL_CONTEXT (decl) = current_function_decl;
-  DECL_ARTIFICIAL (decl) = 1;
-  DECL_IGNORED_P (decl) = 1;
+  tree decl = create_tmp_var_raw (type);
   d_pushdecl (decl);
 
   return decl;
@@ -1781,6 +1849,7 @@ finish_thunk (tree thunk, tree function)
 
   TREE_ADDRESSABLE (function) = 1;
   TREE_USED (function) = 1;
+  DECL_EXTERNAL (thunk) = 0;
 
   if (flag_syntax_only)
     {
@@ -1852,43 +1921,14 @@ make_thunk (FuncDeclaration *decl, int offset)
 
   if (!DECL_ARGUMENTS (function) || !DECL_RESULT (function))
     {
-      /* Compile the function body before generating the thunk, this is done
-	 even if the decl is external to the current module.  */
-      if (decl->fbody)
-	build_decl_tree (decl);
-      else
-	{
-	  /* Build parameters for functions that are not being compiled,
-	     so that they can be correctly cloned in finish_thunk.  */
-	  tree fntype = TREE_TYPE (function);
-	  tree params = NULL_TREE;
+      /* Build parameters for functions that are not being compiled,
+	 so that they can be correctly cloned in finish_thunk.  */
+      tree function = get_symbol_decl (decl);
+      DECL_ARGUMENTS (function) = get_fndecl_arguments (decl);
 
-	  for (tree t = TYPE_ARG_TYPES (fntype); t; t = TREE_CHAIN (t))
-	    {
-	      if (t == void_list_node)
-		break;
-
-	      tree param = build_decl (DECL_SOURCE_LOCATION (function),
-				       PARM_DECL, NULL_TREE, TREE_VALUE (t));
-	      DECL_ARG_TYPE (param) = TREE_TYPE (param);
-	      DECL_ARTIFICIAL (param) = 1;
-	      DECL_IGNORED_P (param) = 1;
-	      DECL_CONTEXT (param) = function;
-	      params = chainon (params, param);
-	    }
-
-	  DECL_ARGUMENTS (function) = params;
-
-	  /* Also build the result decl, which is needed when force creating
-	     the thunk in gimple inside cgraph_node::expand_thunk.  */
-	  tree resdecl = build_decl (DECL_SOURCE_LOCATION (function),
-				     RESULT_DECL, NULL_TREE,
-				     TREE_TYPE (fntype));
-	  DECL_ARTIFICIAL (resdecl) = 1;
-	  DECL_IGNORED_P (resdecl) = 1;
-	  DECL_CONTEXT (resdecl) = function;
-	  DECL_RESULT (function) = resdecl;
-	}
+      /* Also build the result decl, which is needed when force creating
+	 the thunk in gimple inside cgraph_node::expand_thunk.  */
+      DECL_RESULT (function) = get_fndecl_result (decl);
     }
 
   /* Don't build the thunk if the compilation step failed.  */
@@ -1914,11 +1954,10 @@ make_thunk (FuncDeclaration *decl, int offset)
 
   DECL_CONTEXT (thunk) = d_decl_context (decl);
 
-  /* Thunks inherit the public access of the function they are targeting.
-     Thunks are connected to the definitions of the functions, so thunks are
-     not produced for external functions.  */
+  /* Thunks inherit the public access of the function they are targeting.  */
   TREE_PUBLIC (thunk) = TREE_PUBLIC (function);
-  DECL_EXTERNAL (thunk) = DECL_EXTERNAL (function);
+  /* The thunk has not been defined -- yet.  */
+  DECL_EXTERNAL (thunk) = 1;
 
   /* Thunks are always addressable.  */
   TREE_ADDRESSABLE (thunk) = 1;
@@ -1958,6 +1997,8 @@ make_thunk (FuncDeclaration *decl, int offset)
   if (decl->resolvedLinkage () != LINK::cpp)
     free (CONST_CAST (char *, ident));
 
+  /* Thunks are connected to the definitions of the functions, so thunks are
+     not produced for external functions.  */
   if (!DECL_EXTERNAL (function))
     finish_thunk (thunk, function);
 
@@ -1979,12 +2020,9 @@ start_function (FuncDeclaration *fd)
 {
   tree fndecl = get_symbol_decl (fd);
 
-  /* Function has been defined, check now whether we intend to send it to
-     object file, or it really is extern.  Such as inlinable functions from
-     modules not in this compilation, or thunk aliases.  */
-  if (function_defined_in_root_p (fd))
-    DECL_EXTERNAL (fndecl) = 0;
-
+  /* Function has been defined. Whether we intend to send it to object file, or
+     discard it has already been determined by set_linkage_for_decl.  */
+  DECL_EXTERNAL (fndecl) = 0;
   DECL_INITIAL (fndecl) = error_mark_node;
 
   /* Add this decl to the current binding level.  */
@@ -1999,14 +2037,8 @@ start_function (FuncDeclaration *fd)
   /* Let GCC know the current scope is this function.  */
   current_function_decl = fndecl;
 
-  tree restype = TREE_TYPE (TREE_TYPE (fndecl));
-  tree resdecl = build_decl (make_location_t (fd->loc), RESULT_DECL,
-			     NULL_TREE, restype);
-
-  DECL_RESULT (fndecl) = resdecl;
-  DECL_CONTEXT (resdecl) = fndecl;
-  DECL_ARTIFICIAL (resdecl) = 1;
-  DECL_IGNORED_P (resdecl) = 1;
+  /* Build the result decl before calling allocate_struct_function.  */
+  DECL_RESULT (fndecl) = get_fndecl_result (fd);
 
   /* Initialize the RTL code for the function.  */
   allocate_struct_function (fndecl, false);
@@ -2072,6 +2104,10 @@ finish_function (tree old_context)
     }
 
   DECL_SAVED_TREE (fndecl) = bind;
+
+  /* Finish any forward referenced thunks for the function.  */
+  for (tree t = DECL_LANG_THUNKS (fndecl); t; t = DECL_CHAIN (t))
+    finish_thunk (t, fndecl);
 
   if (!errorcount && !global.errors)
     {
@@ -2332,7 +2368,7 @@ layout_struct_initializer (StructDeclaration *sd)
 {
   StructLiteralExp *sle = StructLiteralExp::create (sd->loc, sd, NULL);
 
-  if (!sd->fill (sd->loc, sle->elements, true))
+  if (!sd->fill (sd->loc, *sle->elements, true))
     gcc_unreachable ();
 
   sle->type = sd->type;
@@ -2422,8 +2458,6 @@ build_type_decl (tree type, Dsymbol *dsym)
     }
   else if (type != TYPE_MAIN_VARIANT (type))
     DECL_ORIGINAL_TYPE (decl) = TYPE_MAIN_VARIANT (type);
-
-  rest_of_decl_compilation (decl, DECL_FILE_SCOPE_P (decl), 0);
 }
 
 /* Create a declaration for field NAME of a given TYPE, setting the flags
@@ -2504,9 +2538,10 @@ set_linkage_for_decl (tree decl)
   if (!TREE_PUBLIC (decl))
     return;
 
-  /* Functions declared as `pragma(inline, true)' can appear in multiple
-     translation units.  */
-  if (TREE_CODE (decl) == FUNCTION_DECL && DECL_DECLARED_INLINE_P (decl))
+  /* Function literals and functions declared as `pragma(inline, true)' can
+     appear in multiple translation units.  */
+  if (TREE_CODE (decl) == FUNCTION_DECL
+      && (DECL_DECLARED_INLINE_P (decl) || DECL_LAMBDA_FUNCTION_P (decl)))
     return d_comdat_linkage (decl);
 
   /* Don't need to give private or protected symbols a special linkage.  */
@@ -2534,4 +2569,38 @@ set_linkage_for_decl (tree decl)
   /* Compiler generated public symbols can appear in multiple contexts.  */
   if (DECL_ARTIFICIAL (decl))
     return d_weak_linkage (decl);
+}
+
+/* NODE is a FUNCTION_DECL, VAR_DECL or RECORD_TYPE for the declaration SYM.
+   Set flags to reflect visibility that NODE will get in the object file.  */
+
+void
+set_visibility_for_decl (tree node, Dsymbol *sym)
+{
+  Visibility visibility = sym->visible ();
+  if (visibility.kind == Visibility::private_)
+    TREE_PRIVATE (node) = 1;
+  else if (visibility.kind == Visibility::protected_)
+    TREE_PROTECTED (node) = 1;
+
+  /* If the declaration was declared `export', append either the dllimport
+     or dllexport attribute.  */
+  if (TARGET_DLLIMPORT_DECL_ATTRIBUTES)
+    {
+      const char *attrname = NULL;
+
+      /* Have to test for import first.  */
+      if (sym->isImportedSymbol ())
+	attrname = "dllimport";
+      else if (sym->isExport ())
+	attrname = "dllexport";
+
+      if (attrname != NULL)
+	{
+	  if (DECL_P (node))
+	    insert_decl_attribute (node, attrname);
+	  else if (TYPE_P (node))
+	    insert_type_attribute (node, attrname);
+	}
+    }
 }

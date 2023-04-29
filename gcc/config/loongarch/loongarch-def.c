@@ -1,5 +1,5 @@
 /* LoongArch static properties.
-   Copyright (C) 2021-2022 Free Software Foundation, Inc.
+   Copyright (C) 2021-2023 Free Software Foundation, Inc.
    Contributed by Loongson Ltd.
 
 This file is part of GCC.
@@ -62,11 +62,13 @@ loongarch_cpu_cache[N_TUNE_TYPES] = {
       .l1d_line_size = 64,
       .l1d_size = 64,
       .l2d_size = 256,
+      .simultaneous_prefetches = 4,
   },
   [CPU_LA464] = {
       .l1d_line_size = 64,
       .l1d_size = 64,
       .l2d_size = 256,
+      .simultaneous_prefetches = 4,
   },
 };
 
@@ -152,6 +154,7 @@ loongarch_cmodel_strings[] = {
   [CMODEL_NORMAL]	  = STR_CMODEL_NORMAL,
   [CMODEL_TINY]		  = STR_CMODEL_TINY,
   [CMODEL_TINY_STATIC]	  = STR_CMODEL_TS,
+  [CMODEL_MEDIUM]	  = STR_CMODEL_MEDIUM,
   [CMODEL_LARGE]	  = STR_CMODEL_LARGE,
   [CMODEL_EXTREME]	  = STR_CMODEL_EXTREME,
 };

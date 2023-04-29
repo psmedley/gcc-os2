@@ -1,5 +1,5 @@
 /* jit.c -- Dummy "frontend" for use during JIT-compilation.
-   Copyright (C) 2013-2022 Free Software Foundation, Inc.
+   Copyright (C) 2013-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -593,9 +593,6 @@ jit_langhook_init (void)
   global_dc->end_diagnostic = jit_end_diagnostic;
 
   build_common_tree_nodes (false);
-
-  /* I don't know why this has to be done explicitly.  */
-  void_list_node = build_tree_list (NULL_TREE, void_type_node);
 
   build_common_builtin_nodes ();
 

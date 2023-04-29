@@ -1,5 +1,5 @@
 /* If-conversion support.
-   Copyright (C) 2000-2022 Free Software Foundation, Inc.
+   Copyright (C) 2000-2023 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -999,7 +999,8 @@ noce_emit_move_insn (rtx x, rtx y)
 		}
 
 	      gcc_assert (start < (MEM_P (op) ? BITS_PER_UNIT : BITS_PER_WORD));
-	      store_bit_field (op, size, start, 0, 0, GET_MODE (x), y, false);
+	      store_bit_field (op, size, start, 0, 0, GET_MODE (x), y, false,
+			       false);
 	      return;
 	    }
 
@@ -1056,7 +1057,7 @@ noce_emit_move_insn (rtx x, rtx y)
   outmode = GET_MODE (outer);
   bitpos = SUBREG_BYTE (outer) * BITS_PER_UNIT;
   store_bit_field (inner, GET_MODE_BITSIZE (outmode), bitpos,
-		   0, 0, outmode, y, false);
+		   0, 0, outmode, y, false, false);
 }
 
 /* Return the CC reg if it is used in COND.  */
@@ -3368,6 +3369,20 @@ noce_convert_multiple_sets (struct noce_if_info *if_info)
   return TRUE;
 }
 
+/* Helper function for noce_convert_multiple_sets_1.  If store to
+   DEST can affect P[0] or P[1], clear P[0].  Called via note_stores.  */
+
+static void
+check_for_cc_cmp_clobbers (rtx dest, const_rtx, void *p0)
+{
+  rtx *p = (rtx *) p0;
+  if (p[0] == NULL_RTX)
+    return;
+  if (reg_overlap_mentioned_p (dest, p[0])
+      || (p[1] && reg_overlap_mentioned_p (dest, p[1])))
+    p[0] = NULL_RTX;
+}
+
 /* This goes through all relevant insns of IF_INFO->then_bb and tries to
    create conditional moves.  In case a simple move sufficis the insn
    should be listed in NEED_NO_CMOV.  The rewired-src cases should be
@@ -3518,7 +3533,7 @@ noce_convert_multiple_sets_1 (struct noce_if_info *if_info,
 
 	 as min/max and emit an insn, accordingly.  */
       unsigned cost1 = 0, cost2 = 0;
-      rtx_insn *seq, *seq1, *seq2;
+      rtx_insn *seq, *seq1, *seq2 = NULL;
       rtx temp_dest = NULL_RTX, temp_dest1 = NULL_RTX, temp_dest2 = NULL_RTX;
       bool read_comparison = false;
 
@@ -3530,9 +3545,10 @@ noce_convert_multiple_sets_1 (struct noce_if_info *if_info,
 	 as well.  This allows the backend to emit a cmov directly without
 	 creating an additional compare for each.  If successful, costing
 	 is easier and this sequence is usually preferred.  */
-      seq2 = try_emit_cmove_seq (if_info, temp, cond,
-				 new_val, old_val, need_cmov,
-				 &cost2, &temp_dest2, cc_cmp, rev_cc_cmp);
+      if (cc_cmp)
+	seq2 = try_emit_cmove_seq (if_info, temp, cond,
+				   new_val, old_val, need_cmov,
+				   &cost2, &temp_dest2, cc_cmp, rev_cc_cmp);
 
       /* The backend might have created a sequence that uses the
 	 condition.  Check this.  */
@@ -3585,6 +3601,24 @@ noce_convert_multiple_sets_1 (struct noce_if_info *if_info,
 	  /* Nothing worked, bail out.  */
 	  end_sequence ();
 	  return FALSE;
+	}
+
+      if (cc_cmp)
+	{
+	  /* Check if SEQ can clobber registers mentioned in
+	     cc_cmp and/or rev_cc_cmp.  If yes, we need to use
+	     only seq1 from that point on.  */
+	  rtx cc_cmp_pair[2] = { cc_cmp, rev_cc_cmp };
+	  for (walk = seq; walk; walk = NEXT_INSN (walk))
+	    {
+	      note_stores (walk, check_for_cc_cmp_clobbers, cc_cmp_pair);
+	      if (cc_cmp_pair[0] == NULL_RTX)
+		{
+		  cc_cmp = NULL_RTX;
+		  rev_cc_cmp = NULL_RTX;
+		  break;
+		}
+	    }
 	}
 
       /* End the sub sequence and emit to the main sequence.  */
@@ -4219,6 +4253,9 @@ cond_move_convert_if_block (struct noce_if_info *if_infop,
 	    e = dest;
 	}
 
+      if (if_infop->cond_inverted)
+	std::swap (t, e);
+
       target = noce_emit_cmove (if_infop, dest, code, cond_arg0, cond_arg1,
 				t, e);
       if (!target)
@@ -4371,7 +4408,6 @@ noce_find_if_block (basic_block test_bb, edge then_edge, edge else_edge,
   basic_block then_bb, else_bb, join_bb;
   bool then_else_reversed = false;
   rtx_insn *jump;
-  rtx cond;
   rtx_insn *cond_earliest;
   struct noce_if_info if_info;
   bool speed_p = optimize_bb_for_speed_p (test_bb);
@@ -4447,25 +4483,28 @@ noce_find_if_block (basic_block test_bb, edge then_edge, edge else_edge,
   if (! onlyjump_p (jump))
     return FALSE;
 
-  /* If this is not a standard conditional jump, we can't parse it.  */
-  cond = noce_get_condition (jump, &cond_earliest, then_else_reversed);
-  if (!cond)
-    return FALSE;
-
-  /* We must be comparing objects whose modes imply the size.  */
-  if (GET_MODE (XEXP (cond, 0)) == BLKmode)
-    return FALSE;
-
   /* Initialize an IF_INFO struct to pass around.  */
   memset (&if_info, 0, sizeof if_info);
   if_info.test_bb = test_bb;
   if_info.then_bb = then_bb;
   if_info.else_bb = else_bb;
   if_info.join_bb = join_bb;
-  if_info.cond = cond;
+  if_info.cond = noce_get_condition (jump, &cond_earliest,
+				     then_else_reversed);
   rtx_insn *rev_cond_earliest;
   if_info.rev_cond = noce_get_condition (jump, &rev_cond_earliest,
 					 !then_else_reversed);
+  if (!if_info.cond && !if_info.rev_cond)
+    return FALSE;
+  if (!if_info.cond)
+    {
+      std::swap (if_info.cond, if_info.rev_cond);
+      std::swap (cond_earliest, rev_cond_earliest);
+      if_info.cond_inverted = true;
+    }
+  /* We must be comparing objects whose modes imply the size.  */
+  if (GET_MODE (XEXP (if_info.cond, 0)) == BLKmode)
+    return FALSE;
   gcc_assert (if_info.rev_cond == NULL_RTX
 	      || rev_cond_earliest == cond_earliest);
   if_info.cond_earliest = cond_earliest;
@@ -4484,7 +4523,9 @@ noce_find_if_block (basic_block test_bb, edge then_edge, edge else_edge,
 
   /* Do the real work.  */
 
-  if (noce_process_if_block (&if_info))
+  /* ??? noce_process_if_block has not yet been updated to handle
+     inverted conditions.  */
+  if (!if_info.cond_inverted && noce_process_if_block (&if_info))
     return TRUE;
 
   if (HAVE_conditional_move
@@ -5934,12 +5975,12 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       return (optimize > 0) && dbg_cnt (if_conversion);
     }
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       return rest_of_handle_if_conversion ();
     }
@@ -5981,13 +6022,13 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       return optimize > 0 && flag_if_conversion
 	&& dbg_cnt (if_after_combine);
     }
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       if_convert (true);
       return 0;
@@ -6027,13 +6068,13 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       return optimize > 0 && flag_if_conversion2
 	&& dbg_cnt (if_after_reload);
     }
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       if_convert (true);
       return 0;

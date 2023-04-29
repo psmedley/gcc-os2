@@ -1,7 +1,7 @@
 /* General types and functions that are uselful for processing of OpenMP,
    OpenACC and similar directivers at various stages of compilation.
 
-   Copyright (C) 2005-2022 Free Software Foundation, Inc.
+   Copyright (C) 2005-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -94,6 +94,7 @@ struct omp_for_data
 extern tree omp_find_clause (tree clauses, enum omp_clause_code kind);
 extern bool omp_is_allocatable_or_ptr (tree decl);
 extern tree omp_check_optional_argument (tree decl, bool for_present_check);
+extern bool omp_mappable_type (tree type);
 extern bool omp_privatize_by_reference (tree decl);
 extern void omp_adjust_for_condition (location_t loc, enum tree_code *cond_code,
 				      tree *n2, tree v, tree step);
@@ -126,17 +127,17 @@ extern int oacc_get_ifn_dim_arg (const gimple *stmt);
 
 enum omp_requires {
   OMP_REQUIRES_ATOMIC_DEFAULT_MEM_ORDER = 0xf,
-  OMP_REQUIRES_UNIFIED_ADDRESS = 0x10,
-  OMP_REQUIRES_UNIFIED_SHARED_MEMORY = 0x20,
+  OMP_REQUIRES_UNIFIED_ADDRESS = GOMP_REQUIRES_UNIFIED_ADDRESS,
+  OMP_REQUIRES_UNIFIED_SHARED_MEMORY = GOMP_REQUIRES_UNIFIED_SHARED_MEMORY,
   OMP_REQUIRES_DYNAMIC_ALLOCATORS = 0x40,
-  OMP_REQUIRES_REVERSE_OFFLOAD = 0x80,
+  OMP_REQUIRES_REVERSE_OFFLOAD = GOMP_REQUIRES_REVERSE_OFFLOAD,
   OMP_REQUIRES_ATOMIC_DEFAULT_MEM_ORDER_USED = 0x100,
-  OMP_REQUIRES_TARGET_USED = 0x200
+  OMP_REQUIRES_TARGET_USED = GOMP_REQUIRES_TARGET_USED,
 };
 
 extern GTY(()) enum omp_requires omp_requires_mask;
 
-static inline dump_flags_t
+inline dump_flags_t
 get_openacc_privatization_dump_flags ()
 {
   dump_flags_t l_dump_flags = MSG_NOTE;

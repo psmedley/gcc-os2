@@ -3,7 +3,7 @@
  *
  * Specification: $(LINK2 https://dlang.org/spec/arrays.html#array-operations, Array Operations)
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/arrayop.d, _arrayop.d)
@@ -26,6 +26,7 @@ import dmd.globals;
 import dmd.hdrgen;
 import dmd.id;
 import dmd.identifier;
+import dmd.location;
 import dmd.mtype;
 import dmd.common.outbuffer;
 import dmd.statement;
@@ -111,8 +112,8 @@ bool checkNonAssignmentArrayOp(Expression e, bool suggestion = false)
  * evaluation order as the actual array operations have no
  * side-effect.
  * References:
- * https://github.com/dlang/druntime/blob/master/src/object.d#L3944
- * https://github.com/dlang/druntime/blob/master/src/core/internal/array/operations.d
+ * https://github.com/dlang/dmd/blob/cdfadf8a18f474e6a1b8352af2541efe3e3467cc/druntime/src/object.d#L4694
+ * https://github.com/dlang/dmd/blob/master/druntime/src/core/internal/array/operations.d
  */
 Expression arrayOp(BinExp e, Scope* sc)
 {
@@ -129,8 +130,7 @@ Expression arrayOp(BinExp e, Scope* sc)
         return arrayOpInvalidError(e);
 
     auto tiargs = new Objects();
-    auto args = new Expressions();
-    buildArrayOp(sc, e, tiargs, args);
+    auto args = buildArrayOp(sc, e, tiargs);
 
     import dmd.dtemplate : TemplateDeclaration;
     __gshared TemplateDeclaration arrayOp;
@@ -149,7 +149,7 @@ Expression arrayOp(BinExp e, Scope* sc)
             ObjectNotFound(idArrayOp);   // fatal error
     }
 
-    auto fd = resolveFuncCall(e.loc, sc, arrayOp, tiargs, null, args, FuncResolveFlag.standard);
+    auto fd = resolveFuncCall(e.loc, sc, arrayOp, tiargs, null, ArgumentList(args), FuncResolveFlag.standard);
     if (!fd || fd.errors)
         return ErrorExp.get();
     return new CallExp(e.loc, new VarExp(e.loc, fd, false), args).expressionSemantic(sc);
@@ -184,7 +184,7 @@ Expression arrayOp(BinAssignExp e, Scope* sc)
  * using reverse polish notation (RPN) to encode order of operations.
  * Encode operations as string arguments, using a "u" prefix for unary operations.
  */
-private void buildArrayOp(Scope* sc, Expression e, Objects* tiargs, Expressions* args)
+private Expressions* buildArrayOp(Scope* sc, Expression e, Objects* tiargs)
 {
     extern (C++) final class BuildArrayOpVisitor : Visitor
     {
@@ -194,11 +194,11 @@ private void buildArrayOp(Scope* sc, Expression e, Objects* tiargs, Expressions*
         Expressions* args;
 
     public:
-        extern (D) this(Scope* sc, Objects* tiargs, Expressions* args)
+        extern (D) this(Scope* sc, Objects* tiargs) scope
         {
             this.sc = sc;
             this.tiargs = tiargs;
-            this.args = args;
+            this.args = new Expressions();
         }
 
         override void visit(Expression e)
@@ -252,8 +252,9 @@ private void buildArrayOp(Scope* sc, Expression e, Objects* tiargs, Expressions*
         }
     }
 
-    scope v = new BuildArrayOpVisitor(sc, tiargs, args);
+    scope v = new BuildArrayOpVisitor(sc, tiargs);
     e.accept(v);
+    return v.args;
 }
 
 /***********************************************

@@ -1,5 +1,5 @@
 /* Output colorization.
-   Copyright (C) 2011-2022 Free Software Foundation, Inc.
+   Copyright (C) 2011-2023 Free Software Foundation, Inc.
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
@@ -22,6 +22,7 @@
 #include "diagnostic-url.h"
 
 #ifdef __MINGW32__
+#  define WIN32_LEAN_AND_MEAN
 #  include <windows.h>
 #endif
 
@@ -91,6 +92,8 @@ static struct color_cap color_dict[] =
   { "locus", SGR_SEQ (COLOR_BOLD), 5, false },
   { "quote", SGR_SEQ (COLOR_BOLD), 5, false },
   { "path", SGR_SEQ (COLOR_BOLD COLOR_SEPARATOR COLOR_FG_CYAN), 4, false },
+  { "fnname", SGR_SEQ (COLOR_BOLD COLOR_SEPARATOR COLOR_FG_GREEN), 6, false },
+  { "targs", SGR_SEQ (COLOR_FG_MAGENTA), 5, false },
   { "fixit-insert", SGR_SEQ (COLOR_FG_GREEN), 12, false },
   { "fixit-delete", SGR_SEQ (COLOR_FG_RED), 12, false },
   { "diff-filename", SGR_SEQ (COLOR_BOLD), 13, false },

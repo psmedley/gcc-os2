@@ -1,5 +1,5 @@
 /* Functions dealing with attribute handling, used by most front ends.
-   Copyright (C) 1992-2022 Free Software Foundation, Inc.
+   Copyright (C) 1992-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -251,6 +251,7 @@ handle_ignored_attributes_option (vec<char *> *v)
       /* We don't accept '::attr'.  */
       if (cln == nullptr || cln == opt)
 	{
+	  auto_diagnostic_group d;
 	  error ("wrong argument to ignored attributes");
 	  inform (input_location, "valid format is %<ns::attr%> or %<ns::%>");
 	  continue;
@@ -499,7 +500,7 @@ diag_attr_exclusions (tree last_decl, tree node, tree attrname,
 
   /* Iterate over the mutually exclusive attribute names and verify
      that the symbol doesn't contain it.  */
-  for (unsigned i = 0; i != sizeof attrs / sizeof *attrs; ++i)
+  for (unsigned i = 0; i != ARRAY_SIZE (attrs); ++i)
     {
       if (!attrs[i])
 	continue;
@@ -732,10 +733,14 @@ decl_attributes (tree *node, tree attributes, int flags,
 	      || (spec->max_length >= 0
 		  && nargs > spec->max_length))
 	    {
+	      auto_diagnostic_group d;
 	      error ("wrong number of arguments specified for %qE attribute",
 		     name);
 	      if (spec->max_length < 0)
 		inform (input_location, "expected %i or more, found %i",
+			spec->min_length, nargs);
+	      else if (spec->min_length == spec->max_length)
+		inform (input_location, "expected %i, found %i",
 			spec->min_length, nargs);
 	      else
 		inform (input_location, "expected between %i and %i, found %i",
@@ -842,6 +847,7 @@ decl_attributes (tree *node, tree attributes, int flags,
 	      || !DECL_P (*anode)
 	      || DECL_BUILT_IN_CLASS (*anode) != BUILT_IN_NORMAL
 	      || (DECL_FUNCTION_CODE (*anode) != BUILT_IN_UNREACHABLE
+		  && DECL_FUNCTION_CODE (*anode) != BUILT_IN_UNREACHABLE_TRAP
 		  && (DECL_FUNCTION_CODE (*anode)
 		      != BUILT_IN_UBSAN_HANDLE_BUILTIN_UNREACHABLE)))
 	    {
@@ -876,6 +882,21 @@ decl_attributes (tree *node, tree attributes, int flags,
 
 	  tree ret = (spec->handler) (cur_and_last_decl, name, args,
 				      flags|cxx11_flag|ATTR_FLAG_HANDLER_DECL_FOLLOWS, &no_add_attrs);
+
+	  /* Fix up typedefs clobbered by attribute handlers.  */
+	  if (TREE_CODE (*node) == TYPE_DECL
+	      && anode == &TREE_TYPE (*node)
+	      && DECL_ORIGINAL_TYPE (*node)
+	      && TYPE_NAME (*anode) == *node
+	      && TYPE_NAME (cur_and_last_decl[0]) != *node)
+	    {
+	      tree t = cur_and_last_decl[0];
+	      DECL_ORIGINAL_TYPE (*node) = t;
+	      tree tt = build_variant_type_copy (t);
+	      cur_and_last_decl[0] = tt;
+	      TREE_TYPE (*node) = tt;
+	      TYPE_NAME (tt) = *node;
+	    }
 
 	  *anode = cur_and_last_decl[0];
 	  if (ret == error_mark_node)
@@ -1154,6 +1175,7 @@ common_function_versions (tree fn1, tree fn2)
 	      std::swap (fn1, fn2);
 	      attr1 = attr2;
 	    }
+	  auto_diagnostic_group d;
 	  error_at (DECL_SOURCE_LOCATION (fn2),
 		    "missing %<target%> attribute for multi-versioned %qD",
 		    fn2);
@@ -1629,6 +1651,33 @@ remove_attribute (const char *attr_name, tree list)
   return list;
 }
 
+/* Similarly but also match namespace on the removed attributes.
+   ATTR_NS "" stands for NULL or "gnu" namespace.  */
+
+tree
+remove_attribute (const char *attr_ns, const char *attr_name, tree list)
+{
+  tree *p;
+  gcc_checking_assert (attr_name[0] != '_');
+  gcc_checking_assert (attr_ns == NULL || attr_ns[0] != '_');
+
+  for (p = &list; *p;)
+    {
+      tree l = *p;
+
+      tree attr = get_attribute_name (l);
+      if (is_attribute_p (attr_name, attr)
+	  && is_attribute_namespace_p (attr_ns, l))
+	{
+	  *p = TREE_CHAIN (l);
+	  continue;
+	}
+      p = &TREE_CHAIN (l);
+    }
+
+  return list;
+}
+
 /* Return an attribute list that is the union of a1 and a2.  */
 
 tree
@@ -2026,6 +2075,45 @@ private_lookup_attribute (const char *attr_name, size_t attr_len, tree list)
   return list;
 }
 
+/* Similarly but with also attribute namespace.  */
+
+tree
+private_lookup_attribute (const char *attr_ns, const char *attr_name,
+			  size_t attr_ns_len, size_t attr_len, tree list)
+{
+  while (list)
+    {
+      tree attr = get_attribute_name (list);
+      size_t ident_len = IDENTIFIER_LENGTH (attr);
+      if (cmp_attribs (attr_name, attr_len, IDENTIFIER_POINTER (attr),
+		       ident_len))
+	{
+	  tree ns = get_attribute_namespace (list);
+	  if (ns == NULL_TREE)
+	    {
+	      if (attr_ns_len == 0)
+		break;
+	    }
+	  else if (attr_ns)
+	    {
+	      ident_len = IDENTIFIER_LENGTH (ns);
+	      if (attr_ns_len == 0)
+		{
+		  if (cmp_attribs ("gnu", strlen ("gnu"),
+				   IDENTIFIER_POINTER (ns), ident_len))
+		    break;
+		}
+	      else if (cmp_attribs (attr_ns, attr_ns_len,
+				    IDENTIFIER_POINTER (ns), ident_len))
+		break;
+	    }
+	}
+      list = TREE_CHAIN (list);
+    }
+
+  return list;
+}
+
 /* Return true if the function decl or type NODE has been declared
    with attribute ANAME among attributes ATTRS.  */
 
@@ -2111,7 +2199,7 @@ decls_mismatched_attributes (tree tmpl, tree decl, tree attrlist,
   };
 
   for (unsigned i = 0; i != 2; ++i)
-    for (unsigned j = 0; j != sizeof whitelist / sizeof *whitelist; ++j)
+    for (unsigned j = 0; j != ARRAY_SIZE (whitelist); ++j)
       if (lookup_attribute (whitelist[j], tmpl_attrs[i])
 	  || lookup_attribute (whitelist[j], decl_attrs[i]))
 	return 0;

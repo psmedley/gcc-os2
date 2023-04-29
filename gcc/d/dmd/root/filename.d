@@ -1,7 +1,7 @@
 /**
  * Encapsulate path and file names.
  *
- * Copyright: Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright: Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:   Walter Bright, https://www.digitalmars.com
  * License:   $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:    $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/root/filename.d, root/_filename.d)
@@ -55,7 +55,7 @@ alias Strings = Array!(const(char)*);
 
 
 // Check whether character is a directory separator
-private bool isDirSeparator(char c) pure nothrow @nogc @safe
+bool isDirSeparator(char c) pure nothrow @nogc @safe
 {
     version (Windows)
     {
@@ -83,6 +83,12 @@ nothrow:
     extern (D) this(const(char)[] str) pure
     {
         this.str = str.xarraydup;
+    }
+
+    ///
+    extern (C++) static FileName create(const(char)* name) pure
+    {
+        return FileName(name.toDString);
     }
 
     /// Compare two name according to the platform's rules (case sensitive or not)
@@ -734,16 +740,15 @@ nothrow:
      * Returns:
      *  index of the first reserved character in path if found, size_t.max otherwise
      */
-    extern (D) static size_t findReservedChar(const(char)* name) pure @nogc
+    extern (D) static size_t findReservedChar(const(char)[] name) pure @nogc @safe
     {
         version (Windows)
         {
-            size_t idx = 0;
             // According to https://docs.microsoft.com/en-us/windows/win32/fileio/naming-a-file#naming-conventions
             // the following characters are not allowed in path: < > : " | ? *
-            for (const(char)* p = name; *p; p++, idx++)
+            foreach (idx; 0 .. name.length)
             {
-                char c = *p;
+                char c = name[idx];
                 if (c == '<' || c == '>' || c == ':' || c == '"' || c == '|' || c == '?' || c == '*')
                 {
                     return idx;
@@ -784,21 +789,21 @@ nothrow:
      * Returns:
      *  true if path contains '..' reference to parent directory
      */
-    extern (D) static bool refersToParentDir(const(char)* name) pure @nogc
+    extern (D) static bool refersToParentDir(const(char)[] name) pure @nogc @safe
     {
-        if (name[0] == '.' && name[1] == '.' && (!name[2] || isDirSeparator(name[2])))
+        size_t s = 0;
+        foreach (i; 0 .. name.length)
         {
-            return true;
-        }
-
-        for (const(char)* p = name; *p; p++)
-        {
-            char c = *p;
-            if (isDirSeparator(c) && p[1] == '.' && p[2] == '.' && (!p[3] || isDirSeparator(p[3])))
+            if (isDirSeparator(name[i]))
             {
-                return true;
+                if (name[s..i] == "..")
+                    return true;
+                s = i + 1;
             }
         }
+        if (name[s..$] == "..")
+            return true;
+
         return false;
     }
     unittest

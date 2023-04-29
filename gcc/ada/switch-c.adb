@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 2001-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 2001-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -28,7 +28,6 @@
 --  circularities, especially for back ends using Adabkend.
 
 with Debug;    use Debug;
-with Errout;   use Errout;
 with Lib;      use Lib;
 with Osint;    use Osint;
 with Opt;      use Opt;
@@ -390,6 +389,9 @@ package body Switch.C is
                      elsif Underscore then
                         Set_Underscored_Debug_Flag (C);
                         Store_Compilation_Switch ("-gnatd_" & C);
+                        if Debug_Flag_Underscore_C then
+                           Enable_CUDA_Expansion := True;
+                        end if;
 
                      --  Normal flag
 
@@ -600,7 +602,8 @@ package body Switch.C is
                      Exception_Extra_Info := True;
                      Ptr := Ptr + 1;
 
-                  --  -gnatef (full source path for brief error messages)
+                  --  -gnatef (full source path for brief error messages and
+                  --  absolute paths for -fdiagnostics-format=json)
 
                   when 'f' =>
                      Store_Switch := False;
@@ -1323,7 +1326,7 @@ package body Switch.C is
                      Ptr := Ptr + 1;
                      C := Switch_Chars (Ptr);
 
-                     if Set_Dot_Warning_Switch (C) then
+                     if Set_Warning_Switch ('.', C) then
                         Store_Compilation_Switch ("-gnatw." & C);
                      else
                         Bad_Switch ("-gnatw." & Switch_Chars (Ptr .. Max));
@@ -1335,7 +1338,7 @@ package body Switch.C is
                      Ptr := Ptr + 1;
                      C := Switch_Chars (Ptr);
 
-                     if Set_Underscore_Warning_Switch (C) then
+                     if Set_Warning_Switch ('_', C) then
                         Store_Compilation_Switch ("-gnatw_" & C);
                      else
                         Bad_Switch ("-gnatw_" & Switch_Chars (Ptr .. Max));
@@ -1344,7 +1347,7 @@ package body Switch.C is
                   --  Normal case
 
                   else
-                     if Set_Warning_Switch (C) then
+                     if Set_Warning_Switch (Plain, C) then
                         Store_Compilation_Switch ("-gnatw" & C);
                      else
                         Bad_Switch ("-gnatw" & Switch_Chars (Ptr .. Max));
@@ -1387,12 +1390,21 @@ package body Switch.C is
                Ptr := Ptr + 1;
                Xref_Active := False;
 
-            --  -gnatX (language extensions)
+            --  -gnatX (core language extensions)
 
             when 'X' =>
                Ptr := Ptr + 1;
-               Ada_Version          := Ada_With_Extensions;
-               Ada_Version_Explicit := Ada_With_Extensions;
+
+               if Ptr <= Max and then Switch_Chars (Ptr) = '0' then
+                  --  -gnatX0 (all language extensions)
+
+                  Ptr := Ptr + 1;
+                  Ada_Version := Ada_With_All_Extensions;
+               else
+                  Ada_Version := Ada_With_Core_Extensions;
+               end if;
+
+               Ada_Version_Explicit := Ada_Version;
                Ada_Version_Pragma   := Empty;
 
             --  -gnaty (style checks)

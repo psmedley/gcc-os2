@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -43,6 +43,7 @@ with Opt;            use Opt;
 with Par_SCO;        use Par_SCO;
 with Rtsfind;        use Rtsfind;
 with Sem;            use Sem;
+with Sem_Aggr;       use Sem_Aggr;
 with Sem_Aux;        use Sem_Aux;
 with Sem_Cat;        use Sem_Cat;
 with Sem_Ch3;        use Sem_Ch3;
@@ -60,6 +61,7 @@ with Snames;         use Snames;
 with Stand;          use Stand;
 with Stringt;        use Stringt;
 with Tbuild;         use Tbuild;
+with Warnsw;         use Warnsw;
 
 package body Sem_Eval is
 
@@ -1815,13 +1817,14 @@ package body Sem_Eval is
 
    begin
       --  Never known at compile time if bad type or raises Constraint_Error
-      --  or empty (latter case occurs only as a result of a previous error).
+      --  or empty (which can occur as a result of a previous error or in the
+      --  case of e.g. an imported constant).
 
       if No (Op) then
-         Check_Error_Detected;
          return False;
 
       elsif Op = Error
+        or else Nkind (Op) not in N_Has_Etype
         or else Etype (Op) = Any_Type
         or else Raises_Constraint_Error (Op)
       then
@@ -2797,7 +2800,7 @@ package body Sem_Eval is
       --  Check_Non_Static_Context on an expanded literal may lead to spurious
       --  and misleading warnings.
 
-      if (PK not in N_Subexpr
+      if (PK not in N_Case_Expression_Alternative | N_Subexpr
            or else (PK in N_Case_Expression_Alternative | N_If_Expression
                      and then
                     Comes_From_Source (N)))
@@ -2855,10 +2858,11 @@ package body Sem_Eval is
          return;
       end if;
 
-      --  Intrinsic calls as part of a static function is a language extension.
+      --  Intrinsic calls as part of a static function is a (core)
+      --  language extension.
 
       if Checking_Potentially_Static_Expression
-        and then not Extensions_Allowed
+        and then not Core_Extensions_Allowed
       then
          return;
       end if;
@@ -6054,6 +6058,16 @@ package body Sem_Eval is
    ------------------
 
    procedure Out_Of_Range (N : Node_Id) is
+
+      --  If the FE conjures up an expression that would normally be
+      --  an illegal static expression (e.g., an integer literal with
+      --  a value outside of its base subtype), we don't want to
+      --  flag it as illegal; we only want a warning in such cases.
+
+      function Force_Warning return Boolean is
+        (if Comes_From_Source (Original_Node (N)) then False
+         elsif Nkind (Original_Node (N)) = N_Type_Conversion then True
+         else Is_Null_Array_Aggregate_High_Bound (N));
    begin
       --  If we have the static expression case, then this is an illegality
       --  in Ada 95 mode, except that in an instance, we never generate an
@@ -6093,9 +6107,7 @@ package body Sem_Eval is
             --  Determine if the out-of-range violation constitutes a warning
             --  or an error based on context, according to RM 4.9 (34/3).
 
-            if Nkind (Original_Node (N)) = N_Type_Conversion
-              and then not Comes_From_Source (Original_Node (N))
-            then
+            if Force_Warning then
                Apply_Compile_Time_Constraint_Error
                  (N, "value not in range of}??", CE_Range_Check_Failed);
             else
@@ -7476,17 +7488,15 @@ package body Sem_Eval is
                   return;
                end if;
 
-               if Present (Expressions (N)) then
-                  Exp := First (Expressions (N));
-                  while Present (Exp) loop
-                     if Raises_Constraint_Error (Exp) then
-                        Why_Not_Static (Exp);
-                        return;
-                     end if;
+               Exp := First (Expressions (N));
+               while Present (Exp) loop
+                  if Raises_Constraint_Error (Exp) then
+                     Why_Not_Static (Exp);
+                     return;
+                  end if;
 
-                     Next (Exp);
-                  end loop;
-               end if;
+                  Next (Exp);
+               end loop;
 
             --  Special case a subtype name
 

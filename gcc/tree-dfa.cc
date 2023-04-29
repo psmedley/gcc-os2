@@ -1,5 +1,5 @@
 /* Data flow functions for trees.
-   Copyright (C) 2001-2022 Free Software Foundation, Inc.
+   Copyright (C) 2001-2023 Free Software Foundation, Inc.
    Contributed by Diego Novillo <dnovillo@redhat.com>
 
 This file is part of GCC.
@@ -59,6 +59,25 @@ static void collect_dfa_stats (struct dfa_stats_d *);
 			Dataflow analysis (DFA) routines
 ---------------------------------------------------------------------------*/
 
+/* Renumber the gimple stmt uids in one block.  The caller is responsible
+   of calling set_gimple_stmt_max_uid (fun, 0) at some point.  */
+
+void
+renumber_gimple_stmt_uids_in_block (struct function *fun, basic_block bb)
+{
+  gimple_stmt_iterator bsi;
+  for (bsi = gsi_start_phis (bb); !gsi_end_p (bsi); gsi_next (&bsi))
+    {
+      gimple *stmt = gsi_stmt (bsi);
+      gimple_set_uid (stmt, inc_gimple_stmt_max_uid (fun));
+    }
+  for (bsi = gsi_start_bb (bb); !gsi_end_p (bsi); gsi_next (&bsi))
+    {
+      gimple *stmt = gsi_stmt (bsi);
+      gimple_set_uid (stmt, inc_gimple_stmt_max_uid (fun));
+    }
+}
+
 /* Renumber all of the gimple stmt uids.  */
 
 void
@@ -68,19 +87,7 @@ renumber_gimple_stmt_uids (struct function *fun)
 
   set_gimple_stmt_max_uid (fun, 0);
   FOR_ALL_BB_FN (bb, fun)
-    {
-      gimple_stmt_iterator bsi;
-      for (bsi = gsi_start_phis (bb); !gsi_end_p (bsi); gsi_next (&bsi))
-	{
-	  gimple *stmt = gsi_stmt (bsi);
-	  gimple_set_uid (stmt, inc_gimple_stmt_max_uid (fun));
-	}
-      for (bsi = gsi_start_bb (bb); !gsi_end_p (bsi); gsi_next (&bsi))
-	{
-	  gimple *stmt = gsi_stmt (bsi);
-	  gimple_set_uid (stmt, inc_gimple_stmt_max_uid (fun));
-	}
-    }
+    renumber_gimple_stmt_uids_in_block (fun, bb);
 }
 
 /* Like renumber_gimple_stmt_uids, but only do work on the basic blocks
@@ -93,20 +100,7 @@ renumber_gimple_stmt_uids_in_blocks (basic_block *blocks, int n_blocks)
 
   set_gimple_stmt_max_uid (cfun, 0);
   for (i = 0; i < n_blocks; i++)
-    {
-      basic_block bb = blocks[i];
-      gimple_stmt_iterator bsi;
-      for (bsi = gsi_start_phis (bb); !gsi_end_p (bsi); gsi_next (&bsi))
-	{
-	  gimple *stmt = gsi_stmt (bsi);
-	  gimple_set_uid (stmt, inc_gimple_stmt_max_uid (cfun));
-	}
-      for (bsi = gsi_start_bb (bb); !gsi_end_p (bsi); gsi_next (&bsi))
-	{
-	  gimple *stmt = gsi_stmt (bsi);
-	  gimple_set_uid (stmt, inc_gimple_stmt_max_uid (cfun));
-	}
-    }
+    renumber_gimple_stmt_uids_in_block (cfun, blocks[i]);
 }
 
 
@@ -453,8 +447,8 @@ get_ref_base_and_extent (tree exp, poly_int64_pod *poffset,
 		    if (!next
 			|| TREE_CODE (stype) != RECORD_TYPE)
 		      {
-			tree fsize = DECL_SIZE_UNIT (field);
-			tree ssize = TYPE_SIZE_UNIT (stype);
+			tree fsize = DECL_SIZE (field);
+			tree ssize = TYPE_SIZE (stype);
 			if (fsize == NULL
 			    || !poly_int_tree_p (fsize)
 			    || ssize == NULL
@@ -465,7 +459,6 @@ get_ref_base_and_extent (tree exp, poly_int64_pod *poffset,
 			    poly_offset_int tem
 			      = (wi::to_poly_offset (ssize)
 				 - wi::to_poly_offset (fsize));
-			    tem <<= LOG2_BITS_PER_UNIT;
 			    tem -= woffset;
 			    maxsize += tem;
 			  }

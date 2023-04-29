@@ -52,7 +52,7 @@ import std.algorithm.mutation : copy;
 import std.meta : allSatisfy;
 import std.range : ElementEncodingType, empty, front, isBidirectionalRange,
     isInputRange, isSomeFiniteCharInputRange, put;
-import std.traits : isSomeChar, isSomeString, Unqual, isPointer;
+import std.traits : isSomeChar, isSomeString, Unqual;
 import std.typecons : Flag, No, Yes;
 
 /++
@@ -85,8 +85,7 @@ else version (CRuntime_Musl)
 }
 else version (CRuntime_UClibc)
 {
-    // uClibc supports GCC IO
-    version = GCC_IO;
+    version = GENERIC_IO;
 }
 else version (OSX)
 {
@@ -146,8 +145,8 @@ version (Windows)
     // encoded in CP_ACP on Windows instead of UTF-8.
     /+ Waiting for druntime pull 299
     +/
-    extern (C) nothrow @nogc FILE* _wfopen(in wchar* filename, in wchar* mode);
-    extern (C) nothrow @nogc FILE* _wfreopen(in wchar* filename, in wchar* mode, FILE* fp);
+    extern (C) nothrow @nogc FILE* _wfopen(scope const wchar* filename, scope const wchar* mode);
+    extern (C) nothrow @nogc FILE* _wfreopen(scope const wchar* filename, scope const wchar* mode, FILE* fp);
 
     import core.sys.windows.basetsd : HANDLE;
 }
@@ -498,17 +497,21 @@ struct File
     private Impl* _p;
     private string _name;
 
-    package this(FILE* handle, string name, uint refs = 1, bool isPopened = false) @trusted
+    package this(FILE* handle, string name, uint refs = 1, bool isPopened = false) @trusted @nogc nothrow
     {
         import core.stdc.stdlib : malloc;
-        import std.exception : enforce;
 
         assert(!_p);
-        _p = cast(Impl*) enforce(malloc(Impl.sizeof), "Out of memory");
+        _p = cast(Impl*) malloc(Impl.sizeof);
+        if (!_p)
+        {
+            import core.exception : onOutOfMemoryError;
+            onOutOfMemoryError();
+        }
         initImpl(handle, name, refs, isPopened);
     }
 
-    private void initImpl(FILE* handle, string name, uint refs = 1, bool isPopened = false)
+    private void initImpl(FILE* handle, string name, uint refs = 1, bool isPopened = false) @nogc nothrow pure @safe
     {
         assert(_p);
         _p.handle = handle;
@@ -585,7 +588,7 @@ Throws: `ErrnoException` if the file could not be opened.
         detach();
     }
 
-    this(this) @safe nothrow
+    this(this) @safe pure nothrow @nogc
     {
         if (!_p) return;
         assert(atomicLoad(_p.refs));
@@ -765,7 +768,7 @@ Throws: `ErrnoException` in case of error.
             _name = name;
     }
 
-    @system unittest // Test changing filename
+    @safe unittest // Test changing filename
     {
         import std.exception : assertThrown, assertNotThrown;
         static import std.file;
@@ -787,7 +790,7 @@ Throws: `ErrnoException` in case of error.
 
     version (CRuntime_DigitalMars) {} else // Not implemented
     version (CRuntime_Microsoft) {} else // Not implemented
-    @system unittest // Test changing mode
+    @safe unittest // Test changing mode
     {
         import std.exception : assertThrown, assertNotThrown;
         static import std.file;
@@ -1128,10 +1131,9 @@ each item is inferred from the size and type of the input array, respectively.
 
 Returns: The slice of `buffer` containing the data that was actually read.
 This will be shorter than `buffer` if EOF was reached before the buffer
-could be filled.
+could be filled. If the buffer is empty, it will be returned.
 
-Throws: `Exception` if `buffer` is empty.
-        `ErrnoException` if the file is not opened or the call to `fread` fails.
+Throws: `ErrnoException` if the file is not opened or the call to `fread` fails.
 
 `rawRead` always reads in binary mode on Windows.
  */
@@ -1140,7 +1142,7 @@ Throws: `Exception` if `buffer` is empty.
         import std.exception : enforce, errnoEnforce;
 
         if (!buffer.length)
-            throw new Exception("rawRead must take a non-empty buffer");
+            return buffer;
         enforce(isOpen, "Attempting to read from an unopened file");
         version (Windows)
         {
@@ -1205,6 +1207,16 @@ Throws: `Exception` if `buffer` is empty.
             ubyte[1] u;
             assertThrown(p.readEnd.rawRead(u));
         }
+    }
+
+    // https://issues.dlang.org/show_bug.cgi?id=13893
+    @system unittest
+    {
+        import std.exception : assertNotThrown;
+
+        File f;
+        ubyte[0] u;
+        assertNotThrown(f.rawRead(u));
     }
 
 /**
@@ -1362,8 +1374,9 @@ Throws: `Exception` if the file is not opened.
     }
 
 /**
-Calls $(HTTP cplusplus.com/reference/clibrary/cstdio/ftell.html, ftell) for the
-managed file handle.
+Calls $(HTTP cplusplus.com/reference/cstdio/ftell.html, ftell)
+for the managed file handle, which returns the current value of
+the position indicator of the file handle.
 
 Throws: `Exception` if the file is not opened.
         `ErrnoException` if the call to `ftell` fails.
@@ -1841,15 +1854,15 @@ void main()
 }
 ---
 */
-    S readln(S = string)(dchar terminator = '\n')
+    S readln(S = string)(dchar terminator = '\n') @safe
     if (isSomeString!S)
     {
         Unqual!(ElementEncodingType!S)[] buf;
         readln(buf, terminator);
-        return cast(S) buf;
+        return (() @trusted => cast(S) buf)();
     }
 
-    @system unittest
+    @safe unittest
     {
         import std.algorithm.comparison : equal;
         static import std.file;
@@ -1873,7 +1886,7 @@ void main()
         }}
     }
 
-    @system unittest
+    @safe unittest
     {
         static import std.file;
         import std.typecons : Tuple;
@@ -1972,7 +1985,7 @@ void main()
 This is actually what $(LREF byLine) does internally, so its usage
 is recommended if you want to process a complete file.
 */
-    size_t readln(C)(ref C[] buf, dchar terminator = '\n')
+    size_t readln(C)(ref C[] buf, dchar terminator = '\n') @safe
     if (isSomeChar!C && is(Unqual!C == C) && !is(C == enum))
     {
         import std.exception : enforce;
@@ -2008,9 +2021,8 @@ is recommended if you want to process a complete file.
         }
     }
 
-    @system unittest
+    @safe unittest
     {
-        // @system due to readln
         static import std.file;
         auto deleteme = testFilename();
         std.file.write(deleteme, "123\n456789");
@@ -2027,7 +2039,7 @@ is recommended if you want to process a complete file.
     }
 
     // https://issues.dlang.org/show_bug.cgi?id=15293
-    @system unittest
+    @safe unittest
     {
         // @system due to readln
         static import std.file;
@@ -2051,7 +2063,7 @@ is recommended if you want to process a complete file.
     }
 
 /** ditto */
-    size_t readln(C, R)(ref C[] buf, R terminator)
+    size_t readln(C, R)(ref C[] buf, R terminator) @safe
     if (isSomeChar!C && is(Unqual!C == C) && !is(C == enum) &&
         isBidirectionalRange!R && is(typeof(terminator.front == dchar.init)))
     {
@@ -2081,7 +2093,7 @@ is recommended if you want to process a complete file.
         return buf.length;
     }
 
-    @system unittest
+    @safe unittest
     {
         static import std.file;
         import std.typecons : Tuple;
@@ -3723,9 +3735,8 @@ void main()
     assert(f.tell == 0);
 }
 
-@system unittest
+@safe unittest
 {
-    // @system due to readln
     static import std.file;
     import std.range : chain, only, repeat;
     import std.range.primitives : isOutputRange;
@@ -5157,13 +5168,13 @@ Initialize with a message and an error code.
     }
 
 /** Convenience functions that throw an `StdioException`. */
-    static void opCall(string msg)
+    static void opCall(string msg) @safe
     {
         throw new StdioException(msg);
     }
 
 /// ditto
-    static void opCall()
+    static void opCall() @safe
     {
         throw new StdioException(null, core.stdc.errno.errno);
     }
@@ -5198,7 +5209,7 @@ enum StdFileHandle: string
             {
                 with (StdFileHandle)
                     assert(_iob == stdin || _iob == stdout || _iob == stderr);
-                impl.handle = mixin(_iob);
+                impl.handle = cast() mixin(_iob);
                 result._p = &impl;
                 atomicOp!"+="(spinlock, uint.max / 2);
                 break;
@@ -5376,7 +5387,7 @@ private struct ReadlnAppender
     size_t pos;
     bool safeAppend = false;
 
-    void initialize(char[] b)
+    void initialize(char[] b) @safe
     {
         buf = b;
         pos = 0;
@@ -5433,7 +5444,7 @@ private struct ReadlnAppender
         foreach (c; ubuf)
             buf.ptr[pos++] = c;
     }
-    void putonly(char[] b) @trusted
+    void putonly(const char[] b) @trusted
     {
         import core.stdc.string : memcpy;
         assert(pos == 0);   // assume this is the only put call
@@ -5445,28 +5456,60 @@ private struct ReadlnAppender
     }
 }
 
-// Private implementation of readln
-private size_t readlnImpl(FILE* fps, ref char[] buf, dchar terminator, File.Orientation orientation)
+private struct LockedFile
 {
-    version (DIGITAL_MARS_STDIO)
+    private @system _iobuf* fp;
+
+    this(FILE* fps) @trusted
     {
         _FLOCK(fps);
-        scope(exit) _FUNLOCK(fps);
+        // Since fps is now locked, we can cast away shared
+        fp = cast(_iobuf*) fps;
+    }
 
-        /* Since fps is now locked, we can create an "unshared" version
-         * of fp.
-         */
-        auto fp = cast(_iobuf*) fps;
+    @disable this();
+    @disable this(this);
+    @disable void opAssign(LockedFile);
 
+    // these use unlocked fgetc calls
+    @trusted fgetc() { return _FGETC(fp); }
+    @trusted fgetwc() { return _FGETWC(fp); }
+
+    ~this() @trusted
+    {
+        _FUNLOCK(cast(FILE*) fp);
+    }
+}
+
+@safe unittest
+{
+    void f() @safe
+    {
+        FILE* fps;
+        auto lf = LockedFile(fps);
+        static assert(!__traits(compiles, lf = LockedFile(fps)));
+        version (ShouldFail)
+        {
+            lf.fps = null; // error with -preview=systemVariables
+        }
+    }
+}
+
+// Private implementation of readln
+private size_t readlnImpl(FILE* fps, ref char[] buf, dchar terminator, File.Orientation orientation) @safe
+{
+    version (DIGITAL_MARS_STDIO)
+    return () @trusted {
+        auto lf = LockedFile(fps);
         ReadlnAppender app;
         app.initialize(buf);
 
-        if (__fhnd_info[fp._file] & FHND_WCHAR)
+        if (__fhnd_info[lf.fp._file] & FHND_WCHAR)
         {   /* Stream is in wide characters.
              * Read them and convert to chars.
              */
             static assert(wchar_t.sizeof == 2);
-            for (int c = void; (c = _FGETWC(fp)) != -1; )
+            for (int c = void; (c = lf.fgetwc()) != -1; )
             {
                 if ((c & ~0x7F) == 0)
                 {
@@ -5479,7 +5522,7 @@ private size_t readlnImpl(FILE* fps, ref char[] buf, dchar terminator, File.Orie
                     if (c >= 0xD800 && c <= 0xDBFF)
                     {
                         int c2 = void;
-                        if ((c2 = _FGETWC(fp)) != -1 ||
+                        if ((c2 = lf.fgetwc()) != -1 ||
                                 c2 < 0xDC00 && c2 > 0xDFFF)
                         {
                             StdioException("unpaired UTF-16 surrogate");
@@ -5492,8 +5535,7 @@ private size_t readlnImpl(FILE* fps, ref char[] buf, dchar terminator, File.Orie
             if (ferror(fps))
                 StdioException();
         }
-
-        else if (fp._flag & _IONBF)
+        else if (lf.fp._flag & _IONBF)
         {
             /* Use this for unbuffered I/O, when running
              * across buffer boundaries, or for any but the common
@@ -5501,7 +5543,7 @@ private size_t readlnImpl(FILE* fps, ref char[] buf, dchar terminator, File.Orie
              */
         L1:
             int c;
-            while ((c = _FGETC(fp)) != -1)
+            while ((c = lf.fgetc()) != -1)
             {
                 app.putchar(cast(char) c);
                 if (c == terminator)
@@ -5517,10 +5559,10 @@ private size_t readlnImpl(FILE* fps, ref char[] buf, dchar terminator, File.Orie
         }
         else
         {
-            int u = fp._cnt;
-            char* p = fp._ptr;
+            int u = lf.fp._cnt;
+            char* p = lf.fp._ptr;
             int i;
-            if (fp._flag & _IOTRAN)
+            if (lf.fp._flag & _IOTRAN)
             {   /* Translated mode ignores \r and treats ^Z as end-of-file
                  */
                 char c;
@@ -5562,28 +5604,22 @@ private size_t readlnImpl(FILE* fps, ref char[] buf, dchar terminator, File.Orie
                 }
                 app.putonly(p[0 .. i]);
             }
-            fp._cnt -= i;
-            fp._ptr += i;
+            lf.fp._cnt -= i;
+            lf.fp._ptr += i;
         }
 
         buf = app.data;
         return buf.length;
-    }
+    }();
     else version (MICROSOFT_STDIO)
     {
-        _FLOCK(fps);
-        scope(exit) _FUNLOCK(fps);
-
-        /* Since fps is now locked, we can create an "unshared" version
-         * of fp.
-         */
-        auto fp = cast(_iobuf*) fps;
+        auto lf = LockedFile(fps);
 
         ReadlnAppender app;
         app.initialize(buf);
 
         int c;
-        while ((c = _FGETC(fp)) != -1)
+        while ((c = lf.fgetc()) != -1)
         {
             app.putchar(cast(char) c);
             if (c == terminator)
@@ -5601,21 +5637,18 @@ private size_t readlnImpl(FILE* fps, ref char[] buf, dchar terminator, File.Orie
     }
     else static if (__traits(compiles, core.sys.posix.stdio.getdelim))
     {
-        import core.stdc.stdlib : free;
-        import core.stdc.wchar_ : fwide;
-
         if (orientation == File.Orientation.wide)
         {
+            import core.stdc.wchar_ : fwide;
+
+            auto lf = LockedFile(fps);
             /* Stream is in wide characters.
              * Read them and convert to chars.
              */
-            _FLOCK(fps);
-            scope(exit) _FUNLOCK(fps);
-            auto fp = cast(_iobuf*) fps;
             version (Windows)
             {
                 buf.length = 0;
-                for (int c = void; (c = _FGETWC(fp)) != -1; )
+                for (int c = void; (c = lf.fgetwc()) != -1; )
                 {
                     if ((c & ~0x7F) == 0)
                     {   buf ~= c;
@@ -5627,7 +5660,7 @@ private size_t readlnImpl(FILE* fps, ref char[] buf, dchar terminator, File.Orie
                         if (c >= 0xD800 && c <= 0xDBFF)
                         {
                             int c2 = void;
-                            if ((c2 = _FGETWC(fp)) != -1 ||
+                            if ((c2 = lf.fgetwc()) != -1 ||
                                     c2 < 0xDC00 && c2 > 0xDFFF)
                             {
                                 StdioException("unpaired UTF-16 surrogate");
@@ -5638,14 +5671,14 @@ private size_t readlnImpl(FILE* fps, ref char[] buf, dchar terminator, File.Orie
                         encode(buf, c);
                     }
                 }
-                if (ferror(fp))
+                if (ferror(fps))
                     StdioException();
                 return buf.length;
             }
             else version (Posix)
             {
                 buf.length = 0;
-                for (int c; (c = _FGETWC(fp)) != -1; )
+                for (int c; (c = lf.fgetwc()) != -1; )
                 {
                     import std.utf : encode;
 
@@ -5665,47 +5698,49 @@ private size_t readlnImpl(FILE* fps, ref char[] buf, dchar terminator, File.Orie
                 static assert(0);
             }
         }
+        return () @trusted {
+            import core.stdc.stdlib : free;
 
-        static char *lineptr = null;
-        static size_t n = 0;
-        scope(exit)
-        {
-            if (n > 128 * 1024)
+            static char *lineptr = null;
+            static size_t n = 0;
+            scope(exit)
             {
-                // Bound memory used by readln
-                free(lineptr);
-                lineptr = null;
-                n = 0;
+                if (n > 128 * 1024)
+                {
+                    // Bound memory used by readln
+                    free(lineptr);
+                    lineptr = null;
+                    n = 0;
+                }
             }
-        }
 
-        auto s = core.sys.posix.stdio.getdelim(&lineptr, &n, terminator, fps);
-        if (s < 0)
-        {
-            if (ferror(fps))
-                StdioException();
-            buf.length = 0;                // end of file
-            return 0;
-        }
+            const s = core.sys.posix.stdio.getdelim(&lineptr, &n, terminator, fps);
+            if (s < 0)
+            {
+                if (ferror(fps))
+                    StdioException();
+                buf.length = 0;                // end of file
+                return 0;
+            }
 
-        if (s <= buf.length)
-        {
-            buf = buf[0 .. s];
-            buf[] = lineptr[0 .. s];
-        }
-        else
-        {
-            buf = lineptr[0 .. s].dup;
-        }
-        return s;
+            const line = lineptr[0 .. s];
+            if (s <= buf.length)
+            {
+                buf = buf[0 .. s];
+                buf[] = line;
+            }
+            else
+            {
+                buf = line.dup;
+            }
+            return s;
+        }();
     }
     else // version (NO_GETDELIM)
     {
         import core.stdc.wchar_ : fwide;
 
-        _FLOCK(fps);
-        scope(exit) _FUNLOCK(fps);
-        auto fp = cast(_iobuf*) fps;
+        auto lf = LockedFile(fps);
         if (orientation == File.Orientation.wide)
         {
             /* Stream is in wide characters.
@@ -5714,7 +5749,7 @@ private size_t readlnImpl(FILE* fps, ref char[] buf, dchar terminator, File.Orie
             version (Windows)
             {
                 buf.length = 0;
-                for (int c; (c = _FGETWC(fp)) != -1; )
+                for (int c; (c = lf.fgetwc()) != -1; )
                 {
                     if ((c & ~0x7F) == 0)
                     {   buf ~= c;
@@ -5726,7 +5761,7 @@ private size_t readlnImpl(FILE* fps, ref char[] buf, dchar terminator, File.Orie
                         if (c >= 0xD800 && c <= 0xDBFF)
                         {
                             int c2 = void;
-                            if ((c2 = _FGETWC(fp)) != -1 ||
+                            if ((c2 = lf.fgetwc()) != -1 ||
                                     c2 < 0xDC00 && c2 > 0xDFFF)
                             {
                                 StdioException("unpaired UTF-16 surrogate");
@@ -5737,7 +5772,7 @@ private size_t readlnImpl(FILE* fps, ref char[] buf, dchar terminator, File.Orie
                         encode(buf, c);
                     }
                 }
-                if (ferror(fp))
+                if (ferror(fps))
                     StdioException();
                 return buf.length;
             }
@@ -5745,7 +5780,7 @@ private size_t readlnImpl(FILE* fps, ref char[] buf, dchar terminator, File.Orie
             {
                 import std.utf : encode;
                 buf.length = 0;
-                for (int c; (c = _FGETWC(fp)) != -1; )
+                for (int c; (c = lf.fgetwc()) != -1; )
                 {
                     if ((c & ~0x7F) == 0)
                         buf ~= cast(char) c;
@@ -5768,7 +5803,7 @@ private size_t readlnImpl(FILE* fps, ref char[] buf, dchar terminator, File.Orie
         // First, fill the existing buffer
         for (size_t bufPos = 0; bufPos < buf.length; )
         {
-            immutable c = _FGETC(fp);
+            immutable c = lf.fgetc();
             if (c == -1)
             {
                 buf.length = bufPos;
@@ -5783,7 +5818,7 @@ private size_t readlnImpl(FILE* fps, ref char[] buf, dchar terminator, File.Orie
             }
         }
         // Then, append to it
-        for (int c; (c = _FGETC(fp)) != -1; )
+        for (int c; (c = lf.fgetc()) != -1; )
         {
             buf ~= cast(char) c;
             if (c == terminator)

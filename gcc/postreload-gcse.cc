@@ -1,5 +1,5 @@
 /* Post reload partially redundant load elimination
-   Copyright (C) 2004-2022 Free Software Foundation, Inc.
+   Copyright (C) 2004-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -447,7 +447,7 @@ lookup_expr_in_table (rtx pat)
   tmp_expr->hash = hash;
   tmp_expr->avail_occr = NULL;
 
-  slot = expr_table->find_slot_with_hash (tmp_expr, hash, INSERT);
+  slot = expr_table->find_slot_with_hash (tmp_expr, hash, NO_INSERT);
   obstack_free (&expr_obstack, tmp_expr);
 
   if (!slot)
@@ -1447,13 +1447,16 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *fun)
+  bool gate (function *fun) final override
     {
       return (optimize > 0 && flag_gcse_after_reload
 	      && optimize_function_for_speed_p (fun));
     }
 
-  virtual unsigned int execute (function *) { return rest_of_handle_gcse2 (); }
+  unsigned int execute (function *) final override
+  {
+    return rest_of_handle_gcse2 ();
+  }
 
 }; // class pass_gcse2
 

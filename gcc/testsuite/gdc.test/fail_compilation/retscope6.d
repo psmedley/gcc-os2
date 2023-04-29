@@ -25,7 +25,7 @@ int* test() @safe
 ---
 fail_compilation/retscope6.d(7034): Error: address of variable `i` assigned to `s` with longer lifetime
 fail_compilation/retscope6.d(7035): Error: address of variable `i` assigned to `s` with longer lifetime
-fail_compilation/retscope6.d(7025): Error: scope variable `_param_2` assigned to `t` with longer lifetime
+fail_compilation/retscope6.d(7025): Error: scope variable `_param_2` assigned to `ref` variable `t` with longer lifetime
 fail_compilation/retscope6.d(7037): Error: template instance `retscope6.S.emplace4!(int*)` error instantiating
 fail_compilation/retscope6.d(7037): Error: address of variable `i` assigned to `s` with longer lifetime
 ---
@@ -76,9 +76,10 @@ void foo() @safe
 /* TEST_OUTPUT:
 ---
 fail_compilation/retscope6.d(8016): Error: address of variable `i` assigned to `p` with longer lifetime
-fail_compilation/retscope6.d(8031): Error: reference to local variable `i` assigned to non-scope parameter `p` calling retscope6.betty!().betty
-fail_compilation/retscope6.d(8031): Error: reference to local variable `j` assigned to non-scope parameter `q` calling retscope6.betty!().betty
-fail_compilation/retscope6.d(8048): Error: reference to local variable `j` assigned to non-scope parameter `q` calling retscope6.archie!().archie
+fail_compilation/retscope6.d(8031): Error: reference to local variable `i` assigned to non-scope parameter `p` calling `betty`
+fail_compilation/retscope6.d(8031): Error: reference to local variable `j` assigned to non-scope parameter `q` calling `betty`
+fail_compilation/retscope6.d(8021):        which is assigned to non-scope parameter `p`
+fail_compilation/retscope6.d(8048): Error: reference to local variable `j` assigned to non-scope parameter `q` calling `archie`
 ---
 */
 
@@ -140,13 +141,14 @@ void testarchie()
 
 /* TEST_OUTPUT:
 ---
-fail_compilation/retscope6.d(9022): Error: returning `fred(& i)` escapes a reference to local variable `i`
+fail_compilation/retscope6.d(9023): Error: returning `fred(& i)` escapes a reference to local variable `i`
 ---
 */
 
 #line 9000
 
-@safe:
+@safe
+{
 
 alias T9 = S9!(); struct S9()
 {
@@ -172,7 +174,7 @@ T9 testfred()
 
 /* TEST_OUTPUT:
 ---
-fail_compilation/retscope6.d(10003): Error: scope variable `values` assigned to non-scope parameter `values` calling retscope6.escape
+fail_compilation/retscope6.d(10003): Error: scope variable `values` assigned to non-scope parameter `values` calling `escape`
 ---
 */
 
@@ -197,6 +199,7 @@ void hmac(scope ubyte[] secret)
 {
     ubyte[10] buffer;
     secret = buffer[];
+}
 }
 
 /* TEST_OUTPUT:
@@ -234,7 +237,7 @@ const(int)* f_c_20150() @safe nothrow
 
 /* TEST_OUTPUT:
 ---
-fail_compilation/retscope6.d(13010): Error: reference to local variable `str` assigned to non-scope parameter `x` calling retscope6.f_throw
+fail_compilation/retscope6.d(13010): Error: reference to local variable `str` assigned to non-scope parameter `x` calling `f_throw`
 ---
 */
 
@@ -254,7 +257,8 @@ void escape_throw_20150() @safe
 
 /* TEST_OUTPUT:
 ---
-fail_compilation/retscope6.d(14019): Error: scope variable `scopePtr` assigned to non-scope parameter `x` calling retscope6.noInfer23021
+fail_compilation/retscope6.d(14019): Error: scope variable `scopePtr` assigned to non-scope parameter `x` calling `noInfer23021`
+fail_compilation/retscope6.d(14009):        which is not `scope` because of `*escapeHole = cast(const(int)*)x`
 fail_compilation/retscope6.d(14022): Error: scope variable `scopePtr` may not be returned
 ---
 */
@@ -287,3 +291,5 @@ ref int escape23021() @safe
     // ensure we do not infer return ref
     return infer23021(nonScopePtr); // no error
 }
+
+/******************************/

@@ -1,5 +1,5 @@
 /* Internals of libgccjit: classes for playing back recorded API calls.
-   Copyright (C) 2013-2022 Free Software Foundation, Inc.
+   Copyright (C) 2013-2023 Free Software Foundation, Inc.
    Contributed by David Malcolm <dmalcolm@redhat.com>.
 
 This file is part of GCC.
@@ -162,7 +162,7 @@ public:
   rvalue *
   new_comparison (location *loc,
 		  enum gcc_jit_comparison op,
-		  rvalue *a, rvalue *b);
+		  rvalue *a, rvalue *b, type *vec_result_type);
 
   rvalue *
   new_call (location *loc,
@@ -314,8 +314,9 @@ private:
 
   /* Functions for implementing "compile".  */
 
-  void acquire_mutex ();
-  void release_mutex ();
+  void lock ();
+  void unlock ();
+  struct scoped_lock;
 
   void
   make_fake_args (vec <char *> *argvec,
@@ -378,7 +379,7 @@ class compile_to_memory : public context
 {
  public:
   compile_to_memory (recording::context *ctxt);
-  void postprocess (const char *ctxt_progname) FINAL OVERRIDE;
+  void postprocess (const char *ctxt_progname) final override;
 
   result *get_result_obj () const { return m_result; }
 
@@ -392,7 +393,7 @@ class compile_to_file : public context
   compile_to_file (recording::context *ctxt,
 		   enum gcc_jit_output_kind output_kind,
 		   const char *output_path);
-  void postprocess (const char *ctxt_progname) FINAL OVERRIDE;
+  void postprocess (const char *ctxt_progname) final override;
 
  private:
   void
@@ -483,7 +484,7 @@ public:
   function(context *ctxt, tree fndecl, enum gcc_jit_function_kind kind);
 
   void gt_ggc_mx ();
-  void finalizer () FINAL OVERRIDE;
+  void finalizer () final override;
 
   tree get_return_type_as_tree () const;
 
@@ -562,7 +563,7 @@ public:
   block (function *func,
 	 const char *name);
 
-  void finalizer () FINAL OVERRIDE;
+  void finalizer () final override;
 
   tree as_label_decl () const { return m_label_decl; }
 
@@ -750,7 +751,7 @@ class source_file : public wrapper
 {
 public:
   source_file (tree filename);
-  void finalizer () FINAL OVERRIDE;
+  void finalizer () final override;
 
   source_line *
   get_source_line (int line_num);
@@ -771,7 +772,7 @@ class source_line : public wrapper
 {
 public:
   source_line (source_file *file, int line_num);
-  void finalizer () FINAL OVERRIDE;
+  void finalizer () final override;
 
   location *
   get_location (recording::location *rloc, int column_num);
@@ -781,7 +782,7 @@ public:
   vec<location *> m_locations;
 
 private:
-  source_file *m_source_file;
+  source_file *m_source_file ATTRIBUTE_UNUSED;
   int m_line_num;
 };
 
@@ -800,7 +801,7 @@ public:
 
 private:
   recording::location *m_recording_loc;
-  source_line *m_line;
+  source_line *m_line ATTRIBUTE_UNUSED;
   int m_column_num;
 };
 

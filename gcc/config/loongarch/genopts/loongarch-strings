@@ -1,6 +1,6 @@
 # Defines the key strings for LoongArch compiler options.
 #
-# Copyright (C) 2021-2022 Free Software Foundation, Inc.
+# Copyright (C) 2021-2023 Free Software Foundation, Inc.
 #
 # This file is part of GCC.
 #
@@ -54,5 +54,6 @@ OPTSTR_CMODEL	      cmodel
 STR_CMODEL_NORMAL     normal
 STR_CMODEL_TINY	      tiny
 STR_CMODEL_TS	      tiny-static
+STR_CMODEL_MEDIUM     medium
 STR_CMODEL_LARGE      large
 STR_CMODEL_EXTREME    extreme

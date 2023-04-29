@@ -1,7 +1,7 @@
 /**
  * Find side-effects of expressions.
  *
- * Copyright:   Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright:   Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * Authors:     $(LINK2 https://www.digitalmars.com, Walter Bright)
  * License:     $(LINK2 https://www.boost.org/LICENSE_1_0.txt, Boost License 1.0)
  * Source:      $(LINK2 https://github.com/dlang/dmd/blob/master/src/dmd/sideeffect.d, _sideeffect.d)
@@ -37,7 +37,7 @@ extern (C++) bool isTrivialExp(Expression e)
     {
         alias visit = typeof(super).visit;
     public:
-        extern (D) this()
+        extern (D) this() scope
         {
         }
 
@@ -75,7 +75,7 @@ extern (C++) bool hasSideEffect(Expression e, bool assumeImpureCalls = false)
     {
         alias visit = typeof(super).visit;
     public:
-        extern (D) this()
+        extern (D) this() scope
         {
         }
 
@@ -203,10 +203,9 @@ private bool lambdaHasSideEffect(Expression e, bool assumeImpureCalls = false)
                 Type t = ce.e1.type.toBasetype();
                 if (t.ty == Tdelegate)
                     t = (cast(TypeDelegate)t).next;
-                if (t.ty == Tfunction && (ce.f ? callSideEffectLevel(ce.f) : callSideEffectLevel(ce.e1.type)) > 0)
-                {
-                }
-                else
+
+                const level = t.ty == Tfunction && (ce.f ? callSideEffectLevel(ce.f) : callSideEffectLevel(ce.e1.type));
+                if (level == 0) // 0 means the function has a side effect
                     return true;
             }
             break;
@@ -251,8 +250,9 @@ bool discardValue(Expression e)
             }
             break; // complain
         }
+    // Assumption that error => no side effect
     case EXP.error:
-        return false;
+        return true;
     case EXP.variable:
         {
             VarDeclaration v = (cast(VarExp)e).var.isVarDeclaration();
@@ -356,6 +356,25 @@ bool discardValue(Expression e)
         if (!hasSideEffect(e))
             break;
         return false;
+    case EXP.identity, EXP.notIdentity:
+    case EXP.equal, EXP.notEqual:
+        /*
+            `[side effect] == 0`
+            Technically has a side effect but is clearly wrong;
+        */
+        BinExp tmp = e.isBinExp();
+        assert(tmp);
+
+        e.error("the result of the equality expression `%s` is discarded", e.toChars());
+        bool seenSideEffect = false;
+        foreach(expr; [tmp.e1, tmp.e2])
+        {
+            if (hasSideEffect(expr)) {
+                expr.errorSupplemental("note that `%s` may have a side effect", expr.toChars());
+                seenSideEffect |= true;
+            }
+        }
+        return !seenSideEffect;
     default:
         break;
     }

@@ -1,5 +1,5 @@
 /* Implements exception handling.
-   Copyright (C) 1989-2022 Free Software Foundation, Inc.
+   Copyright (C) 1989-2023 Free Software Foundation, Inc.
    Contributed by Mike Stump <mrs@cygnus.com>.
 
 This file is part of GCC.
@@ -2047,7 +2047,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       return set_nothrow_function_flags ();
     }
@@ -2175,7 +2175,7 @@ expand_builtin_eh_return_data_regno (tree exp)
 #ifdef DWARF_FRAME_REGNUM
   iwhich = DWARF_FRAME_REGNUM (iwhich);
 #else
-  iwhich = DBX_REGISTER_NUMBER (iwhich);
+  iwhich = DEBUGGER_REGNO (iwhich);
 #endif
 
   return GEN_INT (iwhich);
@@ -2722,8 +2722,8 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *);
-  virtual unsigned int execute (function *)
+  bool gate (function *) final override;
+  unsigned int execute (function *) final override
     {
       int ret = convert_to_eh_region_ranges ();
       maybe_add_nop_after_section_switch ();

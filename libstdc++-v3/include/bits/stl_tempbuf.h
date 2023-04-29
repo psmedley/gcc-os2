@@ -1,6 +1,6 @@
 // Temporary buffer implementation -*- C++ -*-
 
-// Copyright (C) 2001-2022 Free Software Foundation, Inc.
+// Copyright (C) 2001-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -56,8 +56,11 @@
 #ifndef _STL_TEMPBUF_H
 #define _STL_TEMPBUF_H 1
 
-#include <bits/stl_algobase.h>
+#include <new>
+#include <bits/exception_defines.h>
 #include <bits/stl_construct.h>
+#include <bits/stl_pair.h>
+#include <ext/numeric_traits.h>
 
 namespace std _GLIBCXX_VISIBILITY(default)
 {
@@ -254,6 +257,8 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	  __ucr(__first, __last, __seed);
     }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
   template<typename _ForwardIterator, typename _Tp>
     _Temporary_buffer<_ForwardIterator, _Tp>::
     _Temporary_buffer(_ForwardIterator __seed, size_type __original_len)
@@ -278,6 +283,7 @@ _GLIBCXX_BEGIN_NAMESPACE_VERSION
 	    }
 	}
     }
+#pragma GCC diagnostic pop
 
 _GLIBCXX_END_NAMESPACE_VERSION
 } // namespace

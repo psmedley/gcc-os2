@@ -1,5 +1,5 @@
 /* Optimize jump instructions, for GNU compiler.
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -182,7 +182,10 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual unsigned int execute (function *) { return cleanup_barriers (); }
+  unsigned int execute (function *) final override
+  {
+    return cleanup_barriers ();
+  }
 
 }; // class pass_cleanup_barriers
 

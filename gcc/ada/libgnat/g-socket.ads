@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---                     Copyright (C) 2001-2022, AdaCore                     --
+--                     Copyright (C) 2001-2023, AdaCore                     --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -1593,7 +1593,7 @@ private
    Wait_For_A_Full_Reception : constant Request_Flag_Type := 4;
    Send_End_Of_Record        : constant Request_Flag_Type := 8;
 
-   procedure Raise_Socket_Error (Error : Integer);
+   procedure Raise_Socket_Error (Error : Integer) with No_Return;
    --  Raise Socket_Error with an exception message describing the error code
    --  from errno.
 

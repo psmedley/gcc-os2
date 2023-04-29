@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 2003-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 2003-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -302,6 +302,17 @@ package body Ada.Strings.Superbounded with SPARK_Mode is
    begin
       return Left <= Super_To_String (Right);
    end Less_Or_Equal;
+
+   ---------------
+   -- Put_Image --
+   ---------------
+
+   procedure Put_Image
+     (S      : in out Ada.Strings.Text_Buffers.Root_Buffer_Type'Class;
+      Source : Super_String) is
+   begin
+      String'Put_Image (S, Super_To_String (Source));
+   end Put_Image;
 
    ----------------------
    -- Set_Super_String --
@@ -1150,6 +1161,14 @@ package body Ada.Strings.Superbounded with SPARK_Mode is
          Result.Data (Position .. Position - 1 + New_Item'Length) :=
            Super_String_Data (New_Item);
          Result.Current_Length := Source.Current_Length;
+         pragma Assert
+           (String'(Super_Slice (Result, 1, Position - 1)) =
+              Super_Slice (Source, 1, Position - 1));
+         pragma Assert
+           (Super_Slice (Result,
+            Position, Position - 1 + New_Item'Length) =
+              New_Item);
+
          return Result;
 
       elsif Position - 1 <= Max_Length - New_Item'Length then
@@ -1157,6 +1176,14 @@ package body Ada.Strings.Superbounded with SPARK_Mode is
          Result.Data (Position .. Position - 1 + New_Item'Length) :=
            Super_String_Data (New_Item);
          Result.Current_Length := Position - 1 + New_Item'Length;
+         pragma Assert
+           (String'(Super_Slice (Result, 1, Position - 1)) =
+              Super_Slice (Source, 1, Position - 1));
+         pragma Assert
+           (Super_Slice (Result,
+            Position, Position - 1 + New_Item'Length) =
+              New_Item);
+
          return Result;
 
       else
@@ -1189,6 +1216,7 @@ package body Ada.Strings.Superbounded with SPARK_Mode is
          end case;
 
          Result.Current_Length := Max_Length;
+         pragma Assert (Super_Length (Result) = Source.Max_Length);
          return Result;
       end if;
    end Super_Overwrite;
@@ -1226,7 +1254,7 @@ package body Ada.Strings.Superbounded with SPARK_Mode is
                  (New_Item (New_Item'First .. New_Item'Last - Droplen));
 
             when Strings.Left =>
-               if New_Item'Length > Max_Length then
+               if New_Item'Length >= Max_Length then
                   Source.Data (1 .. Max_Length) := Super_String_Data
                     (New_Item
                       (New_Item'Last - Max_Length + 1 .. New_Item'Last));
@@ -1634,10 +1662,9 @@ package body Ada.Strings.Superbounded with SPARK_Mode is
             raise Index_Error;
          end if;
 
-         if High >= Low then
-            Result.Data (1 .. High - Low + 1) := Source.Data (Low .. High);
-            Result.Current_Length := High - Low + 1;
-         end if;
+         Result.Current_Length := (if Low > High then 0 else High - Low + 1);
+         Result.Data (1 .. Result.Current_Length) :=
+           Source.Data (Low .. High);
       end return;
    end Super_Slice;
 
@@ -1654,12 +1681,8 @@ package body Ada.Strings.Superbounded with SPARK_Mode is
          raise Index_Error;
       end if;
 
-      if High >= Low then
-         Target.Data (1 .. High - Low + 1) := Source.Data (Low .. High);
-         Target.Current_Length := High - Low + 1;
-      else
-         Target.Current_Length := 0;
-      end if;
+      Target.Current_Length := (if Low > High then 0 else High - Low + 1);
+      Target.Data (1 .. Target.Current_Length) := Source.Data (Low .. High);
    end Super_Slice;
 
    ----------------

@@ -279,9 +279,7 @@ void ErrorRssLimitExceeded::Print() {
 void ErrorOutOfMemory::Print() {
   Decorator d;
   Printf("%s", d.Error());
-  Report(
-      "ERROR: AddressSanitizer: allocator is out of memory trying to allocate "
-      "0x%zx bytes\n", requested_size);
+  ERROR_OOM("allocator is trying to allocate 0x%zx bytes\n", requested_size);
   Printf("%s", d.Default());
   stack->Print();
   PrintHintAllocatorCannotReturnNull();
@@ -329,7 +327,7 @@ void ErrorBadParamsToAnnotateContiguousContainer::Print() {
       "      old_mid : %p\n"
       "      new_mid : %p\n",
       (void *)beg, (void *)end, (void *)old_mid, (void *)new_mid);
-  uptr granularity = SHADOW_GRANULARITY;
+  uptr granularity = ASAN_SHADOW_GRANULARITY;
   if (!IsAligned(beg, granularity))
     Report("ERROR: beg is not aligned by %zu\n", granularity);
   stack->Print();
@@ -410,7 +408,8 @@ ErrorGeneric::ErrorGeneric(u32 tid, uptr pc_, uptr bp_, uptr sp_, uptr addr,
     if (AddrIsInMem(addr)) {
       u8 *shadow_addr = (u8 *)MemToShadow(addr);
       // If we are accessing 16 bytes, look at the second shadow byte.
-      if (*shadow_addr == 0 && access_size > SHADOW_GRANULARITY) shadow_addr++;
+      if (*shadow_addr == 0 && access_size > ASAN_SHADOW_GRANULARITY)
+        shadow_addr++;
       // If we are in the partial right redzone, look at the next shadow byte.
       if (*shadow_addr > 0 && *shadow_addr < 128) shadow_addr++;
       bool far_from_bounds = false;
@@ -501,10 +500,11 @@ static void PrintLegend(InternalScopedString *str) {
   str->append(
       "Shadow byte legend (one shadow byte represents %d "
       "application bytes):\n",
-      (int)SHADOW_GRANULARITY);
+      (int)ASAN_SHADOW_GRANULARITY);
   PrintShadowByte(str, "  Addressable:           ", 0);
   str->append("  Partially addressable: ");
-  for (u8 i = 1; i < SHADOW_GRANULARITY; i++) PrintShadowByte(str, "", i, " ");
+  for (u8 i = 1; i < ASAN_SHADOW_GRANULARITY; i++)
+    PrintShadowByte(str, "", i, " ");
   str->append("\n");
   PrintShadowByte(str, "  Heap left redzone:       ",
                   kAsanHeapLeftRedzoneMagic);
@@ -539,7 +539,8 @@ static void PrintShadowBytes(InternalScopedString *str, const char *before,
                              u8 *bytes, u8 *guilty, uptr n) {
   Decorator d;
   if (before)
-    str->append("%s%p:", before, (void *)bytes);
+    str->append("%s%p:", before,
+                (void *)ShadowToMem(reinterpret_cast<uptr>(bytes)));
   for (uptr i = 0; i < n; i++) {
     u8 *p = bytes + i;
     const char *before =

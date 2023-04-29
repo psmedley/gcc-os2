@@ -1,5 +1,5 @@
 /* Fold a constant sub-tree into a single node for C-compiler
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -215,6 +215,7 @@ extern tree build_range_check (location_t, tree, tree, int, tree, tree);
 extern bool merge_ranges (int *, tree *, tree *, int, tree, tree, int,
 			  tree, tree);
 extern tree sign_bit_p (tree, const_tree);
+extern bool simple_condition_p (tree);
 extern tree exact_inverse (tree, tree);
 extern bool expr_not_equal_to (tree t, const wide_int &);
 extern tree const_unop (enum tree_code, tree, tree);
@@ -245,6 +246,11 @@ extern tree fold_build_pointer_plus_hwi_loc (location_t loc, tree ptr, HOST_WIDE
 #define fold_build_pointer_plus_hwi(p,o) \
 	fold_build_pointer_plus_hwi_loc (UNKNOWN_LOCATION, p, o)
 
+/* In gimple-fold.cc.  */
+extern void clear_type_padding_in_mask (tree, unsigned char *);
+extern bool clear_padding_type_may_have_padding_p (tree);
+extern bool arith_overflowed_p (enum tree_code, const_tree, const_tree,
+				const_tree);
 
 /* Class used to compare gimple operands.  */
 

@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -142,7 +142,7 @@ package body Debug is
    --  d_a  Stop elaboration checks on accept or select statement
    --  d_b  Use designated type model under No_Dynamic_Accessibility_Checks
    --  d_c  CUDA compilation : compile for the host
-   --  d_d
+   --  d_d  CUDA compilation : compile for the device
    --  d_e  Ignore entry calls and requeue statements for elaboration
    --  d_f  Issue info messages related to GNATprove usage
    --  d_g  Disable large static aggregates
@@ -156,7 +156,7 @@ package body Debug is
    --  d_o
    --  d_p  Ignore assertion pragmas for elaboration
    --  d_q
-   --  d_r
+   --  d_r  Disable the use of the return slot in functions
    --  d_s  Stop elaboration checks on synchronous suspension
    --  d_t  In LLVM-based CCG, dump LLVM IR after transformations are done
    --  d_u  In LLVM-based CCG, dump flows
@@ -189,7 +189,7 @@ package body Debug is
    --  d_U  Disable prepending messages with "error:".
    --  d_V  Enable verifications on the expanded tree
    --  d_W
-   --  d_X
+   --  d_X  Disable assertions to check matching of extra formals
    --  d_Y
    --  d_Z
 
@@ -201,7 +201,7 @@ package body Debug is
    --  d6   Default access unconstrained to thin pointers
    --  d7   Suppress version/source stamp/compilation time for -gnatv/-gnatl
    --  d8   Force opposite endianness in packed stuff
-   --  d9   Allow lock free implementation
+   --  d9
 
    --  d.1  Enable unnesting of nested procedures
    --  d.2  Allow statements in declarative part
@@ -211,7 +211,7 @@ package body Debug is
    --  d.6  Do not avoid declaring unreferenced types in C code
    --  d.7  Disable unsound heuristics in gnat2scil (for CP as SPARK prover)
    --  d.8  Disable unconditional inlining of expression functions
-   --  d.9  Disable build-in-place for nonlimited types
+   --  d.9
 
    --  d_1
    --  d_2
@@ -345,8 +345,8 @@ package body Debug is
 
    --  d_a  Ignore the effects of pragma Elaborate_All
    --  d_b  Ignore the effects of pragma Elaborate_Body
-   --  d_c
-   --  d_d
+   --  d_c  CUDA compilation : compile/bind for the host
+   --  d_d  CUDA compilation : compile/bind for the device
    --  d_e  Ignore the effects of pragma Elaborate
    --  d_f
    --  d_g
@@ -993,6 +993,11 @@ package body Debug is
    --       semantics of invariants and postconditions in both the static and
    --       dynamic elaboration models.
 
+   --  d_r  The compiler does not make use of the return slot in the expansion
+   --       of functions returning a by-reference type. If this use is required
+   --       for these functions to return on the primary stack, then they are
+   --       changed to return on the secondary stack instead.
+
    --  d_s  The compiler stops the examination of a task body once it reaches
    --       a call to routine Ada.Synchronous_Task_Control.Suspend_Until_True
    --       or Ada.Synchronous_Barriers.Wait_For_Release.
@@ -1039,6 +1044,10 @@ package body Debug is
    --  d_V  Enable verification of the expanded code before calling the backend
    --       and generate error messages on each inconsistency found.
 
+   --  d_X  Disable assertions to check matching of extra formals; switch added
+   --       temporarily to disable these checks until this work is complete if
+   --       they cause unexpected assertion failures.
+
    --  d1   Error messages have node numbers where possible. Normally error
    --       messages have only source locations. This option is useful when
    --       debugging errors caused by expanded code, where the source location
@@ -1084,9 +1093,6 @@ package body Debug is
    --       opposite endianness from the actual correct value. Useful in
    --       testing out code generation from the packed routines.
 
-   --  d9   This allows lock free implementation for protected objects
-   --       (see Exp_Ch9).
-
    --  d.1  Sets Opt.Unnest_Subprogram_Mode to enable unnesting of subprograms.
    --       This special pass does not actually unnest things, but it ensures
    --       that a nested procedure does not contain any uplevel references.
@@ -1119,9 +1125,6 @@ package body Debug is
    --  d.8  By default calls to expression functions are always inlined.
    --       This debug flag turns off this behavior, making them subject
    --       to the usual inlining heuristics of the code generator.
-
-   --  d.9  Disable build-in-place for function calls returning nonlimited
-   --       types.
 
    ------------------------------------------
    -- Documentation for Binder Debug Flags --

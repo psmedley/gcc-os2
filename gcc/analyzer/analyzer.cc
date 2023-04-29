@@ -1,5 +1,5 @@
 /* Utility functions for the analyzer.
-   Copyright (C) 2019-2022 Free Software Foundation, Inc.
+   Copyright (C) 2019-2023 Free Software Foundation, Inc.
    Contributed by David Malcolm <dmalcolm@redhat.com>.
 
 This file is part of GCC.
@@ -19,6 +19,7 @@ along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
 #include "config.h"
+#define INCLUDE_MEMORY
 #include "system.h"
 #include "coretypes.h"
 #include "tree.h"
@@ -27,7 +28,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "gimple.h"
 #include "diagnostic.h"
 #include "intl.h"
-#include "function.h"
 #include "analyzer/analyzer.h"
 
 #if ENABLE_ANALYZER
@@ -431,6 +431,44 @@ make_label_text (bool can_colorize, const char *fmt, ...)
   va_start (ap, fmt);
 
   ti.format_spec = _(fmt);
+  ti.args_ptr = &ap;
+  ti.err_no = 0;
+  ti.x_data = NULL;
+  ti.m_richloc = &rich_loc;
+
+  pp_format (pp, &ti);
+  pp_output_formatted_text (pp);
+
+  va_end (ap);
+
+  label_text result = label_text::take (xstrdup (pp_formatted_text (pp)));
+  delete pp;
+  return result;
+}
+
+/* As above, but with singular vs plural.  */
+
+label_text
+make_label_text_n (bool can_colorize, unsigned HOST_WIDE_INT n,
+		   const char *singular_fmt,
+		   const char *plural_fmt, ...)
+{
+  pretty_printer *pp = global_dc->printer->clone ();
+  pp_clear_output_area (pp);
+
+  if (!can_colorize)
+    pp_show_color (pp) = false;
+
+  text_info ti;
+  rich_location rich_loc (line_table, UNKNOWN_LOCATION);
+
+  va_list ap;
+
+  va_start (ap, plural_fmt);
+
+  const char *fmt = ngettext (singular_fmt, plural_fmt, n);
+
+  ti.format_spec = fmt;
   ti.args_ptr = &ap;
   ti.err_no = 0;
   ti.x_data = NULL;

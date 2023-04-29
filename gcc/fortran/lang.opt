@@ -1,5 +1,5 @@
 ; Options for the Fortran front end.
-; Copyright (C) 2003-2022 Free Software Foundation, Inc.
+; Copyright (C) 2003-2023 Free Software Foundation, Inc.
 ;
 ; This file is part of GCC.
 ;
@@ -860,8 +860,12 @@ Fortran Joined Separate
 ; Documented in common.opt
 
 static-libgfortran
-Fortran
+Driver
 Statically link the GNU Fortran helper library (libgfortran).
+
+static-libquadmath
+Driver
+Statically link the GCC Quad-Precision Math Library (libquadmath).
 
 std=f2003
 Fortran

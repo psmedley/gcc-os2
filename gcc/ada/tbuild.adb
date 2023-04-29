@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -882,8 +882,8 @@ package body Tbuild is
       --  We don't really want to allow E_Void here, but existing code passes
       --  it.
 
-      Loc         : constant Source_Ptr := Sloc (Expr);
-      Result      : Node_Id;
+      Loc    : constant Source_Ptr := Sloc (Expr);
+      Result : Node_Id;
 
    begin
       --  If the expression is already of the correct type, then nothing

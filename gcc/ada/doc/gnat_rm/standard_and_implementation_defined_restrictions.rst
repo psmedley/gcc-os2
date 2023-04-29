@@ -184,7 +184,9 @@ No_Dependence
 .. index:: No_Dependence
 
 [RM 13.12.1] This restriction ensures at compile time that there are no
-dependences on a library unit.
+dependences on a library unit. For GNAT, this includes implicit implementation
+dependences on units of the runtime library that are created by the compiler
+to support specific constructs of the language.
 
 No_Direct_Boolean_Operators
 ---------------------------
@@ -491,6 +493,13 @@ No_Local_Protected_Objects
 
 [RM D.7] This restriction ensures at compile time that protected objects are
 only declared at the library level.
+
+No_Local_Tagged_Types
+---------------------
+.. index:: No_Local_Tagged_Types
+
+[GNAT] This restriction ensures at compile time that tagged types are only
+declared at the library level.
 
 No_Local_Timing_Events
 ----------------------

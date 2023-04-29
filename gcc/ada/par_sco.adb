@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 2009-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 2009-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -480,13 +480,11 @@ package body Par_SCO is
       N : Node_Id;
 
    begin
-      if L /= No_List then
-         N := First (L);
-         while Present (N) loop
-            Process_Decisions (N, T, Pragma_Sloc);
-            Next (N);
-         end loop;
-      end if;
+      N := First (L);
+      while Present (N) loop
+         Process_Decisions (N, T, Pragma_Sloc);
+         Next (N);
+      end loop;
    end Process_Decisions;
 
    --  Version taking a node

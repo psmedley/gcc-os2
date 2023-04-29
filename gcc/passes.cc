@@ -1,5 +1,5 @@
 /* Top level of GCC compilers (cc1, cc1plus, etc.)
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -417,13 +417,13 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       /* Don't bother doing anything if the program has errors.  */
       return (!seen_error () && !in_lto_p);
     }
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       return execute_build_ssa_passes ();
     }
@@ -451,7 +451,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       /* Don't bother doing anything if the program has errors.  */
       return (!seen_error () && !in_lto_p);
@@ -480,7 +480,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       /* Don't bother doing anything if the program has errors.  */
       return (!seen_error () && !in_lto_p);
@@ -531,7 +531,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       return (optimize >= 1
 	      /* Don't bother doing anything if the program has errors.  */
@@ -571,7 +571,10 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return optimize >= 1 && !optimize_debug; }
+  bool gate (function *) final override
+  {
+    return optimize >= 1 && !optimize_debug;
+  }
 
 }; // class pass_all_optimizations
 
@@ -606,7 +609,10 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return optimize >= 1 && optimize_debug; }
+  bool gate (function *) final override
+  {
+    return optimize >= 1 && optimize_debug;
+  }
 
 }; // class pass_all_optimizations_g
 
@@ -641,7 +647,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       /* Early return if there were errors.  We can run afoul of our
 	 consistency checks, and there's not really much point in fixing them.  */
@@ -681,7 +687,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return reload_completed; }
+  bool gate (function *) final override { return reload_completed; }
 
 }; // class pass_postreload
 
@@ -716,7 +722,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
   {
     return reload_completed || targetm.no_register_allocation;
   }
@@ -756,15 +762,15 @@ public:
   {
   }
 
-  virtual bool
-  gate (function *fun)
+  bool
+  gate (function *fun) final override
   {
     return flag_tree_slp_vectorize
 	   && (fun->pending_TODOs & PENDING_TODO_force_next_scalar_cleanup);
   }
 
-  virtual unsigned int
-  execute (function *fun)
+  unsigned int
+  execute (function *fun) final override
   {
     fun->pending_TODOs &= ~PENDING_TODO_force_next_scalar_cleanup;
     return 0;
@@ -1553,7 +1559,7 @@ pass_manager::register_pass (struct register_pass_info *pass_info)
    compile ()
        ipa_passes () 			-> all_small_ipa_passes
 					-> Analysis of all_regular_ipa_passes
-	* possible LTO streaming at copmilation time *
+	* possible LTO streaming at compilation time *
 					-> Execution of all_regular_ipa_passes
 	* possible LTO streaming at link time *
 					-> all_late_ipa_passes
@@ -1838,6 +1844,13 @@ emergency_dump_function ()
   fnotice (stderr, "dump file: %s\n", dump_file_name);
   fprintf (dump_file, "\n\n\nEMERGENCY DUMP:\n\n");
   execute_function_dump (cfun, current_pass);
+
+  /* Normally the passmanager will close the graphs as a pass could be wanting
+     to print multiple digraphs. But during an emergency dump there can only be
+     one and we must finish the graph manually.  */
+  if ((cfun->curr_properties & PROP_cfg)
+      && (dump_flags & TDF_GRAPH))
+    finish_graph_dump_file (dump_file_name);
 
   if (symtab && current_pass->type == IPA_PASS)
     symtab->dump (dump_file);
@@ -2653,6 +2666,15 @@ execute_one_pass (opt_pass *pass)
 
       if (dom_info_available_p (CDI_POST_DOMINATORS))
        free_dominance_info (CDI_POST_DOMINATORS);
+
+      if (cfun->assume_function)
+	{
+	  /* For assume functions, don't release body, keep it around.  */
+	  cfun->curr_properties |= PROP_assumptions_done;
+	  pop_cfun ();
+	  current_pass = NULL;
+	  return true;
+	}
 
       tree fn = cfun->decl;
       pop_cfun ();

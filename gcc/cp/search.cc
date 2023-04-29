@@ -1,6 +1,6 @@
 /* Breadth-first and depth-first routines for
    searching multiple-inheritance lattice for GNU C++.
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
    Contributed by Michael Tiemann (tiemann@cygnus.com)
 
 This file is part of GCC.
@@ -30,6 +30,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "spellcheck-tree.h"
 #include "stringpool.h"
 #include "attribs.h"
+#include "tree-inline.h"
 
 static int is_subobject_of_p (tree, tree);
 static tree dfs_lookup_base (tree, void *);
@@ -484,6 +485,25 @@ context_for_name_lookup (tree decl)
   return context;
 }
 
+/* Like the above, but always return a type, because it's simpler for member
+   handling to refer to the anonymous aggr rather than a function.  */
+
+tree
+type_context_for_name_lookup (tree decl)
+{
+  tree context = DECL_P (decl) ? DECL_CONTEXT (decl) : decl;
+  gcc_checking_assert (CLASS_TYPE_P (context));
+
+  while (context && TYPE_P (context) && ANON_AGGR_TYPE_P (context))
+    {
+      tree next = TYPE_CONTEXT (context);
+      if (!TYPE_P (next))
+	break;
+      context = next;
+    }
+  return context;
+}
+
 /* Returns true iff DECL is declared in TYPE.  */
 
 static bool
@@ -734,12 +754,9 @@ friend_accessible_p (tree scope, tree decl, tree type, tree otype)
 	  && friend_accessible_p (DECL_CONTEXT (scope), decl, type, otype))
 	return 1;
       /* Perhaps SCOPE is a friend function defined inside a class from which
-	 DECL is accessible.  Checking this is necessary only when the class
-	 is dependent, for otherwise add_friend will already have added the
-	 class to SCOPE's DECL_BEFRIENDING_CLASSES.  */
+	 DECL is accessible.  */
       if (tree fctx = DECL_FRIEND_CONTEXT (scope))
-	if (dependent_type_p (fctx)
-	    && protected_accessible_p (decl, fctx, type, otype))
+	if (friend_accessible_p (fctx, decl, type, otype))
 	  return 1;
     }
 
@@ -882,6 +899,10 @@ accessible_p (tree type, tree decl, bool consider_local_p)
     }
   else
     otype = type;
+
+  /* Anonymous unions don't have their own access.  */
+  if (ANON_AGGR_TYPE_P (type))
+    type = type_context_for_name_lookup (type);
 
   /* [class.access.base]
 
@@ -1111,7 +1132,7 @@ build_baselink (tree binfo, tree access_binfo, tree functions, tree optype)
 
 tree
 lookup_member (tree xbasetype, tree name, int protect, bool want_type,
-	       tsubst_flags_t complain, access_failure_info *afi)
+	       tsubst_flags_t complain, access_failure_info *afi /* = NULL */)
 {
   tree rval, rval_binfo = NULL_TREE;
   tree type = NULL_TREE, basetype_path = NULL_TREE;
@@ -2085,6 +2106,33 @@ check_final_overrider (tree overrider, tree basefn)
 	}
       return 0;
     }
+
+  if (!DECL_HAS_CONTRACTS_P (basefn) && DECL_HAS_CONTRACTS_P (overrider))
+    {
+      auto_diagnostic_group d;
+      error ("function with contracts %q+D overriding contractless function",
+	     overrider);
+      inform (DECL_SOURCE_LOCATION (basefn),
+	      "overridden function is %qD", basefn);
+      return 0;
+    }
+  else if (DECL_HAS_CONTRACTS_P (basefn) && !DECL_HAS_CONTRACTS_P (overrider))
+    {
+      /* We're inheriting basefn's contracts; create a copy of them but
+	 replace references to their parms to our parms.  */
+      inherit_base_contracts (overrider, basefn);
+    }
+  else if (DECL_HAS_CONTRACTS_P (basefn) && DECL_HAS_CONTRACTS_P (overrider))
+    {
+      /* We're in the process of completing the overrider's class, which means
+	 our conditions definitely are not parsed so simply chain on the
+	 basefn for later checking.
+
+	 Note that OVERRIDER's contracts will have been fully parsed at the
+	 point the deferred match is run.  */
+      defer_guarded_contract_match (overrider, basefn, DECL_CONTRACTS (basefn));
+    }
+
   if (DECL_FINAL_P (basefn))
     {
       auto_diagnostic_group d;

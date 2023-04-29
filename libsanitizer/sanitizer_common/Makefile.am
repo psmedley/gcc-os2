@@ -44,7 +44,6 @@ sanitizer_common_files = \
 	sanitizer_mac_libcdep.cpp \
 	sanitizer_mutex.cpp \
 	sanitizer_netbsd.cpp \
-	sanitizer_openbsd.cpp \
 	sanitizer_platform_limits_freebsd.cpp \
 	sanitizer_platform_limits_linux.cpp \
 	sanitizer_platform_limits_openbsd.cpp \
@@ -59,6 +58,7 @@ sanitizer_common_files = \
 	sanitizer_procmaps_mac.cpp \
 	sanitizer_procmaps_solaris.cpp \
 	sanitizer_solaris.cpp \
+	sanitizer_stack_store.cpp \
 	sanitizer_stackdepot.cpp \
 	sanitizer_stacktrace.cpp \
 	sanitizer_stacktrace_libcdep.cpp \

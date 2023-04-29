@@ -1,5 +1,5 @@
 /* Definitions of target machine for GNU compiler, for the HP Spectrum.
-   Copyright (C) 1992-2022 Free Software Foundation, Inc.
+   Copyright (C) 1992-2023 Free Software Foundation, Inc.
    Contributed by Michael Tiemann (tiemann@cygnus.com) of Cygnus Support
    and Tim Moore (moore@defmacro.cs.utah.edu) of the Center for
    Software Science at the University of Utah.
@@ -72,10 +72,12 @@ extern unsigned long total_code_bytes;
 #define HPUX_LONG_DOUBLE_LIBRARY 0
 #endif
 
-/* Linux kernel atomic operation support.  */
-#ifndef TARGET_SYNC_LIBCALL
-#define TARGET_SYNC_LIBCALL 0
-#endif
+/* Sync libcall support.  */
+#define TARGET_SYNC_LIBCALLS (flag_sync_libcalls)
+
+/* The maximum size of the sync library functions supported.  DImode
+   is supported on 32-bit targets using floating point loads and stores.  */
+#define MAX_SYNC_LIBFUNC_SIZE 8
 
 /* The following three defines are potential target switches.  The current
    defines are optimal given the current capabilities of GAS and GNU ld.  */
@@ -130,22 +132,12 @@ extern unsigned long total_code_bytes;
    and the old mnemonics are dialect zero.  */
 #define ASSEMBLER_DIALECT (TARGET_PA_20 ? 1 : 0)
 
-/* Override some settings from dbxelf.h.  */
-
 /* We do not have to be compatible with dbx, so we enable gdb extensions
    by default.  */
 #define DEFAULT_GDB_EXTENSIONS 1
 
 /* Select dwarf2 as the preferred debug format.  */
 #define PREFERRED_DEBUGGING_TYPE DWARF2_DEBUG
-
-/* This used to be zero (no max length), but big enums and such can
-   cause huge strings which killed gas.
-
-   We also have to avoid lossage in dbxout.cc -- it does not compute the
-   string size accurately, so we are real conservative here.  */
-#undef DBX_CONTIN_LENGTH
-#define DBX_CONTIN_LENGTH 3000
 
 /* GDB always assumes the current function's frame begins at the value
    of the stack pointer upon entry to the current function.  Accessing
@@ -183,6 +175,8 @@ do {								\
        builtin_define("_PA_RISC1_0");				\
      if (HPUX_LONG_DOUBLE_LIBRARY)				\
        builtin_define("__SIZEOF_FLOAT128__=16");		\
+     if (TARGET_SOFT_FLOAT)					\
+       builtin_define("__SOFTFP__");				\
 } while (0)
 
 /* An old set of OS defines for various BSD-like systems.  */
@@ -1309,10 +1303,6 @@ do {									     \
 #define MAX_PCREL17F_OFFSET (TARGET_HPUX ? 198164 : 217856)
 
 #define NEED_INDICATE_EXEC_STACK 0
-
-/* Target hooks for D language.  */
-#define TARGET_D_CPU_VERSIONS pa_d_target_versions
-#define TARGET_D_REGISTER_CPU_TARGET_INFO pa_d_register_target_info
 
 /* Output default function prologue for hpux.  */
 #define TARGET_ASM_FUNCTION_PROLOGUE pa_output_function_prologue

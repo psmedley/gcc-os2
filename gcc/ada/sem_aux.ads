@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -279,7 +279,7 @@ package Sem_Aux is
    --  or subtype. This is true if Suppress_Initialization is set either for
    --  the subtype itself, or for the corresponding base type.
 
-   function Is_Body (N : Node_Id) return Boolean;
+   function Is_Body (N : Node_Id) return Boolean with Inline;
    --  Determine whether an arbitrary node denotes a body
 
    function Is_By_Copy_Type (Ent : Entity_Id) return Boolean;
@@ -333,9 +333,6 @@ package Sem_Aux is
    --  composite containing a limited component, or a subtype of any of
    --  these types). This older routine overlaps with the previous one, this
    --  should be cleaned up???
-
-   function Is_Record_Or_Limited_Type (Typ : Entity_Id) return Boolean;
-   --  Return True if Typ requires is a record or limited type.
 
    function Nearest_Ancestor (Typ : Entity_Id) return Entity_Id;
    --  Given a subtype Typ, this function finds out the nearest ancestor from

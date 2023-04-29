@@ -1,5 +1,5 @@
 /* Emit RTL for the GCC expander.
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -107,6 +107,8 @@ REAL_VALUE_TYPE dconst1;
 REAL_VALUE_TYPE dconst2;
 REAL_VALUE_TYPE dconstm1;
 REAL_VALUE_TYPE dconsthalf;
+REAL_VALUE_TYPE dconstinf;
+REAL_VALUE_TYPE dconstninf;
 
 /* Record fixed-point constant 0 and 1.  */
 FIXED_VALUE_TYPE fconst0[MAX_FCONST0];
@@ -947,9 +949,11 @@ validate_subreg (machine_mode omode, machine_mode imode,
 	   && GET_MODE_INNER (omode) == GET_MODE_INNER (imode))
     ;
   /* Subregs involving floating point modes are not allowed to
-     change size.  Therefore (subreg:DI (reg:DF) 0) is fine, but
+     change size unless it's an insert into a complex mode.
+     Therefore (subreg:DI (reg:DF) 0) and (subreg:CS (reg:SF) 0) are fine, but
      (subreg:SI (reg:DF) 0) isn't.  */
-  else if (FLOAT_MODE_P (imode) || FLOAT_MODE_P (omode))
+  else if ((FLOAT_MODE_P (imode) || FLOAT_MODE_P (omode))
+	   && !COMPLEX_MODE_P (omode))
     {
       if (! (known_eq (isize, osize)
 	     /* LRA can use subreg to store a floating point value in
@@ -6207,6 +6211,9 @@ init_emit_once (void)
 
   dconsthalf = dconst1;
   SET_REAL_EXP (&dconsthalf, REAL_EXP (&dconsthalf) - 1);
+
+  real_inf (&dconstinf);
+  real_inf (&dconstninf, true);
 
   for (i = 0; i < 3; i++)
     {

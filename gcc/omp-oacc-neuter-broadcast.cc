@@ -1,6 +1,6 @@
 /* OpenACC worker partitioning via middle end neutering/broadcasting scheme
 
-   Copyright (C) 2015-2022 Free Software Foundation, Inc.
+   Copyright (C) 2015-2023 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -1945,7 +1945,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *fun)
+  bool gate (function *fun) final override
   {
     if (!flag_openacc)
       return false;
@@ -1961,7 +1961,7 @@ public:
     return true;
   }
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       return execute_omp_oacc_neuter_broadcast ();
     }

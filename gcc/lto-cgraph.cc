@@ -1,7 +1,7 @@
 /* Write and read the cgraph to the memory mapped representation of a
    .o file.
 
-   Copyright (C) 2009-2022 Free Software Foundation, Inc.
+   Copyright (C) 2009-2023 Free Software Foundation, Inc.
    Contributed by Kenneth Zadeck <zadeck@naturalbridge.com>
 
 This file is part of GCC.
@@ -37,6 +37,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "pass_manager.h"
 #include "ipa-utils.h"
 #include "omp-offload.h"
+#include "omp-general.h"
 #include "stringpool.h"
 #include "attribs.h"
 #include "alloc-pool.h"
@@ -429,6 +430,13 @@ lto_output_node (struct lto_simple_output_block *ob, struct cgraph_node *node,
 	 after reading back.  */
       in_other_partition = 1;
     }
+  else if (UNLIKELY (lto_stream_offload_p
+		     && lookup_attribute ("omp target device_ancestor_host",
+					  DECL_ATTRIBUTES (node->decl))))
+    /* This symbol is only used as argument to IFN_GOMP_TARGET_REV; this IFN
+       is ignored on ACCEL_COMPILER.  Thus, mark it as in_other_partition to silence
+       verify_node_partition diagnostic.  */
+    in_other_partition = 1;
 
   clone_of = node->clone_of;
   while (clone_of
@@ -555,7 +563,8 @@ lto_output_node (struct lto_simple_output_block *ob, struct cgraph_node *node,
 	        LDPR_NUM_KNOWN,
 		/* When doing incremental link, we will get new resolution
 		   info next time we process the file.  */
-		flag_incremental_link ? LDPR_UNKNOWN : node->resolution);
+		flag_incremental_link == INCREMENTAL_LINK_LTO
+		? LDPR_UNKNOWN : node->resolution);
   bp_pack_value (&bp, node->split_part, 1);
   streamer_write_bitpack (&bp);
   streamer_write_data_stream (ob->main_stream, section, strlen (section) + 1);
@@ -789,7 +798,7 @@ add_node_to (lto_symtab_encoder_t encoder, struct cgraph_node *node,
 {
   if (node->clone_of)
     add_node_to (encoder, node->clone_of, include_body);
-  else if (include_body)
+  if (include_body)
     lto_set_symtab_encoder_encode_body (encoder, node);
   lto_symtab_encoder_encode (encoder, node);
 }
@@ -909,7 +918,8 @@ compute_ltrans_boundary (lto_symtab_encoder_t in_encoder)
 	      vec <cgraph_node *>targets
 		= possible_polymorphic_call_targets
 		    (edge, &final, &cache_token);
-	      if (!reachable_call_targets.add (cache_token))
+	      if (cache_token != NULL
+		  && !reachable_call_targets.add (cache_token))
 		{
 		  for (i = 0; i < targets.length (); i++)
 		    {
@@ -1068,7 +1078,10 @@ read_string (class lto_input_block *ib)
 void
 output_offload_tables (void)
 {
-  if (vec_safe_is_empty (offload_funcs) && vec_safe_is_empty (offload_vars))
+  bool output_requires = (flag_openmp
+			  && (omp_requires_mask & OMP_REQUIRES_TARGET_USED) != 0);
+  if (vec_safe_is_empty (offload_funcs) && vec_safe_is_empty (offload_vars)
+      && !output_requires)
     return;
 
   struct lto_simple_output_block *ob
@@ -1098,6 +1111,19 @@ output_offload_tables (void)
 			       (*offload_vars)[i]);
     }
 
+  if (output_requires)
+    {
+      HOST_WIDE_INT val = ((HOST_WIDE_INT) omp_requires_mask
+			   & (OMP_REQUIRES_UNIFIED_ADDRESS
+			      | OMP_REQUIRES_UNIFIED_SHARED_MEMORY
+			      | OMP_REQUIRES_REVERSE_OFFLOAD
+			      | OMP_REQUIRES_TARGET_USED));
+      /* (Mis)use LTO_symtab_edge for this variable.  */
+      streamer_write_enum (ob->main_stream, LTO_symtab_tags,
+			   LTO_symtab_last_tag, LTO_symtab_edge);
+      streamer_write_hwi_stream (ob->main_stream, val);
+    }
+
   streamer_write_uhwi_stream (ob->main_stream, 0);
   lto_destroy_simple_output_block (ob);
 
@@ -1123,10 +1149,15 @@ verify_node_partition (symtab_node *node)
   if (node->in_other_partition)
     {
       if (TREE_CODE (node->decl) == FUNCTION_DECL)
-	error_at (DECL_SOURCE_LOCATION (node->decl),
-		  "function %qs has been referenced in offloaded code but"
-		  " hasn%'t been marked to be included in the offloaded code",
-		  node->name ());
+	{
+	  if (lookup_attribute ("omp target device_ancestor_host",
+				DECL_ATTRIBUTES (node->decl)) != NULL)
+	    return;
+	  error_at (DECL_SOURCE_LOCATION (node->decl),
+		    "function %qs has been referenced in offloaded code but"
+		    " hasn%'t been marked to be included in the offloaded code",
+		    node->name ());
+	}
       else if (VAR_P (node->decl))
 	error_at (DECL_SOURCE_LOCATION (node->decl),
 		  "variable %qs has been referenced in offloaded code but"
@@ -1764,6 +1795,20 @@ input_symtab (void)
     }
 }
 
+static void
+omp_requires_to_name (char *buf, size_t size, HOST_WIDE_INT requires_mask)
+{
+  char *end = buf + size, *p = buf;
+  if (requires_mask & GOMP_REQUIRES_UNIFIED_ADDRESS)
+    p += snprintf (p, end - p, "unified_address");
+  if (requires_mask & GOMP_REQUIRES_UNIFIED_SHARED_MEMORY)
+    p += snprintf (p, end - p, "%sunified_shared_memory",
+		   (p == buf ? "" : ", "));
+  if (requires_mask & GOMP_REQUIRES_REVERSE_OFFLOAD)
+    p += snprintf (p, end - p, "%sreverse_offload",
+		   (p == buf ? "" : ", "));
+}
+
 /* Input function/variable tables that will allow libgomp to look up offload
    target code, and store them into OFFLOAD_FUNCS and OFFLOAD_VARS.  */
 
@@ -1773,6 +1818,10 @@ input_offload_tables (bool do_force_output)
   struct lto_file_decl_data **file_data_vec = lto_get_file_decl_data ();
   struct lto_file_decl_data *file_data;
   unsigned int j = 0;
+  const char *requires_fn = NULL;
+  tree requires_decl = NULL_TREE;
+
+  omp_requires_mask = (omp_requires) 0;
 
   while ((file_data = file_data_vec[j++]))
     {
@@ -1784,6 +1833,7 @@ input_offload_tables (bool do_force_output)
       if (!ib)
 	continue;
 
+      tree tmp_decl = NULL_TREE;
       enum LTO_symtab_tags tag
 	= streamer_read_enum (ib, LTO_symtab_tags, LTO_symtab_last_tag);
       while (tag)
@@ -1799,6 +1849,7 @@ input_offload_tables (bool do_force_output)
 		 LTO mode.  */
 	      if (do_force_output)
 		cgraph_node::get (fn_decl)->mark_force_output ();
+	      tmp_decl = fn_decl;
 	    }
 	  else if (tag == LTO_symtab_variable)
 	    {
@@ -1810,6 +1861,77 @@ input_offload_tables (bool do_force_output)
 		 may be no refs to var_decl in offload LTO mode.  */
 	      if (do_force_output)
 		varpool_node::get (var_decl)->force_output = 1;
+	      tmp_decl = var_decl;
+	    }
+	  else if (tag == LTO_symtab_edge)
+	    {
+	      static bool error_emitted = false;
+	      HOST_WIDE_INT val = streamer_read_hwi (ib);
+
+	      if (omp_requires_mask == 0)
+		{
+		  omp_requires_mask = (omp_requires) val;
+		  requires_decl = tmp_decl;
+		  requires_fn = file_data->file_name;
+		}
+	      else if (omp_requires_mask != val && !error_emitted)
+		{
+		  const char *fn1 = requires_fn;
+		  if (requires_decl != NULL_TREE)
+		    {
+		      while (DECL_CONTEXT (requires_decl) != NULL_TREE
+			     && TREE_CODE (requires_decl) != TRANSLATION_UNIT_DECL)
+			requires_decl = DECL_CONTEXT (requires_decl);
+		      if (requires_decl != NULL_TREE)
+			fn1 = IDENTIFIER_POINTER (DECL_NAME (requires_decl));
+		    }
+
+		  const char *fn2 = file_data->file_name;
+		  if (tmp_decl != NULL_TREE)
+		    {
+		      while (DECL_CONTEXT (tmp_decl) != NULL_TREE
+			     && TREE_CODE (tmp_decl) != TRANSLATION_UNIT_DECL)
+			tmp_decl = DECL_CONTEXT (tmp_decl);
+		      if (tmp_decl != NULL_TREE)
+			fn2 = IDENTIFIER_POINTER (DECL_NAME (tmp_decl));
+		    }
+		  if (fn1 == fn2)
+		    {
+		      fn1 = requires_fn;
+		      fn2 = file_data->file_name;
+		    }
+
+		  char buf1[sizeof ("unified_address, unified_shared_memory, "
+				    "reverse_offload")];
+		  char buf2[sizeof ("unified_address, unified_shared_memory, "
+				    "reverse_offload")];
+		  omp_requires_to_name (buf2, sizeof (buf2),
+					val != OMP_REQUIRES_TARGET_USED
+					? val
+					: (HOST_WIDE_INT) omp_requires_mask);
+		  if (val != OMP_REQUIRES_TARGET_USED
+		      && omp_requires_mask != OMP_REQUIRES_TARGET_USED)
+		    {
+		      omp_requires_to_name (buf1, sizeof (buf1),
+					    omp_requires_mask);
+		      error ("OpenMP %<requires%> directive with non-identical "
+			     "clauses in multiple compilation units: %qs vs. "
+			     "%qs", buf1, buf2);
+		      inform (UNKNOWN_LOCATION, "%qs has %qs", fn1, buf1);
+		      inform (UNKNOWN_LOCATION, "%qs has %qs", fn2, buf2);
+		    }
+		  else
+		    {
+		      error ("OpenMP %<requires%> directive with %qs specified "
+			     "only in some compilation units", buf2);
+		      inform (UNKNOWN_LOCATION, "%qs has %qs",
+			      val != OMP_REQUIRES_TARGET_USED ? fn2 : fn1,
+			      buf2);
+		      inform (UNKNOWN_LOCATION, "but %qs has not",
+			      val != OMP_REQUIRES_TARGET_USED ? fn1 : fn2);
+		    }
+		  error_emitted = true;
+		}
 	    }
 	  else
 	    fatal_error (input_location,
@@ -1821,6 +1943,18 @@ input_offload_tables (bool do_force_output)
       lto_destroy_simple_input_block (file_data, LTO_section_offload_table,
 				      ib, data, len);
     }
+#ifdef ACCEL_COMPILER
+  char *omp_requires_file = getenv ("GCC_OFFLOAD_OMP_REQUIRES_FILE");
+  if (omp_requires_file == NULL || omp_requires_file[0] == '\0')
+    fatal_error (input_location, "GCC_OFFLOAD_OMP_REQUIRES_FILE unset");
+  FILE *f = fopen (omp_requires_file, "wb");
+  if (!f)
+    fatal_error (input_location, "Cannot open omp_requires file %qs",
+		 omp_requires_file);
+  uint32_t req_mask = omp_requires_mask;
+  fwrite (&req_mask, sizeof (req_mask), 1, f);
+  fclose (f);
+#endif
 }
 
 /* True when we need optimization summary for NODE.  */

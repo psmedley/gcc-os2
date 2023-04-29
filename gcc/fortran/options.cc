@@ -1,5 +1,5 @@
 /* Parse and display command line options.
-   Copyright (C) 2000-2022 Free Software Foundation, Inc.
+   Copyright (C) 2000-2023 Free Software Foundation, Inc.
    Contributed by Andy Vaught
 
 This file is part of GCC.
@@ -683,13 +683,6 @@ gfc_handle_option (size_t scode, const char *arg, HOST_WIDE_INT value,
 
     case OPT_ffree_form:
       gfc_option.source_form = FORM_FREE;
-      break;
-
-    case OPT_static_libgfortran:
-#ifndef HAVE_LD_STATIC_DYNAMIC
-      gfc_fatal_error ("%<-static-libgfortran%> is not supported in this "
-		       "configuration");
-#endif
       break;
 
     case OPT_fintrinsic_modules_path:

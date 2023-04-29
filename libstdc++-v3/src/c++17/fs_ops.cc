@@ -1,6 +1,6 @@
 // Filesystem operations -*- C++ -*-
 
-// Copyright (C) 2014-2022 Free Software Foundation, Inc.
+// Copyright (C) 2014-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -54,6 +54,7 @@
 # include <utime.h> // utime
 #endif
 #ifdef _GLIBCXX_FILESYSTEM_IS_WINDOWS
+# define WIN32_LEAN_AND_MEAN
 # include <windows.h>
 #endif
 
@@ -735,7 +736,7 @@ fs::path
 fs::current_path(error_code& ec)
 {
   path p;
-#ifdef _GLIBCXX_HAVE_UNISTD_H
+#if defined _GLIBCXX_HAVE_UNISTD_H && ! defined __AVR__
 #if defined __GLIBC__ || defined _GLIBCXX_FILESYSTEM_IS_WINDOWS
   if (char_ptr cwd = char_ptr{posix::getcwd(nullptr, 0)})
     {
@@ -1301,6 +1302,7 @@ fs::remove_all(const path& p)
     }
     // Directory is empty now, will remove it below.
     break;
+#ifndef __AVR__
   case ENOENT:
     // Our work here is done.
     return 0;
@@ -1308,6 +1310,7 @@ fs::remove_all(const path& p)
   case ELOOP:
     // Not a directory, will remove below.
     break;
+#endif
   default:
     // An error occurred.
     _GLIBCXX_THROW_OR_ABORT(filesystem_error("cannot remove all", p, ec));
@@ -1338,6 +1341,7 @@ fs::remove_all(const path& p, error_code& ec)
     }
     // Directory is empty now, will remove it below.
     break;
+#ifndef __AVR__
   case ENOENT:
     // Our work here is done.
     ec.clear();
@@ -1346,6 +1350,7 @@ fs::remove_all(const path& p, error_code& ec)
   case ELOOP:
     // Not a directory, will remove below.
     break;
+#endif
   default:
     // An error occurred.
     return -1;
@@ -1571,25 +1576,37 @@ fs::path
 fs::temp_directory_path()
 {
   error_code ec;
-  path tmp = temp_directory_path(ec);
+  path p = fs::get_temp_directory_from_env(ec);
+  if (!ec)
+    {
+      auto st = status(p, ec);
+      if (!ec && !is_directory(st))
+	ec = std::make_error_code(std::errc::not_a_directory);
+    }
   if (ec)
-    _GLIBCXX_THROW_OR_ABORT(filesystem_error("temp_directory_path", ec));
-  return tmp;
+    {
+      if (p.empty())
+	_GLIBCXX_THROW_OR_ABORT(filesystem_error("temp_directory_path", ec));
+      else
+	_GLIBCXX_THROW_OR_ABORT(filesystem_error("temp_directory_path", p, ec));
+    }
+  return p;
 }
 
 fs::path
 fs::temp_directory_path(error_code& ec)
 {
   path p = fs::get_temp_directory_from_env(ec);
-  if (ec)
-    return p;
-  auto st = status(p, ec);
-  if (ec)
-    p.clear();
-  else if (!is_directory(st))
+  if (!ec)
     {
-      p.clear();
-      ec = std::make_error_code(std::errc::not_a_directory);
+      auto st = status(p, ec);
+      if (ec)
+	p.clear();
+      else if (!is_directory(st))
+	{
+	  p.clear();
+	  ec = std::make_error_code(std::errc::not_a_directory);
+	}
     }
   return p;
 }

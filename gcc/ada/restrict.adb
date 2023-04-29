@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -41,12 +41,9 @@ with Sinput;         use Sinput;
 with Stand;          use Stand;
 with Targparm;       use Targparm;
 with Uname;          use Uname;
+with Warnsw;         use Warnsw;
 
 package body Restrict is
-
-   Global_Restriction_No_Tasking : Boolean := False;
-   --  Set to True when No_Tasking is set in the run-time package System
-   --  or in a configuration pragmas file (for example, gnat.adc).
 
    --------------------------------
    -- Package Local Declarations --
@@ -54,6 +51,10 @@ package body Restrict is
 
    Config_Cunit_Boolean_Restrictions : Save_Cunit_Boolean_Restrictions;
    --  Save compilation unit restrictions set by config pragma files
+
+   Global_Restriction_No_Tasking : Boolean := False;
+   --  Set to True when No_Tasking is set in the run-time package System
+   --  or in a configuration pragmas file (for example, gnat.adc).
 
    Restricted_Profile_Result : Boolean := False;
    --  This switch memoizes the result of Restricted_Profile function calls for
@@ -121,6 +122,11 @@ package body Restrict is
    --  N is the node for a possible restriction violation message, but the
    --  message is to be suppressed if this is an internal file and this file is
    --  not the main unit. Returns True if message is to be suppressed.
+
+   procedure Violation_Of_No_Dependence (Unit : Int; N : Node_Id);
+   --  Called if a violation of restriction No_Dependence for Unit at node N
+   --  is found. This routine outputs the appropriate message, taking care of
+   --  warning vs real violation.
 
    -------------------
    -- Abort_Allowed --
@@ -550,8 +556,6 @@ package body Restrict is
    -------------------------------------
 
    procedure Check_Restriction_No_Dependence (U : Node_Id; Err : Node_Id) is
-      DU : Node_Id;
-
    begin
       --  Ignore call if node U is not in the main source unit. This avoids
       --  cascaded errors, e.g. when Ada.Containers units with other units.
@@ -567,26 +571,33 @@ package body Restrict is
       --  Loop through entries in No_Dependence table to check each one in turn
 
       for J in No_Dependences.First .. No_Dependences.Last loop
-         DU := No_Dependences.Table (J).Unit;
-
-         if Same_Unit (U, DU) then
-            Error_Msg_Sloc := Sloc (DU);
-            Error_Msg_Node_1 := DU;
-
-            if No_Dependences.Table (J).Warn then
-               Error_Msg
-                 ("?*?violation of restriction `No_Dependence '='> &`#",
-                  Sloc (Err));
-            else
-               Error_Msg
-                 ("|violation of restriction `No_Dependence '='> &`#",
-                  Sloc (Err));
-            end if;
-
+         if Same_Unit (No_Dependences.Table (J).Unit, U) then
+            Violation_Of_No_Dependence (J, Err);
             return;
          end if;
       end loop;
    end Check_Restriction_No_Dependence;
+
+   -----------------------------------------------
+   -- Check_Restriction_No_Dependence_On_System --
+   -----------------------------------------------
+
+   procedure Check_Restriction_No_Dependence_On_System
+     (U   : Name_Id;
+      Err : Node_Id)
+   is
+      pragma Assert (U /= No_Name);
+
+   begin
+      --  Loop through entries in No_Dependence table to check each one in turn
+
+      for J in No_Dependences.First .. No_Dependences.Last loop
+         if No_Dependences.Table (J).System_Child = U then
+            Violation_Of_No_Dependence (J, Err);
+            return;
+         end if;
+      end loop;
+   end Check_Restriction_No_Dependence_On_System;
 
    --------------------------------------------------
    -- Check_Restriction_No_Specification_Of_Aspect --
@@ -886,7 +897,10 @@ package body Restrict is
          declare
             S : constant String := Restriction_Id'Image (J);
          begin
-            if S = Name_Buffer (1 .. Name_Len) then
+            if S = Name_Buffer (1 .. Name_Len)
+              --  users cannot name the N_T_H_Implicit restriction
+              and then J /= No_Task_Hierarchy_Implicit
+            then
                return J;
             end if;
          end;
@@ -1093,7 +1107,12 @@ package body Restrict is
 
    function Restriction_Active (R : All_Restrictions) return Boolean is
    begin
-      return Restrictions.Set (R) and then not Restriction_Warnings (R);
+      if Restrictions.Set (R) and then not Restriction_Warnings (R) then
+         return True;
+      else
+         return R = No_Task_Hierarchy
+           and then Restriction_Active (No_Task_Hierarchy_Implicit);
+      end if;
    end Restriction_Active;
 
    --------------------------------
@@ -1474,6 +1493,8 @@ package body Restrict is
       Warn    : Boolean;
       Profile : Profile_Name := No_Profile)
    is
+      ND : ND_Entry;
+
    begin
       --  Loop to check for duplicate entry
 
@@ -1495,7 +1516,26 @@ package body Restrict is
 
       --  Entry is not currently in table
 
-      No_Dependences.Append ((Unit, Warn, Profile));
+      ND := (Unit, No_Name, Warn, Profile);
+
+      --  Check whether this is a child unit of System
+
+      if Nkind (Unit) = N_Selected_Component then
+         declare
+            Root : Node_Id := Unit;
+
+         begin
+            while Nkind (Prefix (Root)) = N_Selected_Component loop
+               Root := Prefix (Root);
+            end loop;
+
+            if Chars (Prefix (Root)) = Name_System then
+               ND.System_Child := Chars (Selector_Name (Root));
+            end if;
+         end;
+      end if;
+
+      No_Dependences.Append (ND);
    end Set_Restriction_No_Dependence;
 
    --------------------------------------
@@ -1646,6 +1686,24 @@ package body Restrict is
          return In_Internal_Unit (N);
       end if;
    end Suppress_Restriction_Message;
+
+   --------------------------------
+   -- Violation_Of_No_Dependence --
+   --------------------------------
+
+   procedure Violation_Of_No_Dependence (Unit : Int; N : Node_Id) is
+   begin
+      Error_Msg_Node_1 := No_Dependences.Table (Unit).Unit;
+      Error_Msg_Sloc   := Sloc (Error_Msg_Node_1);
+
+      if No_Dependences.Table (Unit).Warn then
+         Error_Msg
+           ("?*?violation of restriction `No_Dependence '='> &`#", Sloc (N));
+      else
+         Error_Msg
+           ("|violation of restriction `No_Dependence '='> &`#", Sloc (N));
+      end if;
+   end Violation_Of_No_Dependence;
 
    ---------------------
    -- Tasking_Allowed --

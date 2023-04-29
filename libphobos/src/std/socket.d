@@ -122,6 +122,12 @@ version (StdUnittest)
                 writefln("Ignoring std.socket(%d) test failure (likely caused by flaky environment): %s", line, e.msg);
         }
     }
+
+    // Without debug=std_socket, still compile the slow tests, just don't run them.
+    debug (std_socket)
+        private enum runSlowTests = true;
+    else
+        private enum runSlowTests = false;
 }
 
 /// Base exception thrown by `std.socket`.
@@ -796,10 +802,14 @@ class InternetHost
     {
         string getHostNameFromInt = ih.name.dup;
 
-        assert(ih.getHostByAddr(ia.toAddrString()));
-        string getHostNameFromStr = ih.name.dup;
+        // This randomly fails in the compiler test suite
+        //assert(ih.getHostByAddr(ia.toAddrString()));
 
-        assert(getHostNameFromInt == getHostNameFromStr);
+        if (ih.getHostByAddr(ia.toAddrString()))
+        {
+            string getHostNameFromStr = ih.name.dup;
+            assert(getHostNameFromInt == getHostNameFromStr);
+        }
     }
 }
 
@@ -1698,7 +1708,7 @@ public:
         }
     });
 
-    debug (std_socket)
+    if (runSlowTests)
     softUnittest({
         // test failing reverse lookup
         const InternetAddress ia = new InternetAddress("255.255.255.255", 80);
@@ -2622,7 +2632,7 @@ private:
     AddressFamily _family;
 
     version (Windows)
-        bool _blocking = false;         /// Property to get or set whether the socket is blocking or nonblocking.
+        bool _blocking = true;         /// Property to get or set whether the socket is blocking or nonblocking.
 
     // The WinSock timeouts seem to be effectively skewed by a constant
     // offset of about half a second (value in milliseconds). This has
@@ -2633,24 +2643,24 @@ private:
 
     @safe unittest
     {
-        debug (std_socket)
+        if (runSlowTests)
         softUnittest({
-            import std.datetime.stopwatch;
-            import std.typecons;
+            import std.datetime.stopwatch : StopWatch;
+            import std.typecons : Yes;
 
             enum msecs = 1000;
             auto pair = socketPair();
-            auto sock = pair[0];
-            sock.setOption(SocketOptionLevel.SOCKET,
+            auto testSock = pair[0];
+            testSock.setOption(SocketOptionLevel.SOCKET,
                 SocketOption.RCVTIMEO, dur!"msecs"(msecs));
 
             auto sw = StopWatch(Yes.autoStart);
             ubyte[1] buf;
-            sock.receive(buf);
+            testSock.receive(buf);
             sw.stop();
 
             Duration readBack = void;
-            sock.getOption(SocketOptionLevel.SOCKET, SocketOption.RCVTIMEO, readBack);
+            testSock.getOption(SocketOptionLevel.SOCKET, SocketOption.RCVTIMEO, readBack);
 
             assert(readBack.total!"msecs" == msecs);
             assert(sw.peek().total!"msecs" > msecs - 100 && sw.peek().total!"msecs" < msecs + 100);
@@ -2742,6 +2752,21 @@ public:
     @property socket_t handle() const pure nothrow @nogc
     {
         return sock;
+    }
+
+    /**
+     * Releases the underlying socket handle from the Socket object. Once it
+     * is released, you cannot use the Socket object's methods anymore. This
+     * also means the Socket destructor will no longer close the socket - it
+     * becomes your responsibility.
+     *
+     * To get the handle without releasing it, use the `handle` property.
+     */
+    @property socket_t release() pure nothrow @nogc
+    {
+        auto h = sock;
+        this.sock = socket_t.init;
+        return h;
     }
 
     /**
@@ -2936,7 +2961,7 @@ public:
      * Calling `shutdown` before `close` is recommended
      * for connection-oriented sockets.
      */
-    void close() @trusted nothrow @nogc
+    void close() scope @trusted nothrow @nogc
     {
         _close(sock);
         sock = socket_t.init;
@@ -3000,7 +3025,7 @@ public:
      * Returns: The number of bytes actually sent, or `Socket.ERROR` on
      * failure.
      */
-    ptrdiff_t send(const(void)[] buf, SocketFlags flags) @trusted
+    ptrdiff_t send(scope const(void)[] buf, SocketFlags flags) @trusted
     {
         static if (is(typeof(MSG_NOSIGNAL)))
         {
@@ -3014,7 +3039,7 @@ public:
     }
 
     /// ditto
-    ptrdiff_t send(const(void)[] buf)
+    ptrdiff_t send(scope const(void)[] buf)
     {
         return send(buf, SocketFlags.NONE);
     }
@@ -3026,7 +3051,7 @@ public:
      * Returns: The number of bytes actually sent, or `Socket.ERROR` on
      * failure.
      */
-    ptrdiff_t sendTo(const(void)[] buf, SocketFlags flags, Address to) @trusted
+    ptrdiff_t sendTo(scope const(void)[] buf, SocketFlags flags, Address to) @trusted
     {
         static if (is(typeof(MSG_NOSIGNAL)))
         {
@@ -3042,7 +3067,7 @@ public:
     }
 
     /// ditto
-    ptrdiff_t sendTo(const(void)[] buf, Address to)
+    ptrdiff_t sendTo(scope const(void)[] buf, Address to)
     {
         return sendTo(buf, SocketFlags.NONE, to);
     }
@@ -3050,7 +3075,7 @@ public:
 
     //assumes you connect()ed
     /// ditto
-    ptrdiff_t sendTo(const(void)[] buf, SocketFlags flags) @trusted
+    ptrdiff_t sendTo(scope const(void)[] buf, SocketFlags flags) @trusted
     {
         static if (is(typeof(MSG_NOSIGNAL)))
         {
@@ -3065,7 +3090,7 @@ public:
 
     //assumes you connect()ed
     /// ditto
-    ptrdiff_t sendTo(const(void)[] buf)
+    ptrdiff_t sendTo(scope const(void)[] buf)
     {
         return sendTo(buf, SocketFlags.NONE);
     }
@@ -3077,7 +3102,7 @@ public:
      * Returns: The number of bytes actually received, `0` if the remote side
      * has closed the connection, or `Socket.ERROR` on failure.
      */
-    ptrdiff_t receive(void[] buf, SocketFlags flags) @trusted
+    ptrdiff_t receive(scope void[] buf, SocketFlags flags) @trusted
     {
         version (Windows)         // Does not use size_t
         {
@@ -3094,7 +3119,7 @@ public:
     }
 
     /// ditto
-    ptrdiff_t receive(void[] buf)
+    ptrdiff_t receive(scope void[] buf)
     {
         return receive(buf, SocketFlags.NONE);
     }
@@ -3106,7 +3131,7 @@ public:
      * Returns: The number of bytes actually received, `0` if the remote side
      * has closed the connection, or `Socket.ERROR` on failure.
      */
-    ptrdiff_t receiveFrom(void[] buf, SocketFlags flags, ref Address from) @trusted
+    ptrdiff_t receiveFrom(scope void[] buf, SocketFlags flags, ref Address from) @trusted
     {
         if (!buf.length)         //return 0 and don't think the connection closed
             return 0;
@@ -3129,7 +3154,7 @@ public:
 
 
     /// ditto
-    ptrdiff_t receiveFrom(void[] buf, ref Address from)
+    ptrdiff_t receiveFrom(scope void[] buf, ref Address from)
     {
         return receiveFrom(buf, SocketFlags.NONE, from);
     }
@@ -3137,7 +3162,7 @@ public:
 
     //assumes you connect()ed
     /// ditto
-    ptrdiff_t receiveFrom(void[] buf, SocketFlags flags) @trusted
+    ptrdiff_t receiveFrom(scope void[] buf, SocketFlags flags) @trusted
     {
         if (!buf.length)         //return 0 and don't think the connection closed
             return 0;
@@ -3158,7 +3183,7 @@ public:
 
     //assumes you connect()ed
     /// ditto
-    ptrdiff_t receiveFrom(void[] buf)
+    ptrdiff_t receiveFrom(scope void[] buf)
     {
         return receiveFrom(buf, SocketFlags.NONE);
     }
@@ -3169,7 +3194,7 @@ public:
      * Returns: The number of bytes written to `result`.
      * The length, in bytes, of the actual result - very different from getsockopt()
      */
-    int getOption(SocketOptionLevel level, SocketOption option, void[] result) @trusted
+    int getOption(SocketOptionLevel level, SocketOption option, scope void[] result) @trusted
     {
         socklen_t len = cast(socklen_t) result.length;
         if (_SOCKET_ERROR == .getsockopt(sock, cast(int) level, cast(int) option, result.ptr, &len))
@@ -3217,7 +3242,7 @@ public:
     }
 
     /// Set a socket option.
-    void setOption(SocketOptionLevel level, SocketOption option, void[] value) @trusted
+    void setOption(SocketOptionLevel level, SocketOption option, scope void[] value) @trusted
     {
         if (_SOCKET_ERROR == .setsockopt(sock, cast(int) level,
                                         cast(int) option, value.ptr, cast(uint) value.length))
@@ -3635,7 +3660,7 @@ class UdpSocket: Socket
             {
                 checkAttributes!q{nothrow @nogc @trusted};
             }
-            nothrow @nogc @trusted void close()
+            nothrow @nogc @trusted scope void close()
             {
                 checkAttributes!q{nothrow @nogc @trusted};
             }
@@ -3647,55 +3672,55 @@ class UdpSocket: Socket
             {
                 checkAttributes!q{@trusted}; assert(0);
             }
-            @trusted ptrdiff_t send(const(void)[] buf, SocketFlags flags)
+            @trusted ptrdiff_t send(scope const(void)[] buf, SocketFlags flags)
             {
                 checkAttributes!q{@trusted}; assert(0);
             }
-            @safe ptrdiff_t send(const(void)[] buf)
+            @safe ptrdiff_t send(scope const(void)[] buf)
             {
                 checkAttributes!q{@safe}; assert(0);
             }
-            @trusted ptrdiff_t sendTo(const(void)[] buf, SocketFlags flags, Address to)
+            @trusted ptrdiff_t sendTo(scope const(void)[] buf, SocketFlags flags, Address to)
             {
                 checkAttributes!q{@trusted}; assert(0);
             }
-            @safe ptrdiff_t sendTo(const(void)[] buf, Address to)
+            @safe ptrdiff_t sendTo(scope const(void)[] buf, Address to)
             {
                 checkAttributes!q{@safe}; assert(0);
             }
-            @trusted ptrdiff_t sendTo(const(void)[] buf, SocketFlags flags)
+            @trusted ptrdiff_t sendTo(scope const(void)[] buf, SocketFlags flags)
             {
                 checkAttributes!q{@trusted}; assert(0);
             }
-            @safe ptrdiff_t sendTo(const(void)[] buf)
+            @safe ptrdiff_t sendTo(scope const(void)[] buf)
             {
                 checkAttributes!q{@safe}; assert(0);
             }
-            @trusted ptrdiff_t receive(void[] buf, SocketFlags flags)
+            @trusted ptrdiff_t receive(scope void[] buf, SocketFlags flags)
             {
                 checkAttributes!q{@trusted}; assert(0);
             }
-            @safe ptrdiff_t receive(void[] buf)
+            @safe ptrdiff_t receive(scope void[] buf)
             {
                 checkAttributes!q{@safe}; assert(0);
             }
-            @trusted ptrdiff_t receiveFrom(void[] buf, SocketFlags flags, ref Address from)
+            @trusted ptrdiff_t receiveFrom(scope void[] buf, SocketFlags flags, ref Address from)
             {
                 checkAttributes!q{@trusted}; assert(0);
             }
-            @safe ptrdiff_t receiveFrom(void[] buf, ref Address from)
+            @safe ptrdiff_t receiveFrom(scope void[] buf, ref Address from)
             {
                 checkAttributes!q{@safe}; assert(0);
             }
-            @trusted ptrdiff_t receiveFrom(void[] buf, SocketFlags flags)
+            @trusted ptrdiff_t receiveFrom(scope void[] buf, SocketFlags flags)
             {
                 checkAttributes!q{@trusted}; assert(0);
             }
-            @safe ptrdiff_t receiveFrom(void[] buf)
+            @safe ptrdiff_t receiveFrom(scope void[] buf)
             {
                 checkAttributes!q{@safe}; assert(0);
             }
-            @trusted int getOption(SocketOptionLevel level, SocketOption option, void[] result)
+            @trusted int getOption(SocketOptionLevel level, SocketOption option, scope void[] result)
             {
                 checkAttributes!q{@trusted}; assert(0);
             }
@@ -3711,7 +3736,7 @@ class UdpSocket: Socket
             {
                 checkAttributes!q{@trusted};
             }
-            @trusted void setOption(SocketOptionLevel level, SocketOption option, void[] value)
+            @trusted void setOption(SocketOptionLevel level, SocketOption option, scope void[] value)
             {
                 checkAttributes!q{@trusted};
             }
@@ -3793,11 +3818,11 @@ Socket[2] socketPair() @trusted
 ///
 @safe unittest
 {
-    immutable ubyte[] data = [1, 2, 3, 4];
+    immutable ubyte[4] data = [1, 2, 3, 4];
     auto pair = socketPair();
     scope(exit) foreach (s; pair) s.close();
 
-    pair[0].send(data);
+    pair[0].send(data[]);
 
     auto buf = new ubyte[data.length];
     pair[1].receive(buf);

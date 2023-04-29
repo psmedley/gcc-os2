@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -44,6 +44,7 @@ with SFN_Scan;
 with Sinput;
 with Snames;
 with Stringt;
+with Uintp;
 
 pragma Warnings (Off);
 with System.HTable;
@@ -3676,6 +3677,7 @@ package body Make is
       Linker_Switches.Init;
 
       Csets.Initialize;
+      Uintp.Initialize;
       Snames.Initialize;
       Stringt.Initialize;
 

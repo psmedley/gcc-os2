@@ -1,5 +1,5 @@
 /* Schedule GIMPLE vector statements.
-   Copyright (C) 2020-2022 Free Software Foundation, Inc.
+   Copyright (C) 2020-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -355,12 +355,12 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       return true;
     }
 
-  virtual unsigned int execute (function *fun)
+  unsigned int execute (function *fun) final override
     {
       return gimple_expand_vec_exprs (fun);
     }

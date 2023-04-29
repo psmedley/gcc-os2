@@ -1,5 +1,5 @@
 /* Description of builtins used by the ARM backend.
-   Copyright (C) 2014-2022 Free Software Foundation, Inc.
+   Copyright (C) 2014-2023 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -385,6 +385,19 @@ arm_unop_unone_imm_qualifiers[SIMD_MAX_BUILTIN_ARGS]
   (arm_unop_unone_imm_qualifiers)
 
 static enum arm_type_qualifiers
+arm_unop_pred_unone_qualifiers[SIMD_MAX_BUILTIN_ARGS]
+  = { qualifier_predicate, qualifier_unsigned };
+#define UNOP_PRED_UNONE_QUALIFIERS \
+  (arm_unop_pred_unone_qualifiers)
+
+static enum arm_type_qualifiers
+arm_unop_pred_pred_qualifiers[SIMD_MAX_BUILTIN_ARGS]
+  = { qualifier_predicate, qualifier_predicate };
+#define UNOP_PRED_PRED_QUALIFIERS \
+  (arm_unop_pred_pred_qualifiers)
+
+
+static enum arm_type_qualifiers
 arm_binop_none_none_none_qualifiers[SIMD_MAX_BUILTIN_ARGS]
   = { qualifier_none, qualifier_none, qualifier_none };
 #define BINOP_NONE_NONE_NONE_QUALIFIERS \
@@ -425,6 +438,12 @@ arm_binop_pred_unone_unone_qualifiers[SIMD_MAX_BUILTIN_ARGS]
   = { qualifier_predicate, qualifier_unsigned, qualifier_unsigned };
 #define BINOP_PRED_UNONE_UNONE_QUALIFIERS \
   (arm_binop_pred_unone_unone_qualifiers)
+
+static enum arm_type_qualifiers
+arm_binop_pred_unone_pred_qualifiers[SIMD_MAX_BUILTIN_ARGS]
+  = { qualifier_predicate, qualifier_unsigned, qualifier_predicate };
+#define BINOP_PRED_UNONE_PRED_QUALIFIERS \
+  (arm_binop_pred_unone_pred_qualifiers)
 
 static enum arm_type_qualifiers
 arm_binop_unone_none_imm_qualifiers[SIMD_MAX_BUILTIN_ARGS]
@@ -851,6 +870,10 @@ arm_set_sat_qualifiers[SIMD_MAX_BUILTIN_ARGS]
   = { qualifier_void, qualifier_none };
 #define SET_SAT_QUALIFIERS (arm_set_sat_qualifiers)
 
+#define v2qi_UP  E_V2QImode
+#define v4bi_UP  E_V4BImode
+#define v8bi_UP  E_V8BImode
+#define v16bi_UP E_V16BImode
 #define v8qi_UP  E_V8QImode
 #define v4hi_UP  E_V4HImode
 #define v4hf_UP  E_V4HFmode
@@ -1471,7 +1494,7 @@ arm_lookup_simd_builtin_type (machine_mode mode,
 			      enum arm_type_qualifiers q)
 {
   int i;
-  int nelts = sizeof (arm_simd_types) / sizeof (arm_simd_types[0]);
+  int nelts = ARRAY_SIZE (arm_simd_types);
 
   /* Non-poly scalar modes map to standard types not in the table.  */
   if (q != qualifier_poly && !VECTOR_MODE_P (mode))
@@ -1489,12 +1512,14 @@ arm_lookup_simd_builtin_type (machine_mode mode,
 }
 
 static tree
-arm_simd_builtin_type (machine_mode mode, bool unsigned_p, bool poly_p)
+arm_simd_builtin_type (machine_mode mode, arm_type_qualifiers qualifiers)
 {
-  if (poly_p)
+  if ((qualifiers & qualifier_poly) != 0)
     return arm_lookup_simd_builtin_type (mode, qualifier_poly);
-  else if (unsigned_p)
+  else if ((qualifiers & qualifier_unsigned) != 0)
     return arm_lookup_simd_builtin_type (mode, qualifier_unsigned);
+  else if ((qualifiers & qualifier_predicate) != 0)
+    return unsigned_intHI_type_node;
   else
     return arm_lookup_simd_builtin_type (mode, qualifier_none);
 }
@@ -1503,7 +1528,7 @@ static void
 arm_init_simd_builtin_types (void)
 {
   int i;
-  int nelts = sizeof (arm_simd_types) / sizeof (arm_simd_types[0]);
+  int nelts = ARRAY_SIZE (arm_simd_types);
   tree tdecl;
 
   /* Poly types are a world of their own.  In order to maintain legacy
@@ -1755,9 +1780,7 @@ arm_init_builtin (unsigned int fcode, arm_builtin_datum *d,
       else
 	{
 	  eltype
-	    = arm_simd_builtin_type (op_mode,
-				     (qualifiers & qualifier_unsigned) != 0,
-				     (qualifiers & qualifier_poly) != 0);
+	    = arm_simd_builtin_type (op_mode, qualifiers);
 	  gcc_assert (eltype != NULL);
 
 	  /* Add qualifiers.  */
@@ -1929,10 +1952,10 @@ static void
 arm_init_crypto_builtins (void)
 {
   tree V16UQI_type_node
-    = arm_simd_builtin_type (V16QImode, true, false);
+    = arm_simd_builtin_type (V16QImode, qualifier_unsigned);
 
   tree V4USI_type_node
-    = arm_simd_builtin_type (V4SImode, true, false);
+    = arm_simd_builtin_type (V4SImode, qualifier_unsigned);
 
   tree v16uqi_ftype_v16uqi
     = build_function_type_list (V16UQI_type_node, V16UQI_type_node,
@@ -2989,11 +3012,14 @@ arm_expand_builtin_args (rtx target, machine_mode map_mode, int fcode,
 		op[argc] = convert_memory_address (Pmode, op[argc]);
 
 	      /* MVE uses mve_pred16_t (aka HImode) for vectors of
-		 predicates.  */
-	      if (GET_MODE_CLASS (mode[argc]) == MODE_VECTOR_BOOL)
+		 predicates, but internally we use V16BI/V8BI/V4BI/V2QI for
+		 MVE predicate modes.  */
+	      if (TARGET_HAVE_MVE && VALID_MVE_PRED_MODE (mode[argc]))
 		op[argc] = gen_lowpart (mode[argc], op[argc]);
 
-	      /*gcc_assert (GET_MODE (op[argc]) == mode[argc]); */
+	      gcc_assert (GET_MODE (op[argc]) == mode[argc]
+			  || (GET_MODE(op[argc]) == E_VOIDmode
+			      && CONSTANT_P (op[argc])));
 	      if (!(*insn_data[icode].operand[opno].predicate)
 		  (op[argc], mode[argc]))
 		op[argc] = copy_to_mode_reg (mode[argc], op[argc]);
@@ -3198,7 +3224,7 @@ constant_arg:
   else
     emit_insn (insn);
 
-  if (GET_MODE_CLASS (tmode) == MODE_VECTOR_BOOL)
+  if (TARGET_HAVE_MVE && VALID_MVE_PRED_MODE (tmode))
     {
       rtx HItarget = gen_reg_rtx (HImode);
       emit_move_insn (HItarget, gen_lowpart (HImode, target));
@@ -4025,129 +4051,6 @@ arm_expand_builtin (tree exp,
   /* @@@ Should really do something sensible here.  */
   return NULL_RTX;
 }
-
-tree
-arm_builtin_vectorized_function (unsigned int fn, tree type_out, tree type_in)
-{
-  machine_mode in_mode, out_mode;
-  int in_n, out_n;
-  bool out_unsigned_p = TYPE_UNSIGNED (type_out);
-
-  /* Can't provide any vectorized builtins when we can't use NEON.  */
-  if (!TARGET_NEON)
-    return NULL_TREE;
-
-  if (TREE_CODE (type_out) != VECTOR_TYPE
-      || TREE_CODE (type_in) != VECTOR_TYPE)
-    return NULL_TREE;
-
-  out_mode = TYPE_MODE (TREE_TYPE (type_out));
-  out_n = TYPE_VECTOR_SUBPARTS (type_out);
-  in_mode = TYPE_MODE (TREE_TYPE (type_in));
-  in_n = TYPE_VECTOR_SUBPARTS (type_in);
-
-/* ARM_CHECK_BUILTIN_MODE and ARM_FIND_VRINT_VARIANT are used to find the
-   decl of the vectorized builtin for the appropriate vector mode.
-   NULL_TREE is returned if no such builtin is available.  */
-#undef ARM_CHECK_BUILTIN_MODE
-#define ARM_CHECK_BUILTIN_MODE(C)    \
-  (TARGET_VFP5   \
-   && flag_unsafe_math_optimizations \
-   && ARM_CHECK_BUILTIN_MODE_1 (C))
-
-#undef ARM_CHECK_BUILTIN_MODE_1
-#define ARM_CHECK_BUILTIN_MODE_1(C) \
-  (out_mode == SFmode && out_n == C \
-   && in_mode == SFmode && in_n == C)
-
-#undef ARM_FIND_VRINT_VARIANT
-#define ARM_FIND_VRINT_VARIANT(N) \
-  (ARM_CHECK_BUILTIN_MODE (2) \
-    ? arm_builtin_decl(ARM_BUILTIN_NEON_##N##v2sf, false) \
-    : (ARM_CHECK_BUILTIN_MODE (4) \
-      ? arm_builtin_decl(ARM_BUILTIN_NEON_##N##v4sf, false) \
-      : NULL_TREE))
-
-  switch (fn)
-    {
-    CASE_CFN_FLOOR:
-      return ARM_FIND_VRINT_VARIANT (vrintm);
-    CASE_CFN_CEIL:
-      return ARM_FIND_VRINT_VARIANT (vrintp);
-    CASE_CFN_TRUNC:
-      return ARM_FIND_VRINT_VARIANT (vrintz);
-    CASE_CFN_ROUND:
-      return ARM_FIND_VRINT_VARIANT (vrinta);
-#undef ARM_CHECK_BUILTIN_MODE_1
-#define ARM_CHECK_BUILTIN_MODE_1(C) \
-  (out_mode == SImode && out_n == C \
-   && in_mode == SFmode && in_n == C)
-
-#define ARM_FIND_VCVT_VARIANT(N) \
-  (ARM_CHECK_BUILTIN_MODE (2) \
-   ? arm_builtin_decl(ARM_BUILTIN_NEON_##N##v2sfv2si, false) \
-   : (ARM_CHECK_BUILTIN_MODE (4) \
-     ? arm_builtin_decl(ARM_BUILTIN_NEON_##N##v4sfv4si, false) \
-     : NULL_TREE))
-
-#define ARM_FIND_VCVTU_VARIANT(N) \
-  (ARM_CHECK_BUILTIN_MODE (2) \
-   ? arm_builtin_decl(ARM_BUILTIN_NEON_##N##uv2sfv2si, false) \
-   : (ARM_CHECK_BUILTIN_MODE (4) \
-     ? arm_builtin_decl(ARM_BUILTIN_NEON_##N##uv4sfv4si, false) \
-     : NULL_TREE))
-    CASE_CFN_LROUND:
-      return (out_unsigned_p
-	      ? ARM_FIND_VCVTU_VARIANT (vcvta)
-	      : ARM_FIND_VCVT_VARIANT (vcvta));
-    CASE_CFN_LCEIL:
-      return (out_unsigned_p
-	      ? ARM_FIND_VCVTU_VARIANT (vcvtp)
-	      : ARM_FIND_VCVT_VARIANT (vcvtp));
-    CASE_CFN_LFLOOR:
-      return (out_unsigned_p
-	      ? ARM_FIND_VCVTU_VARIANT (vcvtm)
-	      : ARM_FIND_VCVT_VARIANT (vcvtm));
-#undef ARM_CHECK_BUILTIN_MODE
-#define ARM_CHECK_BUILTIN_MODE(C, N) \
-  (out_mode == N##mode && out_n == C \
-   && in_mode == N##mode && in_n == C)
-    case CFN_BUILT_IN_BSWAP16:
-      if (ARM_CHECK_BUILTIN_MODE (4, HI))
-	return arm_builtin_decl (ARM_BUILTIN_NEON_bswapv4hi, false);
-      else if (ARM_CHECK_BUILTIN_MODE (8, HI))
-	return arm_builtin_decl (ARM_BUILTIN_NEON_bswapv8hi, false);
-      else
-	return NULL_TREE;
-    case CFN_BUILT_IN_BSWAP32:
-      if (ARM_CHECK_BUILTIN_MODE (2, SI))
-	return arm_builtin_decl (ARM_BUILTIN_NEON_bswapv2si, false);
-      else if (ARM_CHECK_BUILTIN_MODE (4, SI))
-	return arm_builtin_decl (ARM_BUILTIN_NEON_bswapv4si, false);
-      else
-	return NULL_TREE;
-    case CFN_BUILT_IN_BSWAP64:
-      if (ARM_CHECK_BUILTIN_MODE (2, DI))
-	return arm_builtin_decl (ARM_BUILTIN_NEON_bswapv2di, false);
-      else
-	return NULL_TREE;
-    CASE_CFN_COPYSIGN:
-      if (ARM_CHECK_BUILTIN_MODE (2, SF))
-	return arm_builtin_decl (ARM_BUILTIN_NEON_copysignfv2sf, false);
-      else if (ARM_CHECK_BUILTIN_MODE (4, SF))
-	return arm_builtin_decl (ARM_BUILTIN_NEON_copysignfv4sf, false);
-      else
-	return NULL_TREE;
-
-    default:
-      return NULL_TREE;
-    }
-  return NULL_TREE;
-}
-#undef ARM_FIND_VCVT_VARIANT
-#undef ARM_FIND_VCVTU_VARIANT
-#undef ARM_CHECK_BUILTIN_MODE
-#undef ARM_FIND_VRINT_VARIANT
 
 void
 arm_atomic_assign_expand_fenv (tree *hold, tree *clear, tree *update)

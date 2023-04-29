@@ -1,5 +1,5 @@
 /* Output routines for GCC for Renesas / SuperH SH.
-   Copyright (C) 1993-2022 Free Software Foundation, Inc.
+   Copyright (C) 1993-2023 Free Software Foundation, Inc.
    Contributed by Steve Chamberlain (sac@cygnus.com).
    Improved by Jim Wilson (wilson@cygnus.com).
 
@@ -2178,7 +2178,7 @@ expand_cbranchdi4 (rtx *operands, enum rtx_code comparison)
 	  && prob.to_reg_br_prob_base () >= (int) (REG_BR_PROB_BASE * 3 / 8U)
 	  && prob.to_reg_br_prob_base () <= (int) (REG_BR_PROB_BASE * 5 / 8U))
 	{
-	  msw_taken_prob = prob.apply_scale (1, 2);
+	  msw_taken_prob = prob / 2;
 	  msw_skip_prob = rev_prob.apply_scale (REG_BR_PROB_BASE,
 						rev_prob.to_reg_br_prob_base ()
 						+ REG_BR_PROB_BASE);
@@ -8183,11 +8183,12 @@ sh_setup_incoming_varargs (cumulative_args_t ca,
   gcc_assert (cfun->stdarg);
   if (TARGET_VARARGS_PRETEND_ARGS (current_function_decl))
     {
-      int named_parm_regs, anon_parm_regs;
+      int named_parm_regs = 0, anon_parm_regs;
 
-      named_parm_regs = (sh_round_reg (*get_cumulative_args (ca), arg.mode)
-			 + CEIL (arg.promoted_size_in_bytes (),
-				 UNITS_PER_WORD));
+      if (!TYPE_NO_NAMED_ARGS_STDARG_P (TREE_TYPE (current_function_decl)))
+	named_parm_regs = (sh_round_reg (*get_cumulative_args (ca), arg.mode)
+			   + CEIL (arg.promoted_size_in_bytes (),
+				   UNITS_PER_WORD));
       anon_parm_regs = NPARM_REGS (SImode) - named_parm_regs;
       if (anon_parm_regs > 0)
 	*pretend_arg_size = anon_parm_regs * 4;

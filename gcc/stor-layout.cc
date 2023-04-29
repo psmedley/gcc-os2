@@ -1,5 +1,5 @@
 /* C-compiler utilities for types and variables storage layout
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -1781,7 +1781,12 @@ finalize_record_size (record_layout_info rli)
       && simple_cst_equal (unpadded_size, TYPE_SIZE (rli->t)) == 0
       && input_location != BUILTINS_LOCATION
       && !TYPE_ARTIFICIAL (rli->t))
-    warning (OPT_Wpadded, "padding struct size to alignment boundary");
+  {
+	tree pad_size
+	  = size_binop (MINUS_EXPR, TYPE_SIZE_UNIT (rli->t), unpadded_size_unit);
+	  warning (OPT_Wpadded,
+		"padding struct size to alignment boundary with %E bytes", pad_size);
+  }
 
   if (warn_packed && TREE_CODE (rli->t) == RECORD_TYPE
       && TYPE_PACKED (rli->t) && ! rli->packed_maybe_necessary
@@ -1991,6 +1996,7 @@ finalize_type_size (tree type)
       unsigned int user_align = TYPE_USER_ALIGN (type);
       machine_mode mode = TYPE_MODE (type);
       bool empty_p = TYPE_EMPTY_P (type);
+      bool typeless = AGGREGATE_TYPE_P (type) && TYPE_TYPELESS_STORAGE (type);
 
       /* Copy it into all variants.  */
       for (variant = TYPE_MAIN_VARIANT (type);
@@ -2015,6 +2021,8 @@ finalize_type_size (tree type)
 	  TYPE_PRECISION (variant) = precision;
 	  SET_TYPE_MODE (variant, mode);
 	  TYPE_EMPTY_P (variant) = empty_p;
+	  if (AGGREGATE_TYPE_P (variant))
+	    TYPE_TYPELESS_STORAGE (variant) = typeless;
 	}
     }
 }

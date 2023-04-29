@@ -21,8 +21,9 @@ class ScopedInterceptor {
 
  private:
   ThreadState *const thr_;
-  bool in_ignored_lib_;
-  bool ignoring_;
+  bool in_ignored_lib_ = false;
+  bool in_blocking_func_ = false;
+  bool ignoring_ = false;
 
   void DisableIgnoresImpl();
   void EnableIgnoresImpl();
@@ -35,6 +36,10 @@ inline bool in_symbolizer() {
   return UNLIKELY(cur_thread_init()->in_symbolizer);
 }
 #endif
+
+inline bool MustIgnoreInterceptor(ThreadState *thr) {
+  return !thr->is_inited || thr->ignore_interceptors || thr->in_ignored_lib;
+}
 
 }  // namespace __tsan
 
@@ -60,10 +65,10 @@ inline bool in_symbolizer() {
 #  define CHECK_REAL_FUNC(func) DCHECK(REAL(func))
 #endif
 
-#define SCOPED_TSAN_INTERCEPTOR(func, ...)                                \
-  SCOPED_INTERCEPTOR_RAW(func, __VA_ARGS__);                              \
-  CHECK_REAL_FUNC(func);                                                  \
-  if (!thr->is_inited || thr->ignore_interceptors || thr->in_ignored_lib) \
+#define SCOPED_TSAN_INTERCEPTOR(func, ...)   \
+  SCOPED_INTERCEPTOR_RAW(func, __VA_ARGS__); \
+  CHECK_REAL_FUNC(func);                     \
+  if (MustIgnoreInterceptor(thr))            \
     return REAL(func)(__VA_ARGS__);
 
 #define SCOPED_TSAN_INTERCEPTOR_USER_CALLBACK_START() \
@@ -73,6 +78,14 @@ inline bool in_symbolizer() {
     si.EnableIgnores();
 
 #define TSAN_INTERCEPTOR(ret, func, ...) INTERCEPTOR(ret, func, __VA_ARGS__)
+
+#if SANITIZER_FREEBSD
+#  define TSAN_INTERCEPTOR_FREEBSD_ALIAS(ret, func, ...) \
+    TSAN_INTERCEPTOR(ret, _pthread_##func, __VA_ARGS__)  \
+    ALIAS(WRAPPER_NAME(pthread_##func));
+#else
+#  define TSAN_INTERCEPTOR_FREEBSD_ALIAS(ret, func, ...)
+#endif
 
 #if SANITIZER_NETBSD
 # define TSAN_INTERCEPTOR_NETBSD_ALIAS(ret, func, ...) \

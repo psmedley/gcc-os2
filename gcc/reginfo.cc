@@ -1,5 +1,5 @@
 /* Compute different info about registers.
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -953,7 +953,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual unsigned int execute (function *) { return reginfo_init (); }
+  unsigned int execute (function *) final override { return reginfo_init (); }
 
 }; // class pass_reginfo_init
 

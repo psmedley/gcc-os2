@@ -1,5 +1,5 @@
 /* Backend support for Fortran 95 basic types and derived types.
-   Copyright (C) 2002-2022 Free Software Foundation, Inc.
+   Copyright (C) 2002-2023 Free Software Foundation, Inc.
    Contributed by Paul Brook <paul@nowt.org>
    and Steven Bosscher <s.bosscher@student.tudelft.nl>
 
@@ -72,6 +72,7 @@ tree gfc_float128_type_node = NULL_TREE;
 tree gfc_complex_float128_type_node = NULL_TREE;
 
 bool gfc_real16_is_float128 = false;
+bool gfc_real16_use_iec_60559 = false;
 
 static GTY(()) tree gfc_desc_dim_type;
 static GTY(()) tree gfc_max_array_element_size;
@@ -522,6 +523,11 @@ gfc_init_kinds (void)
 		&& (TARGET_GLIBC_MAJOR < 2
 		    || (TARGET_GLIBC_MAJOR == 2 && TARGET_GLIBC_MINOR < 32)))
 	      {
+		if (TARGET_GLIBC_MAJOR == 2 && TARGET_GLIBC_MINOR >= 26)
+		  {
+		    gfc_real16_use_iec_60559 = true;
+		    gfc_real_kinds[i].use_iec_60559 = 1;
+		  }
 		gfc_real16_is_float128 = true;
 		gfc_real_kinds[i].c_float128 = 1;
 	      }
@@ -878,6 +884,12 @@ gfc_build_real_type (gfc_real_info *info)
       /* TODO: see PR101835.  */
       info->c_float128 = 1;
       gfc_real16_is_float128 = true;
+      if (TARGET_GLIBC_MAJOR > 2
+	  || (TARGET_GLIBC_MAJOR == 2 && TARGET_GLIBC_MINOR >= 26))
+	{
+	  info->use_iec_60559 = 1;
+	  gfc_real16_use_iec_60559 = true;
+	}
     }
 
   if (TYPE_PRECISION (float_type_node) == mode_precision)
@@ -2302,7 +2314,7 @@ gfc_sym_type (gfc_symbol * sym, bool is_bind_c)
 	      && sym->ns->proc_name->attr.is_bind_c)
 	  || (sym->ts.deferred && (!sym->ts.u.cl
 				   || !sym->ts.u.cl->backend_decl))))
-    type = gfc_character1_type_node;
+    type = gfc_get_char_type (sym->ts.kind);
   else
     type = gfc_typenode_for_spec (&sym->ts, sym->attr.codimension);
 
@@ -2950,6 +2962,8 @@ gfc_return_by_reference (gfc_symbol * sym)
      require an explicit interface, as no compatibility problems can
      arise there.  */
   if (flag_f2c && sym->ts.type == BT_COMPLEX
+      && !sym->attr.pointer
+      && !sym->attr.allocatable
       && !sym->attr.intrinsic && !sym->attr.always_explicit)
     return 1;
 
@@ -3042,12 +3056,23 @@ create_fn_spec (gfc_symbol *sym, tree fntype)
   for (f = gfc_sym_get_dummy_args (sym); f; f = f->next)
     if (spec_len < sizeof (spec))
       {
-	if (!f->sym || f->sym->attr.pointer || f->sym->attr.target
+	bool is_class = false;
+	bool is_pointer = false;
+
+	if (f->sym)
+	  {
+	    is_class = f->sym->ts.type == BT_CLASS && CLASS_DATA (f->sym)
+	      && f->sym->attr.class_ok;
+	    is_pointer = is_class ? CLASS_DATA (f->sym)->attr.class_pointer
+				  : f->sym->attr.pointer;
+	  }
+
+	if (f->sym == NULL || is_pointer || f->sym->attr.target
 	    || f->sym->attr.external || f->sym->attr.cray_pointer
 	    || (f->sym->ts.type == BT_DERIVED
 		&& (f->sym->ts.u.derived->attr.proc_pointer_comp
 		    || f->sym->ts.u.derived->attr.pointer_comp))
-	    || (f->sym->ts.type == BT_CLASS
+	    || (is_class
 		&& (CLASS_DATA (f->sym)->ts.u.derived->attr.proc_pointer_comp
 		    || CLASS_DATA (f->sym)->ts.u.derived->attr.pointer_comp))
 	    || (f->sym->ts.type == BT_INTEGER && f->sym->ts.is_c_interop))
@@ -3082,6 +3107,7 @@ gfc_get_function_type (gfc_symbol * sym, gfc_actual_arglist *actual_args,
 {
   tree type;
   vec<tree, va_gc> *typelist = NULL;
+  vec<tree, va_gc> *hidden_typelist = NULL;
   gfc_formal_arglist *f;
   gfc_symbol *arg;
   int alternate_return = 0;
@@ -3199,17 +3225,17 @@ gfc_get_function_type (gfc_symbol * sym, gfc_actual_arglist *actual_args,
 	       so that the value can be returned.  */
 	    type = build_pointer_type (gfc_charlen_type_node);
 
-	  vec_safe_push (typelist, type);
+	  vec_safe_push (hidden_typelist, type);
 	}
-      /* For noncharacter scalar intrinsic types, VALUE passes the value,
+      /* For scalar intrinsic types, VALUE passes the value,
 	 hence, the optional status cannot be transferred via a NULL pointer.
 	 Thus, we will use a hidden argument in that case.  */
-      else if (arg
-	       && arg->attr.optional
-	       && arg->attr.value
-	       && !arg->attr.dimension
-	       && arg->ts.type != BT_CLASS
-	       && !gfc_bt_struct (arg->ts.type))
+      if (arg
+	  && arg->attr.optional
+	  && arg->attr.value
+	  && !arg->attr.dimension
+	  && arg->ts.type != BT_CLASS
+	  && !gfc_bt_struct (arg->ts.type))
 	vec_safe_push (typelist, boolean_type_node);
       /* Coarrays which are descriptorless or assumed-shape pass with
 	 -fcoarray=lib the token and the offset as hidden arguments.  */
@@ -3222,10 +3248,14 @@ gfc_get_function_type (gfc_symbol * sym, gfc_actual_arglist *actual_args,
 		  && CLASS_DATA (arg)->attr.codimension
 		  && !CLASS_DATA (arg)->attr.allocatable)))
 	{
-	  vec_safe_push (typelist, pvoid_type_node);  /* caf_token.  */
-	  vec_safe_push (typelist, gfc_array_index_type);  /* caf_offset.  */
+	  vec_safe_push (hidden_typelist, pvoid_type_node);  /* caf_token.  */
+	  vec_safe_push (hidden_typelist, gfc_array_index_type);  /* caf_offset.  */
 	}
     }
+
+  /* Put hidden character length, caf_token, caf_offset at the end.  */
+  vec_safe_reserve (typelist, vec_safe_length (hidden_typelist));
+  vec_safe_splice (typelist, hidden_typelist);
 
   if (!vec_safe_is_empty (typelist)
       || sym->attr.is_main_program
@@ -3245,6 +3275,8 @@ arg_type_list_done:
     type = gfc_get_mixed_entry_union (sym->ns);
   else if (flag_f2c && sym->ts.type == BT_REAL
 	   && sym->ts.kind == gfc_default_real_kind
+	   && !sym->attr.pointer
+	   && !sym->attr.allocatable
 	   && !sym->attr.always_explicit)
     {
       /* Special case: f2c calling conventions require that (scalar)
@@ -3274,7 +3306,9 @@ arg_type_list_done:
     type = gfc_sym_type (sym);
 
   if (is_varargs)
-    type = build_varargs_function_type_vec (type, typelist);
+    /* This should be represented as an unprototyped type, not a type
+       with (...) prototype.  */
+    type = build_function_type (type, NULL_TREE);
   else
     type = build_function_type_vec (type, typelist);
 
@@ -3420,7 +3454,7 @@ gfc_get_array_descr_info (const_tree type, struct array_descr_info *info)
     }
 
   rank = GFC_TYPE_ARRAY_RANK (type);
-  if (rank >= (int) (sizeof (info->dimen) / sizeof (info->dimen[0])))
+  if (rank >= (int) (ARRAY_SIZE (info->dimen)))
     return false;
 
   etype = GFC_TYPE_ARRAY_DATAPTR_TYPE (type);

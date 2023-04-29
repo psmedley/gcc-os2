@@ -1,5 +1,5 @@
 /* Builtins' description for AArch64 SIMD architecture.
-   Copyright (C) 2011-2022 Free Software Foundation, Inc.
+   Copyright (C) 2011-2023 Free Software Foundation, Inc.
    Contributed by ARM Ltd.
 
    This file is part of GCC.
@@ -55,6 +55,7 @@
 #define v2si_UP  E_V2SImode
 #define v2sf_UP  E_V2SFmode
 #define v1df_UP  E_V1DFmode
+#define v1di_UP  E_V1DImode
 #define di_UP    E_DImode
 #define df_UP    E_DFmode
 #define v16qi_UP E_V16QImode
@@ -126,6 +127,63 @@
 #define v4x2df_UP  E_V4x2DFmode
 #define UP(X) X##_UP
 
+#define MODE_d_bf16 E_V4BFmode
+#define MODE_d_f16 E_V4HFmode
+#define MODE_d_f32 E_V2SFmode
+#define MODE_d_f64 E_V1DFmode
+#define MODE_d_s8 E_V8QImode
+#define MODE_d_s16 E_V4HImode
+#define MODE_d_s32 E_V2SImode
+#define MODE_d_s64 E_V1DImode
+#define MODE_d_u8 E_V8QImode
+#define MODE_d_u16 E_V4HImode
+#define MODE_d_u32 E_V2SImode
+#define MODE_d_u64 E_V1DImode
+#define MODE_d_p8 E_V8QImode
+#define MODE_d_p16 E_V4HImode
+#define MODE_d_p64 E_V1DImode
+#define MODE_q_bf16 E_V8BFmode
+#define MODE_q_f16 E_V8HFmode
+#define MODE_q_f32 E_V4SFmode
+#define MODE_q_f64 E_V2DFmode
+#define MODE_q_s8 E_V16QImode
+#define MODE_q_s16 E_V8HImode
+#define MODE_q_s32 E_V4SImode
+#define MODE_q_s64 E_V2DImode
+#define MODE_q_u8 E_V16QImode
+#define MODE_q_u16 E_V8HImode
+#define MODE_q_u32 E_V4SImode
+#define MODE_q_u64 E_V2DImode
+#define MODE_q_p8 E_V16QImode
+#define MODE_q_p16 E_V8HImode
+#define MODE_q_p64 E_V2DImode
+#define MODE_q_p128 E_TImode
+
+#define QUAL_bf16 qualifier_none
+#define QUAL_f16 qualifier_none
+#define QUAL_f32 qualifier_none
+#define QUAL_f64 qualifier_none
+#define QUAL_s8 qualifier_none
+#define QUAL_s16 qualifier_none
+#define QUAL_s32 qualifier_none
+#define QUAL_s64 qualifier_none
+#define QUAL_u8 qualifier_unsigned
+#define QUAL_u16 qualifier_unsigned
+#define QUAL_u32 qualifier_unsigned
+#define QUAL_u64 qualifier_unsigned
+#define QUAL_p8 qualifier_poly
+#define QUAL_p16 qualifier_poly
+#define QUAL_p64 qualifier_poly
+#define QUAL_p128 qualifier_poly
+
+#define LENGTH_d ""
+#define LENGTH_q "q"
+
+#define SIMD_INTR_MODE(suffix, length) MODE_##length##_##suffix
+#define SIMD_INTR_QUAL(suffix) QUAL_##suffix
+#define SIMD_INTR_LENGTH_CHAR(length) LENGTH_##length
+
+
 #define SIMD_MAX_BUILTIN_ARGS 5
 
 enum aarch64_type_qualifiers
@@ -144,9 +202,7 @@ enum aarch64_type_qualifiers
   qualifier_maybe_immediate = 0x10, /* 1 << 4  */
   /* void foo (...).  */
   qualifier_void = 0x20, /* 1 << 5  */
-  /* Some patterns may have internal operands, this qualifier is an
-     instruction to the initialisation code to skip this operand.  */
-  qualifier_internal = 0x40, /* 1 << 6  */
+  /* 1 << 6 is now unused */
   /* Some builtins should use the T_*mode* encoded in a simd_builtin_datum
      rather than using the type of the operand.  */
   qualifier_map_mode = 0x80, /* 1 << 7  */
@@ -523,6 +579,99 @@ static aarch64_simd_builtin_datum aarch64_simd_builtin_data[] = {
   FCMLA_LANEQ_BUILTIN (180, v4hf, fcmla_laneq, V4HF, true) \
   FCMLA_LANEQ_BUILTIN (270, v4hf, fcmla_laneq, V4HF, true) \
 
+
+/* vreinterpret intrinsics are defined for any pair of element types.
+   {     _bf16           }   {     _bf16           }
+   {      _f16 _f32 _f64 }   {      _f16 _f32 _f64 }
+   { _s8  _s16 _s32 _s64 } x { _s8  _s16 _s32 _s64 }
+   { _u8  _u16 _u32 _u64 }   { _u8  _u16 _u32 _u64 }
+   { _p8  _p16      _p64 }   { _p8  _p16      _p64 }.  */
+#define VREINTERPRET_BUILTIN2(A, B) \
+  VREINTERPRET_BUILTIN (A, B, d)
+
+#define VREINTERPRET_BUILTINS1(A) \
+  VREINTERPRET_BUILTIN2 (A, bf16) \
+  VREINTERPRET_BUILTIN2 (A, f16) \
+  VREINTERPRET_BUILTIN2 (A, f32) \
+  VREINTERPRET_BUILTIN2 (A, f64) \
+  VREINTERPRET_BUILTIN2 (A, s8) \
+  VREINTERPRET_BUILTIN2 (A, s16) \
+  VREINTERPRET_BUILTIN2 (A, s32) \
+  VREINTERPRET_BUILTIN2 (A, s64) \
+  VREINTERPRET_BUILTIN2 (A, u8) \
+  VREINTERPRET_BUILTIN2 (A, u16) \
+  VREINTERPRET_BUILTIN2 (A, u32) \
+  VREINTERPRET_BUILTIN2 (A, u64) \
+  VREINTERPRET_BUILTIN2 (A, p8) \
+  VREINTERPRET_BUILTIN2 (A, p16) \
+  VREINTERPRET_BUILTIN2 (A, p64)
+
+#define VREINTERPRET_BUILTINS \
+  VREINTERPRET_BUILTINS1 (bf16) \
+  VREINTERPRET_BUILTINS1 (f16) \
+  VREINTERPRET_BUILTINS1 (f32) \
+  VREINTERPRET_BUILTINS1 (f64) \
+  VREINTERPRET_BUILTINS1 (s8) \
+  VREINTERPRET_BUILTINS1 (s16) \
+  VREINTERPRET_BUILTINS1 (s32) \
+  VREINTERPRET_BUILTINS1 (s64) \
+  VREINTERPRET_BUILTINS1 (u8) \
+  VREINTERPRET_BUILTINS1 (u16) \
+  VREINTERPRET_BUILTINS1 (u32) \
+  VREINTERPRET_BUILTINS1 (u64) \
+  VREINTERPRET_BUILTINS1 (p8) \
+  VREINTERPRET_BUILTINS1 (p16) \
+  VREINTERPRET_BUILTINS1 (p64)
+
+/* vreinterpretq intrinsics are additionally defined for p128.
+   {     _bf16                 }   {     _bf16                 }
+   {      _f16 _f32 _f64       }   {      _f16 _f32 _f64       }
+   { _s8  _s16 _s32 _s64       } x { _s8  _s16 _s32 _s64       }
+   { _u8  _u16 _u32 _u64       }   { _u8  _u16 _u32 _u64       }
+   { _p8  _p16      _p64 _p128 }   { _p8  _p16      _p64 _p128 }.  */
+#define VREINTERPRETQ_BUILTIN2(A, B) \
+  VREINTERPRET_BUILTIN (A, B, q)
+
+#define VREINTERPRETQ_BUILTINS1(A) \
+  VREINTERPRETQ_BUILTIN2 (A, bf16) \
+  VREINTERPRETQ_BUILTIN2 (A, f16) \
+  VREINTERPRETQ_BUILTIN2 (A, f32) \
+  VREINTERPRETQ_BUILTIN2 (A, f64) \
+  VREINTERPRETQ_BUILTIN2 (A, s8) \
+  VREINTERPRETQ_BUILTIN2 (A, s16) \
+  VREINTERPRETQ_BUILTIN2 (A, s32) \
+  VREINTERPRETQ_BUILTIN2 (A, s64) \
+  VREINTERPRETQ_BUILTIN2 (A, u8) \
+  VREINTERPRETQ_BUILTIN2 (A, u16) \
+  VREINTERPRETQ_BUILTIN2 (A, u32) \
+  VREINTERPRETQ_BUILTIN2 (A, u64) \
+  VREINTERPRETQ_BUILTIN2 (A, p8) \
+  VREINTERPRETQ_BUILTIN2 (A, p16) \
+  VREINTERPRETQ_BUILTIN2 (A, p64) \
+  VREINTERPRETQ_BUILTIN2 (A, p128)
+
+#define VREINTERPRETQ_BUILTINS \
+  VREINTERPRETQ_BUILTINS1 (bf16) \
+  VREINTERPRETQ_BUILTINS1 (f16) \
+  VREINTERPRETQ_BUILTINS1 (f32) \
+  VREINTERPRETQ_BUILTINS1 (f64) \
+  VREINTERPRETQ_BUILTINS1 (s8) \
+  VREINTERPRETQ_BUILTINS1 (s16) \
+  VREINTERPRETQ_BUILTINS1 (s32) \
+  VREINTERPRETQ_BUILTINS1 (s64) \
+  VREINTERPRETQ_BUILTINS1 (u8) \
+  VREINTERPRETQ_BUILTINS1 (u16) \
+  VREINTERPRETQ_BUILTINS1 (u32) \
+  VREINTERPRETQ_BUILTINS1 (u64) \
+  VREINTERPRETQ_BUILTINS1 (p8) \
+  VREINTERPRETQ_BUILTINS1 (p16) \
+  VREINTERPRETQ_BUILTINS1 (p64) \
+  VREINTERPRETQ_BUILTINS1 (p128)
+
+#define AARCH64_SIMD_VREINTERPRET_BUILTINS \
+  VREINTERPRET_BUILTINS \
+  VREINTERPRETQ_BUILTINS
+
 typedef struct
 {
   const char *name;
@@ -541,11 +690,26 @@ typedef struct
   bool lane;
 } aarch64_fcmla_laneq_builtin_datum;
 
+/* Hold information about how to declare SIMD intrinsics.  */
+typedef struct
+{
+  const char *name;
+  unsigned int fcode;
+  unsigned int op_count;
+  machine_mode op_modes[SIMD_MAX_BUILTIN_ARGS];
+  enum aarch64_type_qualifiers qualifiers[SIMD_MAX_BUILTIN_ARGS];
+  unsigned int flags;
+  bool skip;
+} aarch64_simd_intrinsic_datum;
+
 #define CRC32_BUILTIN(N, M) \
   AARCH64_BUILTIN_##N,
 
 #define FCMLA_LANEQ_BUILTIN(I, N, X, M, T) \
   AARCH64_SIMD_BUILTIN_FCMLA_LANEQ##I##_##M,
+
+#define VREINTERPRET_BUILTIN(A, B, L) \
+  AARCH64_SIMD_BUILTIN_VREINTERPRET##L##_##A##_##B,
 
 #undef VAR1
 #define VAR1(T, N, MAP, FLAG, A) \
@@ -580,6 +744,8 @@ enum aarch64_builtins
   AARCH64_CRC32_BUILTIN_BASE,
   AARCH64_CRC32_BUILTINS
   AARCH64_CRC32_BUILTIN_MAX,
+  /* SIMD intrinsic builtins.  */
+  AARCH64_SIMD_VREINTERPRET_BUILTINS
   /* ARMv8.3-A Pointer Authentication Builtins.  */
   AARCH64_PAUTH_BUILTIN_AUTIA1716,
   AARCH64_PAUTH_BUILTIN_PACIA1716,
@@ -641,6 +807,23 @@ static aarch64_crc_builtin_datum aarch64_crc_builtin_data[] = {
 static aarch64_fcmla_laneq_builtin_datum aarch64_fcmla_lane_builtin_data[] = {
   AARCH64_SIMD_FCMLA_LANEQ_BUILTINS
 };
+
+#undef VREINTERPRET_BUILTIN
+#define VREINTERPRET_BUILTIN(A, B, L) \
+  {"vreinterpret" SIMD_INTR_LENGTH_CHAR(L) "_" #A "_" #B, \
+   AARCH64_SIMD_BUILTIN_VREINTERPRET##L##_##A##_##B, \
+   2, \
+   { SIMD_INTR_MODE(A, L), SIMD_INTR_MODE(B, L) }, \
+   { SIMD_INTR_QUAL(A), SIMD_INTR_QUAL(B) }, \
+   FLAG_AUTO_FP, \
+   SIMD_INTR_MODE(A, L) == SIMD_INTR_MODE(B, L) \
+     && SIMD_INTR_QUAL(A) == SIMD_INTR_QUAL(B) \
+  },
+
+static const aarch64_simd_intrinsic_datum aarch64_simd_intrinsic_data[] = {
+  AARCH64_SIMD_VREINTERPRET_BUILTINS
+};
+
 
 #undef CRC32_BUILTIN
 
@@ -735,7 +918,6 @@ tree aarch64_fp16_type_node = NULL_TREE;
 tree aarch64_fp16_ptr_type_node = NULL_TREE;
 
 /* Back-end node type for brain float (bfloat) types.  */
-tree aarch64_bf16_type_node = NULL_TREE;
 tree aarch64_bf16_ptr_type_node = NULL_TREE;
 
 /* Wrapper around add_builtin_function.  NAME is the name of the built-in
@@ -795,12 +977,13 @@ aarch64_general_mangle_builtin_type (const_tree type)
   return NULL;
 }
 
+/* Helper function for aarch64_simd_builtin_type.  */
 static tree
-aarch64_simd_builtin_std_type (machine_mode mode,
-			       enum aarch64_type_qualifiers q)
+aarch64_int_or_fp_type (machine_mode mode,
+			enum aarch64_type_qualifiers qualifiers)
 {
-#define QUAL_TYPE(M)  \
-  ((q == qualifier_none) ? int##M##_type_node : unsigned_int##M##_type_node);
+#define QUAL_TYPE(M) ((qualifiers & qualifier_unsigned) \
+		       ? unsigned_int##M##_type_node : int##M##_type_node);
   switch (mode)
     {
     case E_QImode:
@@ -826,23 +1009,21 @@ aarch64_simd_builtin_std_type (machine_mode mode,
     case E_DFmode:
       return double_type_node;
     case E_BFmode:
-      return aarch64_bf16_type_node;
+      return bfloat16_type_node;
     default:
       gcc_unreachable ();
     }
 #undef QUAL_TYPE
 }
 
+/* Helper function for aarch64_simd_builtin_type.  */
 static tree
-aarch64_lookup_simd_builtin_type (machine_mode mode,
-				  enum aarch64_type_qualifiers q)
+aarch64_lookup_simd_type_in_table (machine_mode mode,
+				   enum aarch64_type_qualifiers qualifiers)
 {
   int i;
-  int nelts = sizeof (aarch64_simd_types) / sizeof (aarch64_simd_types[0]);
-
-  /* Non-poly scalar modes map to standard types not in the table.  */
-  if (q != qualifier_poly && !VECTOR_MODE_P (mode))
-    return aarch64_simd_builtin_std_type (mode, q);
+  int nelts = ARRAY_SIZE (aarch64_simd_types);
+  int q = qualifiers & (qualifier_poly | qualifier_unsigned);
 
   for (i = 0; i < nelts; i++)
     {
@@ -859,23 +1040,39 @@ aarch64_lookup_simd_builtin_type (machine_mode mode,
   return NULL_TREE;
 }
 
+/* Return a type for an operand with specified mode and qualifiers.  */
 static tree
 aarch64_simd_builtin_type (machine_mode mode,
-			   bool unsigned_p, bool poly_p)
+			   enum aarch64_type_qualifiers qualifiers)
 {
-  if (poly_p)
-    return aarch64_lookup_simd_builtin_type (mode, qualifier_poly);
-  else if (unsigned_p)
-    return aarch64_lookup_simd_builtin_type (mode, qualifier_unsigned);
+  tree type = NULL_TREE;
+
+  /* For pointers, we want a pointer to the basic type of the vector.  */
+  if ((qualifiers & qualifier_pointer) && VECTOR_MODE_P (mode))
+    mode = GET_MODE_INNER (mode);
+
+  /* Non-poly scalar modes map to standard types not in the table.  */
+  if ((qualifiers & qualifier_poly) || VECTOR_MODE_P (mode))
+    type = aarch64_lookup_simd_type_in_table (mode, qualifiers);
   else
-    return aarch64_lookup_simd_builtin_type (mode, qualifier_none);
+    type = aarch64_int_or_fp_type (mode, qualifiers);
+
+  gcc_assert (type != NULL_TREE);
+
+  /* Add qualifiers.  */
+  if (qualifiers & qualifier_const)
+    type = build_qualified_type (type, TYPE_QUAL_CONST);
+  if (qualifiers & qualifier_pointer)
+    type = build_pointer_type (type);
+
+  return type;
 }
  
 static void
 aarch64_init_simd_builtin_types (void)
 {
   int i;
-  int nelts = sizeof (aarch64_simd_types) / sizeof (aarch64_simd_types[0]);
+  int nelts = ARRAY_SIZE (aarch64_simd_types);
   tree tdecl;
 
   /* Init all the element types built by the front-end.  */
@@ -926,8 +1123,8 @@ aarch64_init_simd_builtin_types (void)
   aarch64_simd_types[Float64x2_t].eltype = double_type_node;
 
   /* Init Bfloat vector types with underlying __bf16 type.  */
-  aarch64_simd_types[Bfloat16x4_t].eltype = aarch64_bf16_type_node;
-  aarch64_simd_types[Bfloat16x8_t].eltype = aarch64_bf16_type_node;
+  aarch64_simd_types[Bfloat16x4_t].eltype = bfloat16_type_node;
+  aarch64_simd_types[Bfloat16x8_t].eltype = bfloat16_type_node;
 
   for (i = 0; i < nelts; i++)
     {
@@ -999,7 +1196,7 @@ aarch64_init_simd_builtin_scalar_types (void)
 					     "__builtin_aarch64_simd_poly128");
   (*lang_hooks.types.register_builtin_type) (intTI_type_node,
 					     "__builtin_aarch64_simd_ti");
-  (*lang_hooks.types.register_builtin_type) (aarch64_bf16_type_node,
+  (*lang_hooks.types.register_builtin_type) (bfloat16_type_node,
 					     "__builtin_aarch64_simd_bf");
   /* Unsigned integer types for various mode sizes.  */
   (*lang_hooks.types.register_builtin_type) (unsigned_intQI_type_node,
@@ -1102,8 +1299,6 @@ aarch64_get_attributes (unsigned int f, machine_mode mode)
   return aarch64_add_attribute ("leaf", attrs);
 }
 
-static bool aarch64_simd_builtins_initialized_p = false;
-
 /* Due to the architecture not providing lane variant of the lane instructions
    for fcmla we can't use the standard simd builtin expansion code, but we
    still want the majority of the validation that would normally be done.  */
@@ -1117,18 +1312,55 @@ aarch64_init_fcmla_laneq_builtins (void)
     {
       aarch64_fcmla_laneq_builtin_datum* d
 	= &aarch64_fcmla_lane_builtin_data[i];
-      tree argtype = aarch64_lookup_simd_builtin_type (d->mode, qualifier_none);
+      tree argtype = aarch64_simd_builtin_type (d->mode, qualifier_none);
       machine_mode quadmode = GET_MODE_2XWIDER_MODE (d->mode).require ();
-      tree quadtype
-	= aarch64_lookup_simd_builtin_type (quadmode, qualifier_none);
+      tree quadtype = aarch64_simd_builtin_type (quadmode, qualifier_none);
       tree lanetype
-	= aarch64_simd_builtin_std_type (SImode, qualifier_lane_pair_index);
+	= aarch64_simd_builtin_type (SImode, qualifier_lane_pair_index);
       tree ftype = build_function_type_list (argtype, argtype, argtype,
 					     quadtype, lanetype, NULL_TREE);
       tree attrs = aarch64_get_attributes (FLAG_FP, d->mode);
       tree fndecl
 	= aarch64_general_add_builtin (d->name, ftype, d->fcode, attrs);
 
+      aarch64_builtin_decls[d->fcode] = fndecl;
+    }
+}
+
+void
+aarch64_init_simd_intrinsics (void)
+{
+  unsigned int i = 0;
+
+  for (i = 0; i < ARRAY_SIZE (aarch64_simd_intrinsic_data); ++i)
+    {
+      auto d = &aarch64_simd_intrinsic_data[i];
+
+      if (d->skip)
+	continue;
+
+      tree return_type = void_type_node;
+      tree args = void_list_node;
+
+      for (int op_num = d->op_count - 1; op_num >= 0; op_num--)
+	{
+	  machine_mode op_mode = d->op_modes[op_num];
+	  enum aarch64_type_qualifiers qualifiers = d->qualifiers[op_num];
+
+	  tree eltype = aarch64_simd_builtin_type (op_mode, qualifiers);
+
+	  if (op_num == 0)
+	    return_type = eltype;
+	  else
+	    args = tree_cons (NULL_TREE, eltype, args);
+	}
+
+      tree ftype = build_function_type (return_type, args);
+      tree attrs = aarch64_get_attributes (FLAG_AUTO_FP, d->op_modes[0]);
+      unsigned int code
+	      = (d->fcode << AARCH64_BUILTIN_SHIFT | AARCH64_BUILTIN_GENERAL);
+      tree fndecl = simulate_builtin_function_decl (input_location, d->name,
+						    ftype, code, NULL, attrs);
       aarch64_builtin_decls[d->fcode] = fndecl;
     }
 }
@@ -1212,32 +1444,12 @@ aarch64_init_simd_builtin_functions (bool called_from_pragma)
 	  else
 	    type_signature[op_num] = 's';
 
-	  /* Skip an internal operand for vget_{low, high}.  */
-	  if (qualifiers & qualifier_internal)
-	    continue;
-
 	  /* Some builtins have different user-facing types
 	     for certain arguments, encoded in d->mode.  */
 	  if (qualifiers & qualifier_map_mode)
 	      op_mode = d->mode;
 
-	  /* For pointers, we want a pointer to the basic type
-	     of the vector.  */
-	  if (qualifiers & qualifier_pointer && VECTOR_MODE_P (op_mode))
-	    op_mode = GET_MODE_INNER (op_mode);
-
-	  eltype = aarch64_simd_builtin_type
-		     (op_mode,
-		      (qualifiers & qualifier_unsigned) != 0,
-		      (qualifiers & qualifier_poly) != 0);
-	  gcc_assert (eltype != NULL);
-
-	  /* Add qualifiers.  */
-	  if (qualifiers & qualifier_const)
-	    eltype = build_qualified_type (eltype, TYPE_QUAL_CONST);
-
-	  if (qualifiers & qualifier_pointer)
-	      eltype = build_pointer_type (eltype);
+	  eltype = aarch64_simd_builtin_type (op_mode, qualifiers);
 
 	  /* If we have reached arg_num == 0, we are at a non-void
 	     return type.  Otherwise, we are still processing
@@ -1336,23 +1548,26 @@ aarch64_scalar_builtin_type_p (aarch64_simd_type t)
 /* Enable AARCH64_FL_* flags EXTRA_FLAGS on top of the base Advanced SIMD
    set.  */
 aarch64_simd_switcher::aarch64_simd_switcher (unsigned int extra_flags)
-  : m_old_isa_flags (aarch64_isa_flags),
+  : m_old_asm_isa_flags (aarch64_asm_isa_flags),
     m_old_general_regs_only (TARGET_GENERAL_REGS_ONLY)
 {
   /* Changing the ISA flags should be enough here.  We shouldn't need to
      pay the compile-time cost of a full target switch.  */
-  aarch64_isa_flags = AARCH64_FL_FP | AARCH64_FL_SIMD | extra_flags;
   global_options.x_target_flags &= ~MASK_GENERAL_REGS_ONLY;
+  aarch64_set_asm_isa_flags (AARCH64_FL_FP | AARCH64_FL_SIMD | extra_flags);
 }
 
 aarch64_simd_switcher::~aarch64_simd_switcher ()
 {
   if (m_old_general_regs_only)
     global_options.x_target_flags |= MASK_GENERAL_REGS_ONLY;
-  aarch64_isa_flags = m_old_isa_flags;
+  aarch64_set_asm_isa_flags (m_old_asm_isa_flags);
 }
 
-/* Implement #pragma GCC aarch64 "arm_neon.h".  */
+/* Implement #pragma GCC aarch64 "arm_neon.h".
+
+   The types and functions defined here need to be available internally
+   during LTO as well.  */
 void
 handle_arm_neon_h (void)
 {
@@ -1365,16 +1580,12 @@ handle_arm_neon_h (void)
 	register_tuple_type (count, i);
 
   aarch64_init_simd_builtin_functions (true);
+  aarch64_init_simd_intrinsics ();
 }
 
-void
+static void
 aarch64_init_simd_builtins (void)
 {
-  if (aarch64_simd_builtins_initialized_p)
-    return;
-
-  aarch64_simd_builtins_initialized_p = true;
-
   aarch64_init_simd_builtin_types ();
 
   /* Strong-typing hasn't been implemented for all AdvSIMD builtin intrinsics.
@@ -1394,14 +1605,13 @@ aarch64_init_simd_builtins (void)
 static void
 aarch64_init_crc32_builtins ()
 {
-  tree usi_type = aarch64_simd_builtin_std_type (SImode, qualifier_unsigned);
+  tree usi_type = aarch64_simd_builtin_type (SImode, qualifier_unsigned);
   unsigned int i = 0;
 
   for (i = 0; i < ARRAY_SIZE (aarch64_crc_builtin_data); ++i)
     {
       aarch64_crc_builtin_datum* d = &aarch64_crc_builtin_data[i];
-      tree argtype = aarch64_simd_builtin_std_type (d->mode,
-						    qualifier_unsigned);
+      tree argtype = aarch64_simd_builtin_type (d->mode, qualifier_unsigned);
       tree ftype = build_function_type_list (usi_type, usi_type, argtype, NULL_TREE);
       tree attrs = aarch64_get_attributes (FLAG_NONE, d->mode);
       tree fndecl
@@ -1440,7 +1650,7 @@ aarch64_init_builtin_rsqrt (void)
   };
 
   builtin_decls_data *bdd = bdda;
-  builtin_decls_data *bdd_end = bdd + (sizeof (bdda) / sizeof (builtin_decls_data));
+  builtin_decls_data *bdd_end = bdd + (ARRAY_SIZE (bdda));
 
   for (; bdd < bdd_end; bdd++)
   {
@@ -1471,13 +1681,8 @@ aarch64_init_fp16_types (void)
 static void
 aarch64_init_bf16_types (void)
 {
-  aarch64_bf16_type_node = make_node (REAL_TYPE);
-  TYPE_PRECISION (aarch64_bf16_type_node) = 16;
-  SET_TYPE_MODE (aarch64_bf16_type_node, BFmode);
-  layout_type (aarch64_bf16_type_node);
-
-  lang_hooks.types.register_builtin_type (aarch64_bf16_type_node, "__bf16");
-  aarch64_bf16_ptr_type_node = build_pointer_type (aarch64_bf16_type_node);
+  lang_hooks.types.register_builtin_type (bfloat16_type_node, "__bf16");
+  aarch64_bf16_ptr_type_node = build_pointer_type (bfloat16_type_node);
 }
 
 /* Pointer authentication builtins that will become NOP on legacy platform.
@@ -2437,7 +2642,7 @@ static rtx
 aarch64_expand_builtin_data_intrinsic (unsigned int fcode, tree exp, rtx target)
 {
   expand_operand ops[2];
-  machine_mode mode = GET_MODE (target);
+  machine_mode mode = TYPE_MODE (TREE_TYPE (exp));
   create_output_operand (&ops[0], target, mode);
   create_input_operand (&ops[1], expand_normal (CALL_EXPR_ARG (exp, 0)), mode);
   enum insn_code icode;
@@ -2626,121 +2831,6 @@ aarch64_general_expand_builtin (unsigned int fcode, tree exp, rtx target,
   gcc_unreachable ();
 }
 
-tree
-aarch64_builtin_vectorized_function (unsigned int fn, tree type_out,
-				     tree type_in)
-{
-  machine_mode in_mode, out_mode;
-
-  if (TREE_CODE (type_out) != VECTOR_TYPE
-      || TREE_CODE (type_in) != VECTOR_TYPE)
-    return NULL_TREE;
-
-  out_mode = TYPE_MODE (type_out);
-  in_mode = TYPE_MODE (type_in);
-
-#undef AARCH64_CHECK_BUILTIN_MODE
-#define AARCH64_CHECK_BUILTIN_MODE(C, N) 1
-#define AARCH64_FIND_FRINT_VARIANT(N) \
-  (AARCH64_CHECK_BUILTIN_MODE (2, D) \
-    ? aarch64_builtin_decls[AARCH64_SIMD_BUILTIN_UNOP_##N##v2df] \
-    : (AARCH64_CHECK_BUILTIN_MODE (4, S) \
-	? aarch64_builtin_decls[AARCH64_SIMD_BUILTIN_UNOP_##N##v4sf] \
-	: (AARCH64_CHECK_BUILTIN_MODE (2, S) \
-	   ? aarch64_builtin_decls[AARCH64_SIMD_BUILTIN_UNOP_##N##v2sf] \
-	   : NULL_TREE)))
-  switch (fn)
-    {
-#undef AARCH64_CHECK_BUILTIN_MODE
-#define AARCH64_CHECK_BUILTIN_MODE(C, N) \
-  (out_mode == V##C##N##Fmode && in_mode == V##C##N##Fmode)
-    CASE_CFN_FLOOR:
-      return AARCH64_FIND_FRINT_VARIANT (floor);
-    CASE_CFN_CEIL:
-      return AARCH64_FIND_FRINT_VARIANT (ceil);
-    CASE_CFN_TRUNC:
-      return AARCH64_FIND_FRINT_VARIANT (btrunc);
-    CASE_CFN_ROUND:
-      return AARCH64_FIND_FRINT_VARIANT (round);
-    CASE_CFN_NEARBYINT:
-      return AARCH64_FIND_FRINT_VARIANT (nearbyint);
-    CASE_CFN_SQRT:
-      return AARCH64_FIND_FRINT_VARIANT (sqrt);
-#undef AARCH64_CHECK_BUILTIN_MODE
-#define AARCH64_CHECK_BUILTIN_MODE(C, N) \
-  (out_mode == V##C##SImode && in_mode == V##C##N##Imode)
-    CASE_CFN_CLZ:
-      {
-	if (AARCH64_CHECK_BUILTIN_MODE (4, S))
-	  return aarch64_builtin_decls[AARCH64_SIMD_BUILTIN_UNOP_clzv4si];
-	return NULL_TREE;
-      }
-    CASE_CFN_CTZ:
-      {
-	if (AARCH64_CHECK_BUILTIN_MODE (2, S))
-	  return aarch64_builtin_decls[AARCH64_SIMD_BUILTIN_UNOP_ctzv2si];
-	else if (AARCH64_CHECK_BUILTIN_MODE (4, S))
-	  return aarch64_builtin_decls[AARCH64_SIMD_BUILTIN_UNOP_ctzv4si];
-	return NULL_TREE;
-      }
-#undef AARCH64_CHECK_BUILTIN_MODE
-#define AARCH64_CHECK_BUILTIN_MODE(C, N) \
-  (out_mode == V##C##N##Imode && in_mode == V##C##N##Fmode)
-    CASE_CFN_IFLOOR:
-    CASE_CFN_LFLOOR:
-    CASE_CFN_LLFLOOR:
-      {
-	enum aarch64_builtins builtin;
-	if (AARCH64_CHECK_BUILTIN_MODE (2, D))
-	  builtin = AARCH64_SIMD_BUILTIN_UNOP_lfloorv2dfv2di;
-	else if (AARCH64_CHECK_BUILTIN_MODE (4, S))
-	  builtin = AARCH64_SIMD_BUILTIN_UNOP_lfloorv4sfv4si;
-	else if (AARCH64_CHECK_BUILTIN_MODE (2, S))
-	  builtin = AARCH64_SIMD_BUILTIN_UNOP_lfloorv2sfv2si;
-	else
-	  return NULL_TREE;
-
-	return aarch64_builtin_decls[builtin];
-      }
-    CASE_CFN_ICEIL:
-    CASE_CFN_LCEIL:
-    CASE_CFN_LLCEIL:
-      {
-	enum aarch64_builtins builtin;
-	if (AARCH64_CHECK_BUILTIN_MODE (2, D))
-	  builtin = AARCH64_SIMD_BUILTIN_UNOP_lceilv2dfv2di;
-	else if (AARCH64_CHECK_BUILTIN_MODE (4, S))
-	  builtin = AARCH64_SIMD_BUILTIN_UNOP_lceilv4sfv4si;
-	else if (AARCH64_CHECK_BUILTIN_MODE (2, S))
-	  builtin = AARCH64_SIMD_BUILTIN_UNOP_lceilv2sfv2si;
-	else
-	  return NULL_TREE;
-
-	return aarch64_builtin_decls[builtin];
-      }
-    CASE_CFN_IROUND:
-    CASE_CFN_LROUND:
-    CASE_CFN_LLROUND:
-      {
-	enum aarch64_builtins builtin;
-	if (AARCH64_CHECK_BUILTIN_MODE (2, D))
-	  builtin =	AARCH64_SIMD_BUILTIN_UNOP_lroundv2dfv2di;
-	else if (AARCH64_CHECK_BUILTIN_MODE (4, S))
-	  builtin =	AARCH64_SIMD_BUILTIN_UNOP_lroundv4sfv4si;
-	else if (AARCH64_CHECK_BUILTIN_MODE (2, S))
-	  builtin =	AARCH64_SIMD_BUILTIN_UNOP_lroundv2sfv2si;
-	else
-	  return NULL_TREE;
-
-	return aarch64_builtin_decls[builtin];
-      }
-    default:
-      return NULL_TREE;
-    }
-
-  return NULL_TREE;
-}
-
 /* Return builtin for reciprocal square root.  */
 
 tree
@@ -2780,6 +2870,11 @@ aarch64_fold_builtin_lane_check (tree arg0, tree arg1, tree arg2)
 #define VAR1(T, N, MAP, FLAG, A) \
   case AARCH64_SIMD_BUILTIN_##T##_##N##A:
 
+#undef VREINTERPRET_BUILTIN
+#define VREINTERPRET_BUILTIN(A, B, L) \
+  case AARCH64_SIMD_BUILTIN_VREINTERPRET##L##_##A##_##B:
+
+
 /* Try to fold a call to the built-in function with subcode FCODE.  The
    function is passed the N_ARGS arguments in ARGS and it returns a value
    of type TYPE.  Return the new expression on success and NULL_TREE on
@@ -2796,6 +2891,8 @@ aarch64_general_fold_builtin (unsigned int fcode, tree type,
       VAR1 (UNOP, floatv4si, 2, ALL, v4sf)
       VAR1 (UNOP, floatv2di, 2, ALL, v2df)
 	return fold_build1 (FLOAT_EXPR, type, args[0]);
+      AARCH64_SIMD_VREINTERPRET_BUILTINS
+	return fold_build1 (VIEW_CONVERT_EXPR, type, args[0]);
       case AARCH64_SIMD_BUILTIN_LANE_CHECK:
 	gcc_assert (n_args == 3);
 	if (aarch64_fold_builtin_lane_check (args[0], args[1], args[2]))
@@ -2897,6 +2994,19 @@ get_mem_type_for_load_store (unsigned int fcode)
   }
 }
 
+/* We've seen a vector load from address ADDR.  Record it in
+   vector_load_decls, if appropriate.  */
+static void
+aarch64_record_vector_load_arg (tree addr)
+{
+  tree decl = aarch64_vector_load_decl (addr);
+  if (!decl)
+    return;
+  if (!cfun->machine->vector_load_decls)
+    cfun->machine->vector_load_decls = hash_set<tree>::create_ggc (31);
+  cfun->machine->vector_load_decls->add (decl);
+}
+
 /* Try to fold STMT, given that it's a call to the built-in function with
    subcode FCODE.  Return the new statement on success and null on
    failure.  */
@@ -2928,10 +3038,37 @@ aarch64_general_gimple_fold_builtin (unsigned int fcode, gcall *stmt,
 	gimple_call_set_lhs (new_stmt, gimple_call_lhs (stmt));
 	break;
 
+     BUILTIN_VDC (BINOP, combine, 0, AUTO_FP)
+     BUILTIN_VD_I (BINOPU, combine, 0, NONE)
+     BUILTIN_VDC_P (BINOPP, combine, 0, NONE)
+	{
+	  tree first_part, second_part;
+	  if (BYTES_BIG_ENDIAN)
+	    {
+	      second_part = args[0];
+	      first_part = args[1];
+	    }
+	  else
+	    {
+	      first_part = args[0];
+	      second_part = args[1];
+	    }
+	  tree ret_type = gimple_call_return_type (stmt);
+	  tree ctor = build_constructor_va (ret_type, 2, NULL_TREE, first_part,
+					    NULL_TREE, second_part);
+	  new_stmt = gimple_build_assign (gimple_call_lhs (stmt), ctor);
+	}
+	break;
+
      /*lower store and load neon builtins to gimple.  */
      BUILTIN_VALL_F16 (LOAD1, ld1, 0, LOAD)
      BUILTIN_VDQ_I (LOAD1_U, ld1, 0, LOAD)
      BUILTIN_VALLP_NO_DI (LOAD1_P, ld1, 0, LOAD)
+	/* Punt until after inlining, so that we stand more chance of
+	   recording something meaningful in vector_load_decls.  */
+	if (!cfun->after_inlining)
+	  break;
+	aarch64_record_vector_load_arg (args[0]);
 	if (!BYTES_BIG_ENDIAN)
 	  {
 	    enum aarch64_simd_type mem_type
@@ -2950,6 +3087,8 @@ aarch64_general_gimple_fold_builtin (unsigned int fcode, gcall *stmt,
 				     fold_build2 (MEM_REF,
 						  access_type,
 						  args[0], zero));
+	    gimple_set_vuse (new_stmt, gimple_vuse (stmt));
+	    gimple_set_vdef (new_stmt, gimple_vdef (stmt));
 	  }
 	break;
 
@@ -2973,6 +3112,8 @@ aarch64_general_gimple_fold_builtin (unsigned int fcode, gcall *stmt,
 	      = gimple_build_assign (fold_build2 (MEM_REF, access_type,
 						  args[0], zero),
 				     args[1]);
+	    gimple_set_vuse (new_stmt, gimple_vuse (stmt));
+	    gimple_set_vdef (new_stmt, gimple_vdef (stmt));
 	  }
 	break;
 
@@ -3093,6 +3234,16 @@ aarch64_general_gimple_fold_builtin (unsigned int fcode, gcall *stmt,
     default:
       break;
     }
+
+  /* GIMPLE assign statements (unlike calls) require a non-null lhs. If we
+     created an assign statement with a null lhs, then fix this by assigning
+     to a new (and subsequently unused) variable. */
+  if (new_stmt && is_gimple_assign (new_stmt) && !gimple_assign_lhs (new_stmt))
+    {
+      tree new_lhs = make_ssa_name (gimple_call_return_type (stmt));
+      gimple_assign_set_lhs (new_stmt, new_lhs);
+    }
+
   return new_stmt;
 }
 

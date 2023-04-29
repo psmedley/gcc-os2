@@ -1,7 +1,7 @@
 // { dg-do run { target c++11 } }
 // { dg-options "-g -O0" }
 
-// Copyright (C) 2011-2022 Free Software Foundation, Inc.
+// Copyright (C) 2011-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -166,9 +166,9 @@ main()
 // { dg-final { note-test runiq_ptr {std::unique_ptr<int> = {get() = 0x0}} } }
 
   ExTuple tpl(6,7);
-// { dg-final { note-test tpl {std::tuple containing = {[1] = 6, [2] = 7}} } }
+// { dg-final { note-test tpl {std::tuple containing = {[0] = 6, [1] = 7}} } }
   ExTuple &rtpl = tpl;
-// { dg-final { note-test rtpl {std::tuple containing = {[1] = 6, [2] = 7}} } }
+// { dg-final { note-test rtpl {std::tuple containing = {[0] = 6, [1] = 7}} } }
 
   std::error_code e0;
   // { dg-final { note-test e0 {std::error_code = { }} } }

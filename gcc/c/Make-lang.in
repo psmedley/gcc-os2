@@ -1,5 +1,5 @@
 # Top level -*- makefile -*- fragment for GNU C - C language.
-# Copyright (C) 1994-2022 Free Software Foundation, Inc.
+# Copyright (C) 1994-2023 Free Software Foundation, Inc.
 
 #This file is part of GCC.
 
@@ -109,7 +109,7 @@ c.srcinfo:
 c.srcextra: gengtype-lex.cc
 	-cp -p $^ $(srcdir)
 c.tags: force
-	cd $(srcdir)/c; $(ETAGS) -o TAGS.sub *.c *.h; \
+	cd $(srcdir)/c; $(ETAGS) -o TAGS.sub *.cc *.h; \
 	$(ETAGS) --include TAGS.sub --include ../TAGS.sub
 c.man:
 c.srcman:

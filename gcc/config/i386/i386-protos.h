@@ -1,5 +1,5 @@
 /* Definitions of target machine for GCC for IA-32.
-   Copyright (C) 1988-2022 Free Software Foundation, Inc.
+   Copyright (C) 1988-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -50,8 +50,6 @@ extern void ix86_reset_previous_fndecl (void);
 
 extern bool ix86_using_red_zone (void);
 
-extern rtx ix86_gen_scratch_sse_rtx (machine_mode);
-
 extern unsigned int ix86_regmode_natural_size (machine_mode);
 extern bool ix86_check_builtin_isa_match (unsigned int fcode);
 #ifdef RTX_CODE
@@ -85,6 +83,7 @@ extern void print_reg (rtx, int, FILE*);
 extern void ix86_print_operand (FILE *, rtx, int);
 
 extern void split_double_mode (machine_mode, rtx[], int, rtx[], rtx[]);
+extern void split_double_concat (machine_mode, rtx, rtx lo, rtx);
 
 extern const char *output_set_got (rtx, rtx);
 extern const char *output_387_binary_op (rtx_insn *, rtx*);
@@ -108,7 +107,7 @@ extern void ix86_expand_binary_operator (enum rtx_code,
 					 machine_mode, rtx[]);
 extern void ix86_expand_vector_logical_operator (enum rtx_code,
 						 machine_mode, rtx[]);
-extern bool ix86_binary_operator_ok (enum rtx_code, machine_mode, rtx[]);
+extern bool ix86_binary_operator_ok (enum rtx_code, machine_mode, rtx[3]);
 extern bool ix86_avoid_lea_for_add (rtx_insn *, rtx[]);
 extern bool ix86_use_lea_for_mov (rtx_insn *, rtx[]);
 extern bool ix86_avoid_lea_for_addr (rtx_insn *, rtx[]);
@@ -122,6 +121,8 @@ extern void ix86_expand_unary_operator (enum rtx_code, machine_mode,
 					rtx[]);
 extern rtx ix86_build_const_vector (machine_mode, bool, rtx);
 extern rtx ix86_build_signbit_mask (machine_mode, bool, bool);
+extern HOST_WIDE_INT ix86_convert_const_vector_to_integer (rtx,
+							   machine_mode);
 extern void ix86_split_convert_uns_si_sse (rtx[]);
 extern void ix86_expand_convert_uns_didf_sse (rtx, rtx);
 extern void ix86_expand_convert_uns_sixf_sse (rtx, rtx);
@@ -137,7 +138,7 @@ extern void ix86_split_fp_absneg_operator (enum rtx_code, machine_mode,
 					   rtx[]);
 extern void ix86_expand_copysign (rtx []);
 extern void ix86_expand_xorsign (rtx []);
-extern bool ix86_unary_operator_ok (enum rtx_code, machine_mode, rtx[]);
+extern bool ix86_unary_operator_ok (enum rtx_code, machine_mode, rtx[2]);
 extern bool ix86_match_ccmode (rtx, machine_mode);
 extern void ix86_expand_branch (enum rtx_code, rtx, rtx, rtx);
 extern void ix86_expand_setcc (rtx, enum rtx_code, rtx, rtx);
@@ -165,6 +166,7 @@ extern void ix86_split_lshr (rtx *, rtx, machine_mode);
 extern void ix86_expand_v1ti_shift (enum rtx_code, rtx[]);
 extern void ix86_expand_v1ti_rotate (enum rtx_code, rtx[]);
 extern void ix86_expand_v1ti_ashiftrt (rtx[]);
+extern rtx ix86_replace_reg_with_reg (rtx, rtx, rtx);
 extern rtx ix86_find_base_term (rtx);
 extern bool ix86_check_movabs (rtx, int);
 extern bool ix86_check_no_addr_space (rtx);
@@ -224,6 +226,9 @@ extern void ix86_expand_atomic_fetch_op_loop (rtx, rtx, rtx, enum rtx_code,
 					      bool, bool);
 extern void ix86_expand_cmpxchg_loop (rtx *, rtx, rtx, rtx, rtx, rtx,
 				      bool, rtx_code_label *);
+extern rtx ix86_expand_fast_convert_bf_to_sf (rtx);
+extern rtx ix86_memtag_untagged_pointer (rtx, rtx);
+extern bool ix86_memtag_can_tag_addresses (void);
 
 #ifdef TREE_CODE
 extern void init_cumulative_args (CUMULATIVE_ARGS *, tree, rtx, tree, int);
@@ -273,11 +278,6 @@ extern bool ix86_extract_perm_from_pool_constant (int*, rtx);
 /* In i386-c.cc  */
 extern void ix86_target_macros (void);
 extern void ix86_register_pragmas (void);
-
-/* In i386-d.cc  */
-extern void ix86_d_target_versions (void);
-extern void ix86_d_register_target_info (void);
-extern bool ix86_d_has_stdcall_convention (unsigned int *, unsigned int *);
 
 /* In emx.c  */
 extern bool i386_emx_binds_local_p (const_tree);

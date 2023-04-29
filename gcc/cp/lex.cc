@@ -1,5 +1,5 @@
 /* Separate lexical analyzer for GNU C++.
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
    Hacked by Michael Tiemann (tiemann@cygnus.com)
 
 This file is part of GCC.
@@ -241,9 +241,9 @@ init_reswords (void)
   if (!flag_char8_t)
     mask |= D_CXX_CHAR8_T;
   if (flag_no_asm)
-    mask |= D_ASM | D_EXT;
+    mask |= D_ASM | D_EXT | D_EXT11;
   if (flag_no_gnu_keywords)
-    mask |= D_EXT;
+    mask |= D_EXT | D_EXT11;
 
   /* The Objective-C keywords are all context-dependent.  */
   mask |= D_OBJC;
@@ -272,6 +272,14 @@ init_reswords (void)
       id = get_identifier (name);
       C_SET_RID_CODE (id, RID_FIRST_INT_N + i);
       set_identifier_kind (id, cik_keyword);
+    }
+
+  if (flag_openmp)
+    {
+      id = get_identifier ("omp_all_memory");
+      C_SET_RID_CODE (id, RID_OMP_ALL_MEMORY);
+      set_identifier_kind (id, cik_keyword);
+      ridpointers [RID_OMP_ALL_MEMORY] = id;
     }
 }
 
@@ -1008,8 +1016,8 @@ cxx_dup_lang_specific_decl (tree node)
      (module_purview_p still does).  */
   ld->u.base.module_entity_p = false;
   ld->u.base.module_import_p = false;
-  ld->u.base.module_attached_p = false;
-  
+  ld->u.base.module_keyed_decls_p = false;
+
   if (GATHER_STATISTICS)
     {
       tree_node_counts[(int)lang_decl] += 1;

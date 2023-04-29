@@ -1,5 +1,5 @@
 /* Variable tracking routines for the GNU compiler.
-   Copyright (C) 2002-2022 Free Software Foundation, Inc.
+   Copyright (C) 2002-2023 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -9906,6 +9906,23 @@ vt_add_function_parameter (tree parm)
 				     VAR_INIT_STATUS_INITIALIZED, NULL, INSERT);
 		}
 	    }
+
+	  if (GET_MODE_CLASS (mode) == MODE_INT)
+	    {
+	      machine_mode wider_mode_iter;
+	      FOR_EACH_WIDER_MODE (wider_mode_iter, mode)
+		{
+		  if (!HWI_COMPUTABLE_MODE_P (wider_mode_iter))
+		    break;
+		  rtx wider_reg
+		    = gen_rtx_REG (wider_mode_iter, REGNO (incoming));
+		  cselib_val *wider_val
+		    = cselib_lookup_from_insn (wider_reg, wider_mode_iter, 1,
+					       VOIDmode, get_insns ());
+		  preserve_value (wider_val);
+		  record_entry_value (wider_val, wider_reg);
+		}
+	    }
 	}
     }
   else if (GET_CODE (incoming) == PARALLEL && !dv_onepart_p (dv))
@@ -10592,12 +10609,12 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       return (flag_var_tracking && !targetm.delay_vartrack);
     }
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       return variable_tracking_main ();
     }

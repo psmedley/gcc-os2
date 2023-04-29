@@ -1,5 +1,5 @@
 /* A pass for lowering trees to RTL.
-   Copyright (C) 2004-2022 Free Software Foundation, Inc.
+   Copyright (C) 2004-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -3720,7 +3720,18 @@ expand_value_return (rtx val)
         mode = promote_function_mode (type, old_mode, &unsignedp, funtype, 1);
 
       if (mode != old_mode)
-	val = convert_modes (mode, old_mode, val, unsignedp);
+	{
+	  /* Some ABIs require scalar floating point modes to be returned
+	     in a wider scalar integer mode.  We need to explicitly
+	     reinterpret to an integer mode of the correct precision
+	     before extending to the desired result.  */
+	  if (SCALAR_INT_MODE_P (mode)
+	      && SCALAR_FLOAT_MODE_P (old_mode)
+	      && known_gt (GET_MODE_SIZE (mode), GET_MODE_SIZE (old_mode)))
+	    val = convert_float_to_wider_int (mode, old_mode, val);
+	  else
+	    val = convert_modes (mode, old_mode, val, unsignedp);
+	}
 
       if (GET_CODE (return_reg) == PARALLEL)
 	emit_group_load (return_reg, val, type, int_size_in_bytes (type));
@@ -4565,7 +4576,8 @@ expand_debug_expr (tree exp)
 	      || !DECL_NAME (exp)
 	      || DECL_HARD_REGISTER (exp)
 	      || DECL_IN_CONSTANT_POOL (exp)
-	      || mode == VOIDmode)
+	      || mode == VOIDmode
+	      || symtab_node::get (exp) == NULL)
 	    return NULL;
 
 	  op0 = make_decl_rtl_for_debug (exp);
@@ -4574,6 +4586,10 @@ expand_debug_expr (tree exp)
 	      || SYMBOL_REF_DECL (XEXP (op0, 0)) != exp)
 	    return NULL;
 	}
+      else if (VAR_P (exp)
+	       && is_global_var (exp)
+	       && symtab_node::get (exp) == NULL)
+	return NULL;
       else
 	op0 = copy_rtx (op0);
 
@@ -5349,6 +5365,10 @@ expand_debug_expr (tree exp)
     case VEC_WIDEN_MULT_ODD_EXPR:
     case VEC_WIDEN_LSHIFT_HI_EXPR:
     case VEC_WIDEN_LSHIFT_LO_EXPR:
+    case VEC_WIDEN_PLUS_HI_EXPR:
+    case VEC_WIDEN_PLUS_LO_EXPR:
+    case VEC_WIDEN_MINUS_HI_EXPR:
+    case VEC_WIDEN_MINUS_LO_EXPR:
     case VEC_PERM_EXPR:
     case VEC_DUPLICATE_EXPR:
     case VEC_SERIES_EXPR:
@@ -5385,6 +5405,8 @@ expand_debug_expr (tree exp)
     case WIDEN_MULT_EXPR:
     case WIDEN_MULT_PLUS_EXPR:
     case WIDEN_MULT_MINUS_EXPR:
+    case WIDEN_PLUS_EXPR:
+    case WIDEN_MINUS_EXPR:
       if (SCALAR_INT_MODE_P (GET_MODE (op0))
 	  && SCALAR_INT_MODE_P (mode))
 	{
@@ -5397,6 +5419,10 @@ expand_debug_expr (tree exp)
 	    op1 = simplify_gen_unary (ZERO_EXTEND, mode, op1, inner_mode);
 	  else
 	    op1 = simplify_gen_unary (SIGN_EXTEND, mode, op1, inner_mode);
+	  if (TREE_CODE (exp) == WIDEN_PLUS_EXPR)
+	    return simplify_gen_binary (PLUS, mode, op0, op1);
+	  else if (TREE_CODE (exp) == WIDEN_MINUS_EXPR)
+	    return simplify_gen_binary (MINUS, mode, op0, op1);
 	  op0 = simplify_gen_binary (MULT, mode, op0, op1);
 	  if (TREE_CODE (exp) == WIDEN_MULT_EXPR)
 	    return op0;
@@ -6275,6 +6301,15 @@ discover_nonconstant_array_refs_r (tree * tp, int *walk_subtrees,
 
   if (IS_TYPE_OR_DECL_P (t))
     *walk_subtrees = 0;
+  else if (REFERENCE_CLASS_P (t) && TREE_THIS_VOLATILE (t))
+    {
+      t = get_base_address (t);
+      if (t && DECL_P (t)
+	  && DECL_MODE (t) != BLKmode
+	  && !TREE_ADDRESSABLE (t))
+	bitmap_set_bit (forced_stack_vars, DECL_UID (t));
+      *walk_subtrees = 0;
+    }
   else if (TREE_CODE (t) == ARRAY_REF || TREE_CODE (t) == ARRAY_RANGE_REF)
     {
       while (((TREE_CODE (t) == ARRAY_REF || TREE_CODE (t) == ARRAY_RANGE_REF)
@@ -6568,7 +6603,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual unsigned int execute (function *);
+  unsigned int execute (function *) final override;
 
 }; // class pass_expand
 

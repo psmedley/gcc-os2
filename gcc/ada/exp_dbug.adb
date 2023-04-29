@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1996-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1996-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -415,7 +415,7 @@ package body Exp_Dbug is
                | N_Identifier
             =>
                if No (Entity (Ren))
-                 or else not Present (Renamed_Entity_Or_Object (Entity (Ren)))
+                 or else No (Renamed_Entity_Or_Object (Entity (Ren)))
                then
                   exit;
                end if;
@@ -1028,6 +1028,7 @@ package body Exp_Dbug is
       E := First_Entity (Wrapper);
       while Present (E) loop
          if Nkind (Parent (E)) = N_Object_Declaration
+           and then Present (Corresponding_Generic_Association (Parent (E)))
            and then Is_Elementary_Type (Etype (E))
          then
             Loc := Sloc (Expression (Parent (E)));

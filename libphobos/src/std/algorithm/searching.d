@@ -13,7 +13,7 @@ $(T2 any,
         `any!"a > 0"([1, 2, -3, -4])` returns `true` because at least one
         element is positive)
 $(T2 balancedParens,
-        `balancedParens("((1 + 1) / 2)")` returns `true` because the
+        `balancedParens("((1 + 1) / 2)", '(', ')')` returns `true` because the
         string has balanced parentheses.)
 $(T2 boyerMooreFinder,
         `find("hello world", boyerMooreFinder("or"))` returns `"orld"`
@@ -2512,6 +2512,8 @@ RandomAccessRange find(RandomAccessRange, alias pred, InputRange)(
 Convenience function. Like find, but only returns whether or not the search
 was successful.
 
+For more information about `pred` see $(LREF find).
+
 See_Also:
 $(REF among, std,algorithm,comparison) for checking a value against multiple possibilities.
  +/
@@ -2622,6 +2624,8 @@ Advances `r` until it finds the first two adjacent elements `a`,
 `b` that satisfy `pred(a, b)`. Performs $(BIGOH r.length)
 evaluations of `pred`.
 
+For more information about `pred` see $(LREF find).
+
 Params:
     pred = The predicate to satisfy.
     r = A $(REF_ALTTEXT forward range, isForwardRange, std,range,primitives) to
@@ -2698,6 +2702,8 @@ Advances `seq` by calling `seq.popFront` until either
 `find!(pred)(choices, seq.front)` is `true`, or `seq` becomes empty.
 Performs $(BIGOH seq.length * choices.length) evaluations of `pred`.
 
+For more information about `pred` see $(LREF find).
+
 Params:
     pred = The predicate to use for determining a match.
     seq = The $(REF_ALTTEXT input range, isInputRange, std,range,primitives) to
@@ -2758,6 +2764,8 @@ if (isInputRange!InputRange && isForwardRange!ForwardRange)
  * Similarly, the haystack is positioned so as `pred` evaluates to `false` for
  * `haystack.front`.
  *
+ * For more information about `pred` see $(LREF find).
+
  * Params:
  *  haystack = The
  *   $(REF_ALTTEXT forward range, isForwardRange, std,range,primitives) to search
@@ -2881,6 +2889,8 @@ the same type as `haystack`. Otherwise, `haystack` must be a
 $(REF_ALTTEXT forward range, isForwardRange, std,range,primitives) and
 the type of `result[0]` and `result[1]` is the same as $(REF takeExactly,
 std,range).
+
+For more information about `pred` see $(LREF find).
 
 Params:
     pred = Predicate to use for comparing needle against haystack.
@@ -4595,6 +4605,8 @@ $(REF_ALTTEXT input range, isInputRange, std,range,primitives) starts with (one
 of) the given needle(s) or, if no needles are given,
 if its front element fulfils predicate `pred`.
 
+For more information about `pred` see $(LREF find).
+
 Params:
 
     pred = Predicate to use in comparing the elements of the haystack and the
@@ -4990,7 +5002,7 @@ If set to `OpenRight.yes`, then the interval is open to the right
 (last element is not included).
 
 Otherwise if set to `OpenRight.no`, then the interval is closed to the right
-(last element included).
+including the entire sentinel.
  */
 alias OpenRight = Flag!"openRight";
 
@@ -5040,6 +5052,7 @@ if (isInputRange!Range)
     static if (!is(Sentinel == void))
         private Sentinel _sentinel;
     private OpenRight _openRight;
+    private bool _matchStarted;
     private bool _done;
 
     static if (!is(Sentinel == void))
@@ -5051,7 +5064,19 @@ if (isInputRange!Range)
             _input = input;
             _sentinel = sentinel;
             _openRight = openRight;
-            _done = _input.empty || openRight && predSatisfied();
+            static if (isInputRange!Sentinel)
+            {
+                _matchStarted = predSatisfied();
+                _done = _input.empty || _sentinel.empty || openRight && _matchStarted;
+                if (_matchStarted && !_done && !openRight)
+                {
+                    _sentinel.popFront;
+                }
+            }
+            else
+            {
+                _done = _input.empty || openRight && predSatisfied();
+            }
         }
         private this(Range input, Sentinel sentinel, OpenRight openRight,
             bool done)
@@ -5106,9 +5131,32 @@ if (isInputRange!Range)
         assert(!empty, "Can not popFront of an empty Until");
         if (!_openRight)
         {
-            _done = predSatisfied();
-            _input.popFront();
-            _done = _done || _input.empty;
+            static if (isInputRange!Sentinel)
+            {
+                _input.popFront();
+                _done = _input.empty || _sentinel.empty;
+                if (!_done)
+                {
+                    if (_matchStarted)
+                    {
+                        _sentinel.popFront;
+                    }
+                    else
+                    {
+                        _matchStarted = predSatisfied();
+                        if (_matchStarted)
+                        {
+                            _sentinel.popFront;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                _done = predSatisfied();
+                _input.popFront();
+                _done = _done || _input.empty;
+            }
         }
         else
         {
@@ -5200,3 +5248,33 @@ pure @safe unittest
         assert(equal(r.save, "foo"));
     }
 }
+// https://issues.dlang.org/show_bug.cgi?id=14543
+pure @safe unittest
+{
+    import std.algorithm.comparison : equal;
+    import std.uni : toUpper;
+    assert("one two three".until("two").equal("one "));
+    assert("one two three".until("two", OpenRight.no).equal("one two"));
+
+    assert("one two three".until("two", No.openRight).equal("one two"));
+    assert("one two three".until("two", Yes.openRight).equal("one "));
+
+    assert("one two three".until('t', Yes.openRight).equal("one "));
+    assert("one two three".until("", Yes.openRight).equal(""));
+    assert("one two three".until("", No.openRight).equal(""));
+
+    assert("one two three".until("three", No.openRight).equal("one two three"));
+    assert("one two three".until("three", Yes.openRight).equal("one two "));
+
+    assert("one two three".until("one", No.openRight).equal("one"));
+    assert("one two three".until("one", Yes.openRight).equal(""));
+
+    assert("one two three".until("o", No.openRight).equal("o"));
+    assert("one two three".until("o", Yes.openRight).equal(""));
+
+    assert("one two three".until("", No.openRight).equal(""));
+    assert("one two three".until("", Yes.openRight).equal(""));
+
+    assert("one two three".until!((a,b)=>a.toUpper == b)("TWO", No.openRight).equal("one two"));
+}
+

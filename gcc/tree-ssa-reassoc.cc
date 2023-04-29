@@ -1,5 +1,5 @@
 /* Reassociation for trees.
-   Copyright (C) 2005-2022 Free Software Foundation, Inc.
+   Copyright (C) 2005-2023 Free Software Foundation, Inc.
    Contributed by Daniel Berlin <dan@dberlin.org>
 
 This file is part of GCC.
@@ -38,9 +38,9 @@ along with GCC; see the file COPYING3.  If not see
 #include "fold-const.h"
 #include "stor-layout.h"
 #include "cfganal.h"
+#include "gimple-iterator.h"
 #include "gimple-fold.h"
 #include "tree-eh.h"
-#include "gimple-iterator.h"
 #include "gimplify-me.h"
 #include "tree-cfg.h"
 #include "tree-ssa-loop.h"
@@ -1564,6 +1564,15 @@ build_and_add_sum (tree type, tree op1, tree op2, enum tree_code opcode)
       && (!op2def || gimple_nop_p (op2def)))
     {
       gsi = gsi_after_labels (single_succ (ENTRY_BLOCK_PTR_FOR_FN (cfun)));
+      if (!gsi_end_p (gsi)
+	  && is_gimple_call (gsi_stmt (gsi))
+	  && (gimple_call_flags (gsi_stmt (gsi)) & ECF_RETURNS_TWICE))
+	{
+	  /* Don't add statements before a returns_twice call at the start
+	     of a function.  */
+	  split_edge (single_succ_edge (ENTRY_BLOCK_PTR_FOR_FN (cfun)));
+	  gsi = gsi_after_labels (single_succ (ENTRY_BLOCK_PTR_FOR_FN (cfun)));
+	}
       if (gsi_end_p (gsi))
 	{
 	  gimple_stmt_iterator gsi2
@@ -2271,6 +2280,15 @@ eliminate_redundant_comparison (enum tree_code opcode,
 	  STRIP_USELESS_TYPE_CONVERSION (newop1);
 	  STRIP_USELESS_TYPE_CONVERSION (newop2);
 	  if (!is_gimple_val (newop1) || !is_gimple_val (newop2))
+	    continue;
+	  if (lcode == TREE_CODE (t)
+	      && operand_equal_p (op1, newop1, 0)
+	      && operand_equal_p (op2, newop2, 0))
+	    t = curr->op;
+	  else if ((TREE_CODE (newop1) == SSA_NAME
+		    && SSA_NAME_OCCURS_IN_ABNORMAL_PHI (newop1))
+		   || (TREE_CODE (newop2) == SSA_NAME
+		       && SSA_NAME_OCCURS_IN_ABNORMAL_PHI (newop2)))
 	    continue;
 	}
 
@@ -3608,10 +3626,14 @@ optimize_range_tests_cmp_bitwise (enum tree_code opcode, int first, int length,
 	tree type2 = NULL_TREE;
 	bool strict_overflow_p = false;
 	candidates.truncate (0);
+	if (POINTER_TYPE_P (type1) || TREE_CODE (type1) == OFFSET_TYPE)
+	  type1 = pointer_sized_int_node;
 	for (j = i; j; j = chains[j - 1])
 	  {
 	    tree type = TREE_TYPE (ranges[j - 1].exp);
 	    strict_overflow_p |= ranges[j - 1].strict_overflow_p;
+	    if (POINTER_TYPE_P (type) || TREE_CODE (type) == OFFSET_TYPE)
+	      type = pointer_sized_int_node;
 	    if ((b % 4) == 3)
 	      {
 		/* For the signed < 0 cases, the types should be
@@ -3642,6 +3664,8 @@ optimize_range_tests_cmp_bitwise (enum tree_code opcode, int first, int length,
 	    tree type = TREE_TYPE (ranges[j - 1].exp);
 	    if (j == k)
 	      continue;
+	    if (POINTER_TYPE_P (type) || TREE_CODE (type) == OFFSET_TYPE)
+	      type = pointer_sized_int_node;
 	    if ((b % 4) == 3)
 	      {
 		if (!useless_type_conversion_p (type1, type))
@@ -3671,18 +3695,32 @@ optimize_range_tests_cmp_bitwise (enum tree_code opcode, int first, int length,
 		op = r->exp;
 		continue;
 	      }
-	    if (id == l)
+	    if (id == l
+		|| POINTER_TYPE_P (TREE_TYPE (op))
+		|| TREE_CODE (TREE_TYPE (op)) == OFFSET_TYPE)
 	      {
 		code = (b % 4) == 3 ? BIT_NOT_EXPR : NOP_EXPR;
-		g = gimple_build_assign (make_ssa_name (type1), code, op);
+		tree type3 = id >= l ? type1 : pointer_sized_int_node;
+		if (code == BIT_NOT_EXPR
+		    && TREE_CODE (TREE_TYPE (op)) == OFFSET_TYPE)
+		  {
+		    g = gimple_build_assign (make_ssa_name (type3),
+					     NOP_EXPR, op);
+		    gimple_seq_add_stmt_without_update (&seq, g);
+		    op = gimple_assign_lhs (g);
+		  }
+		g = gimple_build_assign (make_ssa_name (type3), code, op);
 		gimple_seq_add_stmt_without_update (&seq, g);
 		op = gimple_assign_lhs (g);
 	      }
 	    tree type = TREE_TYPE (r->exp);
 	    tree exp = r->exp;
-	    if (id >= l && !useless_type_conversion_p (type1, type))
+	    if (POINTER_TYPE_P (type)
+		|| TREE_CODE (type) == OFFSET_TYPE
+		|| (id >= l && !useless_type_conversion_p (type1, type)))
 	      {
-		g = gimple_build_assign (make_ssa_name (type1), NOP_EXPR, exp);
+		tree type3 = id >= l ? type1 : pointer_sized_int_node;
+		g = gimple_build_assign (make_ssa_name (type3), NOP_EXPR, exp);
 		gimple_seq_add_stmt_without_update (&seq, g);
 		exp = gimple_assign_lhs (g);
 	      }
@@ -3692,6 +3730,14 @@ optimize_range_tests_cmp_bitwise (enum tree_code opcode, int first, int length,
 	      code = (b % 4) == 1 ? BIT_AND_EXPR : BIT_IOR_EXPR;
 	    g = gimple_build_assign (make_ssa_name (id >= l ? type1 : type2),
 				     code, op, exp);
+	    gimple_seq_add_stmt_without_update (&seq, g);
+	    op = gimple_assign_lhs (g);
+	  }
+	type1 = TREE_TYPE (ranges[k - 1].exp);
+	if (POINTER_TYPE_P (type1) || TREE_CODE (type1) == OFFSET_TYPE)
+	  {
+	    gimple *g
+	      = gimple_build_assign (make_ssa_name (type1), NOP_EXPR, op);
 	    gimple_seq_add_stmt_without_update (&seq, g);
 	    op = gimple_assign_lhs (g);
 	  }
@@ -4650,6 +4696,9 @@ update_ops (tree var, enum tree_code code, const vec<operand_entry *> &ops,
       gimple_set_uid (g, gimple_uid (stmt));
       gimple_set_visited (g, true);
       gsi_insert_before (&gsi, g, GSI_SAME_STMT);
+      gimple_stmt_iterator gsi2 = gsi_for_stmt (g);
+      if (fold_stmt_inplace (&gsi2))
+	update_stmt (g);
     }
   return var;
 }
@@ -5089,35 +5138,6 @@ maybe_optimize_range_tests (gimple *stmt)
   return cfg_cleanup_needed;
 }
 
-/* Return true if OPERAND is defined by a PHI node which uses the LHS
-   of STMT in it's operands.  This is also known as a "destructive
-   update" operation.  */
-
-static bool
-is_phi_for_stmt (gimple *stmt, tree operand)
-{
-  gimple *def_stmt;
-  gphi *def_phi;
-  tree lhs;
-  use_operand_p arg_p;
-  ssa_op_iter i;
-
-  if (TREE_CODE (operand) != SSA_NAME)
-    return false;
-
-  lhs = gimple_assign_lhs (stmt);
-
-  def_stmt = SSA_NAME_DEF_STMT (operand);
-  def_phi = dyn_cast <gphi *> (def_stmt);
-  if (!def_phi)
-    return false;
-
-  FOR_EACH_PHI_ARG (arg_p, def_phi, i, SSA_OP_USE)
-    if (lhs == USE_FROM_PTR (arg_p))
-      return true;
-  return false;
-}
-
 /* Remove def stmt of VAR if VAR has zero uses and recurse
    on rhs1 operand if so.  */
 
@@ -5149,24 +5169,11 @@ remove_visited_stmt_chain (tree var)
    swaps two operands if it is profitable for binary operation
    consuming OPINDEX + 1 abnd OPINDEX + 2 operands.
 
-   We pair ops with the same rank if possible.
-
-   The alternative we try is to see if STMT is a destructive
-   update style statement, which is like:
-   b = phi (a, ...)
-   a = c + b;
-   In that case, we want to use the destructive update form to
-   expose the possible vectorizer sum reduction opportunity.
-   In that case, the third operand will be the phi node. This
-   check is not performed if STMT is null.
-
-   We could, of course, try to be better as noted above, and do a
-   lot of work to try to find these opportunities in >3 operand
-   cases, but it is unlikely to be worth it.  */
+   We pair ops with the same rank if possible.  */
 
 static void
 swap_ops_for_binary_stmt (const vec<operand_entry *> &ops,
-			  unsigned int opindex, gimple *stmt)
+			  unsigned int opindex)
 {
   operand_entry *oe1, *oe2, *oe3;
 
@@ -5174,17 +5181,9 @@ swap_ops_for_binary_stmt (const vec<operand_entry *> &ops,
   oe2 = ops[opindex + 1];
   oe3 = ops[opindex + 2];
 
-  if ((oe1->rank == oe2->rank
-       && oe2->rank != oe3->rank)
-      || (stmt && is_phi_for_stmt (stmt, oe3->op)
-	  && !is_phi_for_stmt (stmt, oe1->op)
-	  && !is_phi_for_stmt (stmt, oe2->op)))
+  if (oe1->rank == oe2->rank && oe2->rank != oe3->rank)
     std::swap (*oe1, *oe3);
-  else if ((oe1->rank == oe3->rank
-	    && oe2->rank != oe3->rank)
-	   || (stmt && is_phi_for_stmt (stmt, oe2->op)
-	       && !is_phi_for_stmt (stmt, oe1->op)
-	       && !is_phi_for_stmt (stmt, oe3->op)))
+  else if (oe1->rank == oe3->rank && oe2->rank != oe3->rank)
     std::swap (*oe1, *oe2);
 }
 
@@ -5533,7 +5532,7 @@ rewrite_expr_tree_parallel (gassign *stmt, int width,
       else
 	{
 	  if (op_index > 1)
-	    swap_ops_for_binary_stmt (ops, op_index - 2, NULL);
+	    swap_ops_for_binary_stmt (ops, op_index - 2);
 	  operand_entry *oe2 = ops[op_index--];
 	  operand_entry *oe1 = ops[op_index--];
 	  op2 = oe2->op;
@@ -6849,7 +6848,7 @@ reassociate_bb (basic_block bb)
                          binary op are chosen wisely.  */
                       int len = ops.length ();
                       if (len >= 3)
-                        swap_ops_for_binary_stmt (ops, len - 3, stmt);
+			swap_ops_for_binary_stmt (ops, len - 3);
 
 		      new_lhs = rewrite_expr_tree (stmt, rhs_code, 0, ops,
 						   powi_result != NULL
@@ -7132,15 +7131,15 @@ public:
   {}
 
   /* opt_pass methods: */
-  opt_pass * clone () { return new pass_reassoc (m_ctxt); }
-  void set_pass_param (unsigned int n, bool param)
+  opt_pass * clone () final override { return new pass_reassoc (m_ctxt); }
+  void set_pass_param (unsigned int n, bool param) final override
     {
       gcc_assert (n == 0);
       insert_powi_p = param;
       bias_loop_carried_phi_ranks_p = !param;
     }
-  virtual bool gate (function *) { return flag_tree_reassoc != 0; }
-  virtual unsigned int execute (function *)
+  bool gate (function *) final override { return flag_tree_reassoc != 0; }
+  unsigned int execute (function *) final override
   {
     return execute_reassoc (insert_powi_p, bias_loop_carried_phi_ranks_p);
   }

@@ -1,5 +1,5 @@
 /* Generate CTF types and objects from the GCC DWARF.
-   Copyright (C) 2021-2022 Free Software Foundation, Inc.
+   Copyright (C) 2021-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -644,6 +644,7 @@ gen_ctf_function_type (ctf_container_ref ctfc, dw_die_ref function,
 
   ctf_funcinfo_t func_info;
   uint32_t num_args = 0;
+  int linkage = get_AT_flag (function, DW_AT_external);
 
   ctf_id_t return_type_id;
   ctf_id_t function_type_id;
@@ -687,7 +688,8 @@ gen_ctf_function_type (ctf_container_ref ctfc, dw_die_ref function,
 				       function_name,
 				       (const ctf_funcinfo_t *)&func_info,
 				       function,
-				       from_global_func);
+				       from_global_func,
+                                       linkage);
 
   /* Second pass on formals: generate the CTF types corresponding to
      them and add them as CTF function args.  */
@@ -734,6 +736,7 @@ gen_ctf_enumeration_type (ctf_container_ref ctfc, dw_die_ref enumeration)
 {
   const char *enum_name = get_AT_string (enumeration, DW_AT_name);
   unsigned int bit_size = ctf_die_bitsize (enumeration);
+  unsigned int signedness = get_AT_unsigned (enumeration, DW_AT_encoding);
   int declaration_p = get_AT_flag (enumeration, DW_AT_declaration);
 
   ctf_id_t enumeration_type_id;
@@ -757,7 +760,9 @@ gen_ctf_enumeration_type (ctf_container_ref ctfc, dw_die_ref enumeration)
 
   /* Generate a CTF type for the enumeration.  */
   enumeration_type_id = ctf_add_enum (ctfc, CTF_ADD_ROOT,
-				      enum_name, bit_size / 8, enumeration);
+				      enum_name, bit_size / 8,
+				      (signedness == DW_ATE_unsigned),
+				      enumeration);
 
   /* Process the enumerators.  */
   {

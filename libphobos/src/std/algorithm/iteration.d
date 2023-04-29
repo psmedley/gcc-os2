@@ -771,6 +771,23 @@ private struct MapResult(alias fun, Range)
     assert(dd.length == 4);
 }
 
+// Verify fix for: https://issues.dlang.org/show_bug.cgi?id=16034
+@safe unittest
+{
+    struct One
+    {
+        int entry = 1;
+        @disable this(this);
+    }
+
+    One[] ones = [One(), One()];
+
+    import std.algorithm.comparison : equal;
+
+    assert(ones.map!`a.entry + 1`.equal([2, 2]));
+}
+
+
 @safe unittest
 {
     import std.algorithm.comparison : equal;
@@ -1263,19 +1280,22 @@ public:
 
 // filter
 /**
-Implements the higher order filter function. The predicate is passed to
-$(REF unaryFun, std,functional), and can either accept a string, or any callable
-that can be executed via `pred(element)`.
+`filter!(predicate)(range)` returns a new range containing only elements `x` in `range` for
+which `predicate(x)` returns `true`.
+
+The predicate is passed to $(REF unaryFun, std,functional), and can be either a string, or
+any callable that can be executed via `pred(element)`.
 
 Params:
     predicate = Function to apply to each element of range
 
 Returns:
-    `filter!(predicate)(range)` returns a new range containing only elements `x` in `range` for
-    which `predicate(x)` returns `true`.
+    An input range that contains the filtered elements. If `range` is at least a forward range, the return value of `filter`
+    will also be a forward range.
 
 See_Also:
-    $(HTTP en.wikipedia.org/wiki/Filter_(higher-order_function), Filter (higher-order function))
+    $(HTTP en.wikipedia.org/wiki/Filter_(higher-order_function), Filter (higher-order function)),
+    $(REF filterBidirectional, std,algorithm,iteration)
  */
 template filter(alias predicate)
 if (is(typeof(unaryFun!predicate)))
@@ -1795,7 +1815,7 @@ if (isInputRange!R)
     assert(equal(g3, [ tuple(1, 2u), tuple(2, 2u) ]));
 
     interface I {}
-    class C : I { override size_t toHash() const nothrow @safe { return 0; } }
+    static class C : I { override size_t toHash() const nothrow @safe { return 0; } }
     const C[] a4 = [new const C()];
     auto g4 = a4.group!"a is b";
     assert(g4.front[1] == 1);
@@ -2252,25 +2272,26 @@ if (isForwardRange!Range)
     import std.algorithm.comparison : equal;
 
     size_t popCount = 0;
-    class RefFwdRange
+    static class RefFwdRange
     {
         int[]  impl;
+        size_t* pcount;
 
         @safe nothrow:
 
-        this(int[] data) { impl = data; }
+        this(int[] data, size_t* pcount) { impl = data; this.pcount = pcount; }
         @property bool empty() { return impl.empty; }
         @property auto ref front() { return impl.front; }
         void popFront()
         {
             impl.popFront();
-            popCount++;
+            (*pcount)++;
         }
-        @property auto save() { return new RefFwdRange(impl); }
+        @property auto save() { return new RefFwdRange(impl, pcount); }
     }
     static assert(isForwardRange!RefFwdRange);
 
-    auto testdata = new RefFwdRange([1, 3, 5, 2, 4, 7, 6, 8, 9]);
+    auto testdata = new RefFwdRange([1, 3, 5, 2, 4, 7, 6, 8, 9], &popCount);
     auto groups = testdata.chunkBy!((a,b) => (a % 2) == (b % 2));
     auto outerSave1 = groups.save;
 
@@ -2948,10 +2969,24 @@ iterated from the back to the front, the separator will still be consumed from
 front to back, even if it is a bidirectional range too.
  */
 auto joiner(RoR, Separator)(RoR r, Separator sep)
-if (isInputRange!RoR && isInputRange!(ElementType!RoR)
-        && isForwardRange!Separator
-        && is(ElementType!Separator : ElementType!(ElementType!RoR)))
 {
+    static assert(isInputRange!RoR, "The type of RoR '", RoR.stringof
+            , " must be an InputRange (isInputRange!", RoR.stringof, ").");
+    static assert(isInputRange!(ElementType!RoR), "The ElementyType of RoR '"
+            , ElementType!(RoR).stringof, "' must be an InputRange "
+            , "(isInputRange!(ElementType!(", RoR.stringof , "))).");
+    static assert(isForwardRange!Separator, "The type of the Seperator '"
+            , Seperator.stringof, "' must be a ForwardRange (isForwardRange!("
+            , Seperator.stringof, ")).");
+    static assert(is(ElementType!Separator : ElementType!(ElementType!RoR))
+            , "The type of the elements of the separator range does not match "
+            , "the type of the elements that are joined. Separator type '"
+            , ElementType!(Separator).stringof, "' is not implicitly"
+            , "convertible to range element type '"
+            , ElementType!(ElementType!RoR).stringof, "' (is(ElementType!"
+            , Separator.stringof, " : ElementType!(ElementType!", RoR.stringof
+            , "))).");
+
     static struct Result
     {
         private RoR _items;
@@ -6055,7 +6090,7 @@ if (is(typeof(binaryFun!pred(r.front, s.front)) : bool)
     import std.algorithm.comparison : equal;
 
     // Test by-reference separator
-    class RefSep {
+    static class RefSep {
     @safe:
         string _impl;
         this(string s) { _impl = s; }
@@ -7716,8 +7751,9 @@ if (isInputRange!R &&
 
 // uniq
 /**
-Lazily iterates unique consecutive elements of the given range (functionality
-akin to the $(HTTP wikipedia.org/wiki/_Uniq, _uniq) system
+Lazily iterates unique consecutive elements of the given range, which is
+assumed to be sorted (functionality akin to the
+$(HTTP wikipedia.org/wiki/_Uniq, _uniq) system
 utility). Equivalence of elements is assessed by using the predicate
 `pred`, by default `"a == b"`. The predicate is passed to
 $(REF binaryFun, std,functional), and can either accept a string, or any callable
@@ -7905,7 +7941,13 @@ if (isRandomAccessRange!Range && hasLength!Range)
         _indices = iota(size_t(r.length)).array;
         _empty = r.length == 0;
     }
-
+    private this(size_t[] indices, size_t[] state, Range r, bool empty_)
+    {
+        _indices = indices;
+        _state = state;
+        _r = r;
+        _empty = empty_;
+    }
     /// Returns: `true` if the range is empty, `false` otherwise.
     @property bool empty() const pure nothrow @safe @nogc
     {
@@ -7946,6 +7988,11 @@ if (isRandomAccessRange!Range && hasLength!Range)
 
         next(2);
     }
+    /// Returns: an independent copy of the permutations range.
+    auto save()
+    {
+        return typeof(this)(_indices.dup, _state.dup, _r.save, _empty);
+    }
 }
 
 ///
@@ -7960,4 +8007,16 @@ if (isRandomAccessRange!Range && hasLength!Range)
          [0, 2, 1],
          [1, 2, 0],
          [2, 1, 0]]));
+}
+
+@safe unittest
+{
+    import std.algorithm.comparison : equal;
+    import std.range : ElementType;
+    import std.array : array;
+    auto p = [1, 2, 3].permutations;
+    auto x = p.save.front;
+    p.popFront;
+    auto y = p.front;
+    assert(x != y);
 }

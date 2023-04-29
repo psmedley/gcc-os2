@@ -1,5 +1,5 @@
 /* Header for code translation functions
-   Copyright (C) 2002-2022 Free Software Foundation, Inc.
+   Copyright (C) 2002-2023 Free Software Foundation, Inc.
    Contributed by Paul Brook
 
 This file is part of GCC.
@@ -43,6 +43,10 @@ typedef struct gfc_se
   stmtblock_t pre;
   stmtblock_t post;
 
+  /* Carries finalization code that is required to be executed execution of the
+     innermost executable construct.  */
+  stmtblock_t finalblock;
+
   /* the result of the expression */
   tree expr;
 
@@ -55,7 +59,7 @@ typedef struct gfc_se
 
   /* Whether expr is a reference to an unlimited polymorphic object.  */
   unsigned unlimited_polymorphic:1;
-  
+
   /* If set gfc_conv_variable will return an expression for the array
      descriptor. When set, want_pointer should also be set.
      If not set scalarizing variables will be substituted.  */
@@ -450,6 +454,8 @@ tree gfc_get_vptr_from_expr (tree);
 tree gfc_copy_class_to_class (tree, tree, tree, bool);
 bool gfc_add_finalizer_call (stmtblock_t *, gfc_expr *);
 bool gfc_add_comp_finalizer_call (stmtblock_t *, tree, gfc_component *, bool);
+void gfc_finalize_tree_expr (gfc_se *, gfc_symbol *, symbol_attribute, int);
+bool gfc_assignment_finalizer_call (gfc_se *, gfc_expr *, bool);
 
 void gfc_conv_derived_to_class (gfc_se *, gfc_expr *, gfc_typespec, tree, bool,
 				bool, tree *derived_array = NULL);
@@ -499,8 +505,7 @@ tree gfc_build_compare_string (tree, tree, tree, tree, int, enum tree_code);
 void gfc_conv_expr (gfc_se * se, gfc_expr * expr);
 void gfc_conv_expr_val (gfc_se * se, gfc_expr * expr);
 void gfc_conv_expr_lhs (gfc_se * se, gfc_expr * expr);
-void gfc_conv_expr_reference (gfc_se * se, gfc_expr * expr,
-			      bool add_clobber = false);
+void gfc_conv_expr_reference (gfc_se * se, gfc_expr * expr);
 void gfc_conv_expr_type (gfc_se * se, gfc_expr *, tree);
 
 
@@ -808,6 +813,7 @@ bool gfc_get_array_descr_info (const_tree, struct array_descr_info *);
 bool gfc_omp_is_allocatable_or_ptr (const_tree);
 tree gfc_omp_check_optional_argument (tree, bool);
 tree gfc_omp_array_data (tree, bool);
+tree gfc_omp_array_size (tree, gimple_seq *);
 bool gfc_omp_privatize_by_reference (const_tree);
 enum omp_clause_default_kind gfc_omp_predetermined_sharing (tree);
 enum omp_clause_defaultmap_kind gfc_omp_predetermined_mapping (tree);

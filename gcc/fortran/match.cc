@@ -1,5 +1,5 @@
 /* Matching subroutines in all sizes, shapes and colors.
-   Copyright (C) 2000-2022 Free Software Foundation, Inc.
+   Copyright (C) 2000-2023 Free Software Foundation, Inc.
    Contributed by Andy Vaught
 
 This file is part of GCC.
@@ -193,7 +193,7 @@ gfc_match_member_sep(gfc_symbol *sym)
   if (gfc_match_name (name) != MATCH_YES)
     {
       gfc_error ("Expected structure component or operator name "
-                 "after '.' at %C");
+		 "after %<.%> at %C");
       goto error;
     }
 
@@ -454,10 +454,11 @@ gfc_match_eos (void)
 /* Match a literal integer on the input, setting the value on
    MATCH_YES.  Literal ints occur in kind-parameters as well as
    old-style character length specifications.  If cnt is non-NULL it
-   will be set to the number of digits.  */
+   will be set to the number of digits.
+   When gobble_ws is false, do not skip over leading blanks.  */
 
 match
-gfc_match_small_literal_int (int *value, int *cnt)
+gfc_match_small_literal_int (int *value, int *cnt, bool gobble_ws)
 {
   locus old_loc;
   char c;
@@ -466,7 +467,8 @@ gfc_match_small_literal_int (int *value, int *cnt)
   old_loc = gfc_current_locus;
 
   *value = -1;
-  gfc_gobble_whitespace ();
+  if (gobble_ws)
+    gfc_gobble_whitespace ();
   c = gfc_next_ascii_char ();
   if (cnt)
     *cnt = 0;
@@ -608,17 +610,19 @@ gfc_match_label (void)
 /* See if the current input looks like a name of some sort.  Modifies
    the passed buffer which must be GFC_MAX_SYMBOL_LEN+1 bytes long.
    Note that options.cc restricts max_identifier_length to not more
-   than GFC_MAX_SYMBOL_LEN.  */
+   than GFC_MAX_SYMBOL_LEN.
+   When gobble_ws is false, do not skip over leading blanks.  */
 
 match
-gfc_match_name (char *buffer)
+gfc_match_name (char *buffer, bool gobble_ws)
 {
   locus old_loc;
   int i;
   char c;
 
   old_loc = gfc_current_locus;
-  gfc_gobble_whitespace ();
+  if (gobble_ws)
+    gfc_gobble_whitespace ();
 
   c = gfc_next_ascii_char ();
   if (!(ISALPHA (c) || (c == '_' && flag_allow_leading_underscore)))
@@ -1053,15 +1057,17 @@ cleanup:
 
 
 /* Tries to match the next non-whitespace character on the input.
-   This subroutine does not return MATCH_ERROR.  */
+   This subroutine does not return MATCH_ERROR.
+   When gobble_ws is false, do not skip over leading blanks.  */
 
 match
-gfc_match_char (char c)
+gfc_match_char (char c, bool gobble_ws)
 {
   locus where;
 
   where = gfc_current_locus;
-  gfc_gobble_whitespace ();
+  if (gobble_ws)
+    gfc_gobble_whitespace ();
 
   if (gfc_next_ascii_char () == c)
     return MATCH_YES;
@@ -1606,21 +1612,21 @@ gfc_match_if (gfc_statement *if_type)
   match ("assign", gfc_match_assign, ST_LABEL_ASSIGNMENT)
   match ("backspace", gfc_match_backspace, ST_BACKSPACE)
   match ("call", gfc_match_call, ST_CALL)
-  match ("change team", gfc_match_change_team, ST_CHANGE_TEAM)
+  match ("change% team", gfc_match_change_team, ST_CHANGE_TEAM)
   match ("close", gfc_match_close, ST_CLOSE)
   match ("continue", gfc_match_continue, ST_CONTINUE)
   match ("cycle", gfc_match_cycle, ST_CYCLE)
   match ("deallocate", gfc_match_deallocate, ST_DEALLOCATE)
   match ("end file", gfc_match_endfile, ST_END_FILE)
   match ("end team", gfc_match_end_team, ST_END_TEAM)
-  match ("error stop", gfc_match_error_stop, ST_ERROR_STOP)
-  match ("event post", gfc_match_event_post, ST_EVENT_POST)
-  match ("event wait", gfc_match_event_wait, ST_EVENT_WAIT)
+  match ("error% stop", gfc_match_error_stop, ST_ERROR_STOP)
+  match ("event% post", gfc_match_event_post, ST_EVENT_POST)
+  match ("event% wait", gfc_match_event_wait, ST_EVENT_WAIT)
   match ("exit", gfc_match_exit, ST_EXIT)
-  match ("fail image", gfc_match_fail_image, ST_FAIL_IMAGE)
+  match ("fail% image", gfc_match_fail_image, ST_FAIL_IMAGE)
   match ("flush", gfc_match_flush, ST_FLUSH)
   match ("forall", match_simple_forall, ST_FORALL)
-  match ("form team", gfc_match_form_team, ST_FORM_TEAM)
+  match ("form% team", gfc_match_form_team, ST_FORM_TEAM)
   match ("go to", gfc_match_goto, ST_GOTO)
   match ("if", match_arithmetic_if, ST_ARITHMETIC_IF)
   match ("inquire", gfc_match_inquire, ST_INQUIRE)
@@ -1634,10 +1640,10 @@ gfc_match_if (gfc_statement *if_type)
   match ("rewind", gfc_match_rewind, ST_REWIND)
   match ("stop", gfc_match_stop, ST_STOP)
   match ("wait", gfc_match_wait, ST_WAIT)
-  match ("sync all", gfc_match_sync_all, ST_SYNC_CALL);
-  match ("sync images", gfc_match_sync_images, ST_SYNC_IMAGES);
-  match ("sync memory", gfc_match_sync_memory, ST_SYNC_MEMORY);
-  match ("sync team", gfc_match_sync_team, ST_SYNC_TEAM)
+  match ("sync% all", gfc_match_sync_all, ST_SYNC_CALL);
+  match ("sync% images", gfc_match_sync_images, ST_SYNC_IMAGES);
+  match ("sync% memory", gfc_match_sync_memory, ST_SYNC_MEMORY);
+  match ("sync% team", gfc_match_sync_team, ST_SYNC_TEAM)
   match ("unlock", gfc_match_unlock, ST_UNLOCK)
   match ("where", match_simple_where, ST_WHERE)
   match ("write", gfc_match_write, ST_WRITE)
@@ -5339,6 +5345,16 @@ gfc_match_common (void)
 		goto cleanup;
 	    }
 
+	  /* F2018:R874:  common-block-object is variable-name [ (array-spec) ]
+	     F2018:C8121: A variable-name shall not be a name made accessible
+	     by use association.  */
+	  if (sym->attr.use_assoc)
+	    {
+	      gfc_error ("Symbol %qs at %C is USE associated from module %qs "
+			 "and cannot occur in COMMON", sym->name, sym->module);
+	      goto cleanup;
+	    }
+
 	  /* Deal with an optional array specification after the
 	     symbol name.  */
 	  m = gfc_match_array_spec (&as, true, true);
@@ -5518,13 +5534,15 @@ gfc_free_namelist (gfc_namelist *name)
 /* Free an OpenMP namelist structure.  */
 
 void
-gfc_free_omp_namelist (gfc_omp_namelist *name, bool free_ns)
+gfc_free_omp_namelist (gfc_omp_namelist *name, bool free_ns, bool free_align)
 {
   gfc_omp_namelist *n;
 
   for (; name; name = n)
     {
       gfc_free_expr (name->expr);
+      if (free_align)
+	gfc_free_expr (name->u.align);
       if (free_ns)
 	gfc_free_namespace (name->u2.ns);
       else if (name->u2.udr)
@@ -5907,6 +5925,30 @@ recursive_stmt_fcn (gfc_expr *e, gfc_symbol *sym)
 }
 
 
+/* Check for invalid uses of statement function dummy arguments in body.  */
+
+static bool
+chk_stmt_fcn_body (gfc_expr *e, gfc_symbol *sym, int *f ATTRIBUTE_UNUSED)
+{
+  gfc_formal_arglist *formal;
+
+  if (e == NULL || e->symtree == NULL || e->expr_type != EXPR_FUNCTION)
+    return false;
+
+  for (formal = sym->formal; formal; formal = formal->next)
+    {
+      if (formal->sym == e->symtree->n.sym)
+	{
+	  gfc_error ("Invalid use of statement function argument at %L",
+		     &e->where);
+	  return true;
+	}
+    }
+
+  return false;
+}
+
+
 /* Match a statement function declaration.  It is so easy to match
    non-statement function statements with a MATCH_ERROR as opposed to
    MATCH_NO that we suppress error message in most cases.  */
@@ -5974,6 +6016,9 @@ gfc_match_st_function (void)
 		 sym->name, &expr->where);
       return MATCH_ERROR;
     }
+
+  if (gfc_traverse_expr (expr, sym, chk_stmt_fcn_body, 0))
+    return MATCH_ERROR;
 
   sym->value = expr;
 
@@ -6716,7 +6761,7 @@ gfc_match_select_rank (void)
   if (m == MATCH_ERROR)
     return m;
 
-  m = gfc_match (" select rank ( ");
+  m = gfc_match (" select% rank ( ");
   if (m != MATCH_YES)
     return m;
 

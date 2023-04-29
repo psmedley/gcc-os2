@@ -7,7 +7,7 @@
 --                                  S p e c                                 --
 --                                                                          --
 --               Copyright (C) 1991-1994, Florida State University          --
---            Copyright (C) 1995-2022, Free Software Foundation, Inc.       --
+--            Copyright (C) 1995-2023, Free Software Foundation, Inc.       --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -38,9 +38,9 @@
 --  PLEASE DO NOT add any with-clauses to this package or remove the pragma
 --  Preelaborate. This package is designed to be a bottom-level (leaf) package
 
+with Ada.Unchecked_Conversion;
 with Interfaces.C;
 with System.Parameters;
-with Unchecked_Conversion;
 
 package System.OS_Interface is
    pragma Preelaborate;
@@ -276,12 +276,12 @@ package System.OS_Interface is
    pragma Convention (C, Thread_Body);
 
    function Thread_Body_Access is new
-     Unchecked_Conversion (System.Address, Thread_Body);
+     Ada.Unchecked_Conversion (System.Address, Thread_Body);
 
    type pthread_t is new unsigned_long;
    subtype Thread_Id        is pthread_t;
 
-   function To_pthread_t is new Unchecked_Conversion
+   function To_pthread_t is new Ada.Unchecked_Conversion
      (unsigned_long, pthread_t);
 
    type pthread_mutex_t     is limited private;

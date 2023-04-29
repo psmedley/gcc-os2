@@ -1,5 +1,5 @@
 /* Subroutines used for MIPS code generation.
-   Copyright (C) 1989-2022 Free Software Foundation, Inc.
+   Copyright (C) 1989-2023 Free Software Foundation, Inc.
    Contributed by A. Lichnewsky, lich@inria.inria.fr.
    Changes by Michael Meissner, meissner@osf.org.
    64-bit r4000 support by Ian Lance Taylor, ian@cygnus.com, and
@@ -445,7 +445,6 @@ int num_source_filenames;
 const char *current_function_file = "";
 
 /* Arrays that map GCC register numbers to debugger register numbers.  */
-int mips_dbx_regno[FIRST_PSEUDO_REGISTER];
 int mips_dwarf_regno[FIRST_PSEUDO_REGISTER];
 
 /* Information about the current function's epilogue, used only while
@@ -631,6 +630,7 @@ static const struct attribute_spec mips_attribute_table[] = {
     mips_handle_use_shadow_register_set_attr, NULL },
   { "keep_interrupts_masked",	0, 0, false, true,  true, false, NULL, NULL },
   { "use_debug_exception_return", 0, 0, false, true, true, false, NULL, NULL },
+  { "use_hazard_barrier_return", 0, 0, true, false, false, false, NULL, NULL },
   { NULL,	   0, 0, false, false, false, false, NULL, NULL }
 };
 
@@ -6684,7 +6684,8 @@ mips_setup_incoming_varargs (cumulative_args_t cum,
      argument.  Advance a local copy of CUM past the last "real" named
      argument, to find out how many registers are left over.  */
   local_cum = *get_cumulative_args (cum);
-  mips_function_arg_advance (pack_cumulative_args (&local_cum), arg);
+  if (!TYPE_NO_NAMED_ARGS_STDARG_P (TREE_TYPE (current_function_decl)))
+    mips_function_arg_advance (pack_cumulative_args (&local_cum), arg);
 
   /* Found out how many registers we need to save.  */
   gp_saved = MAX_ARGS_IN_REGISTERS - local_cum.num_gprs;
@@ -9595,10 +9596,6 @@ mips_output_filename (FILE *stream, const char *name)
       output_quoted_string (stream, name);
       putc ('\n', stream);
     }
-  /* If we are emitting stabs, let dbxout.cc handle this (except for
-     the mips_output_filename_first_time case).  */
-  else if (write_symbols == DBX_DEBUG)
-    return;
   else if (name != current_function_file
 	   && strcmp (name, current_function_file) != 0)
     {
@@ -9926,7 +9923,7 @@ mips_finish_declare_object (FILE *stream, tree decl, int top_level, int at_end)
 void
 mips_set_text_contents_type (FILE *file ATTRIBUTE_UNUSED,
 			     const char *prefix ATTRIBUTE_UNUSED,
-			     unsigned long num ATTRIBUTE_UNUSED,
+			     unsigned HOST_WIDE_INT num ATTRIBUTE_UNUSED,
 			     bool function_p ATTRIBUTE_UNUSED)
 {
 #ifdef ASM_OUTPUT_TYPE_DIRECTIVE
@@ -9935,7 +9932,7 @@ mips_set_text_contents_type (FILE *file ATTRIBUTE_UNUSED,
   char *sname;
   rtx symbol;
 
-  sprintf (buf, "%lu", num);
+  sprintf (buf, HOST_WIDE_INT_PRINT_UNSIGNED, num);
   symbol = XEXP (DECL_RTL (current_function_decl), 0);
   fnname = targetm.strip_name_encoding (XSTR (symbol, 0));
   sname = ACONCAT ((prefix, fnname, "_", buf, NULL));
@@ -20023,7 +20020,7 @@ mips_set_tune (const struct mips_cpu_info *info)
 static void
 mips_option_override (void)
 {
-  int i, start, regno, mode;
+  int i, regno, mode;
 
   if (OPTION_SET_P (mips_isa_option))
     mips_isa_option_info = &mips_cpu_info_table[mips_isa_option];
@@ -20282,13 +20279,7 @@ mips_option_override (void)
       target_flags |= MASK_ODD_SPREG;
     }
 
-  if (!ISA_HAS_COMPACT_BRANCHES && mips_cb == MIPS_CB_ALWAYS)
-    {
-      error ("unsupported combination: %qs%s %s",
-	      mips_arch_info->name, TARGET_MICROMIPS ? " -mmicromips" : "",
-	      "-mcompact-branches=always");
-    }
-  else if (!ISA_HAS_DELAY_SLOTS && mips_cb == MIPS_CB_NEVER)
+  if (!ISA_HAS_DELAY_SLOTS && mips_cb == MIPS_CB_NEVER)
     {
       error ("unsupported combination: %qs%s %s",
 	      mips_arch_info->name, TARGET_MICROMIPS ? " -mmicromips" : "",
@@ -20505,24 +20496,13 @@ mips_option_override (void)
 
   for (i = 0; i < FIRST_PSEUDO_REGISTER; i++)
     {
-      mips_dbx_regno[i] = IGNORED_DWARF_REGNUM;
       if (GP_REG_P (i) || FP_REG_P (i) || ALL_COP_REG_P (i))
 	mips_dwarf_regno[i] = i;
       else
 	mips_dwarf_regno[i] = INVALID_REGNUM;
     }
 
-  start = GP_DBX_FIRST - GP_REG_FIRST;
-  for (i = GP_REG_FIRST; i <= GP_REG_LAST; i++)
-    mips_dbx_regno[i] = i + start;
-
-  start = FP_DBX_FIRST - FP_REG_FIRST;
-  for (i = FP_REG_FIRST; i <= FP_REG_LAST; i++)
-    mips_dbx_regno[i] = i + start;
-
   /* Accumulator debug registers use big-endian ordering.  */
-  mips_dbx_regno[HI_REGNUM] = MD_DBX_FIRST + 0;
-  mips_dbx_regno[LO_REGNUM] = MD_DBX_FIRST + 1;
   mips_dwarf_regno[HI_REGNUM] = MD_REG_FIRST + 0;
   mips_dwarf_regno[LO_REGNUM] = MD_REG_FIRST + 1;
   for (i = DSP_ACC_REG_FIRST; i <= DSP_ACC_REG_LAST; i += 2)
@@ -21790,9 +21770,13 @@ mips_expand_vec_perm_const_1 (struct expand_vec_perm_d *d)
 /* Implement TARGET_VECTORIZE_VEC_PERM_CONST.  */
 
 static bool
-mips_vectorize_vec_perm_const (machine_mode vmode, rtx target, rtx op0,
-			       rtx op1, const vec_perm_indices &sel)
+mips_vectorize_vec_perm_const (machine_mode vmode, machine_mode op_mode,
+			       rtx target, rtx op0, rtx op1,
+			       const vec_perm_indices &sel)
 {
+  if (vmode != op_mode)
+    return false;
+
   struct expand_vec_perm_d d;
   int i, nelt, which;
   unsigned char orig_perm[MAX_VECT_LEN];
@@ -22739,7 +22723,12 @@ mips_constant_alignment (const_tree exp, HOST_WIDE_INT align)
 static unsigned HOST_WIDE_INT
 mips_asan_shadow_offset (void)
 {
-  return SUBTARGET_SHADOW_OFFSET;
+  if (mips_abi == ABI_N32)
+    return (HOST_WIDE_INT_1 << 29);
+  if (POINTER_SIZE == 64)
+    return (HOST_WIDE_INT_1 << 37);
+  else
+    return HOST_WIDE_INT_C (0x0aaa0000);
 }
 
 /* Implement TARGET_STARTING_FRAME_OFFSET.  See mips_compute_frame_info

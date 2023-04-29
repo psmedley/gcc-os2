@@ -1,5 +1,5 @@
 /* Prints out trees in human readable form.
-   Copyright (C) 1992-2022 Free Software Foundation, Inc.
+   Copyright (C) 1992-2023 Free Software Foundation, Inc.
    Hacked by Michael Tiemann (tiemann@cygnus.com)
 
 This file is part of GCC.
@@ -79,12 +79,22 @@ cxx_print_decl (FILE *file, tree node, int indent)
 	  need_indent = false;
 	}
 
-      if (DECL_LANG_SPECIFIC (ntnode) && DECL_MODULE_PURVIEW_P (ntnode))
+      if (DECL_LANG_SPECIFIC (ntnode))
 	{
-	  if (need_indent)
-	    indent_to (file, indent + 3);
-	  fprintf (file, " purview");
-	  need_indent = false;
+	  if (DECL_MODULE_PURVIEW_P (ntnode))
+	    {
+	      if (need_indent)
+		indent_to (file, indent + 3);
+	      fprintf (file, " purview");
+	      need_indent = false;
+	    }
+	  if (DECL_MODULE_ATTACH_P (ntnode))
+	    {
+	      if (need_indent)
+		indent_to (file, indent + 3);
+	      fprintf (file, " attached");
+	      need_indent = false;
+	    }
 	}
     }
 

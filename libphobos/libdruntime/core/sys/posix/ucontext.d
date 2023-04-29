@@ -22,7 +22,6 @@ version (Posix):
 extern (C):
 nothrow:
 @nogc:
-@system:
 
 version (OSX)
     version = Darwin;
@@ -1628,4 +1627,3 @@ version (Solaris)
     int addrtosymstr(uintptr_t, char*, int);
     int printstack(int);
 }
-

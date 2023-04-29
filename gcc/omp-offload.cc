@@ -1,7 +1,7 @@
 /* Bits of OpenMP and OpenACC handling that is specific to device offloading
    and a lowering pass for OpenACC device directives.
 
-   Copyright (C) 2005-2022 Free Software Foundation, Inc.
+   Copyright (C) 2005-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -268,12 +268,12 @@ omp_discover_declare_target_tgt_fn_r (tree *tp, int *walk_subtrees, void *data)
     }
   else if (TYPE_P (*tp))
     *walk_subtrees = 0;
-  /* else if (TREE_CODE (*tp) == OMP_TARGET)
-       {
-	 if (tree dev = omp_find_clause (OMP_TARGET_CLAUSES (*tp)))
-	   if (OMP_DEVICE_ANCESTOR (dev))
-	     *walk_subtrees = 0;
-       } */
+  else if (TREE_CODE (*tp) == OMP_TARGET)
+    {
+      tree c = omp_find_clause (OMP_CLAUSES (*tp), OMP_CLAUSE_DEVICE);
+      if (c && OMP_CLAUSE_DEVICE_ANCESTOR (c))
+	*walk_subtrees = 0;
+    }
   return NULL_TREE;
 }
 
@@ -284,10 +284,11 @@ omp_discover_declare_target_fn_r (tree *tp, int *walk_subtrees, void *data)
 {
   if (TREE_CODE (*tp) == OMP_TARGET)
     {
-      /* And not OMP_DEVICE_ANCESTOR.  */
-      walk_tree_without_duplicates (&OMP_TARGET_BODY (*tp),
-				    omp_discover_declare_target_tgt_fn_r,
-				    data);
+      tree c = omp_find_clause (OMP_CLAUSES (*tp), OMP_CLAUSE_DEVICE);
+      if (!c || !OMP_CLAUSE_DEVICE_ANCESTOR (c))
+	walk_tree_without_duplicates (&OMP_TARGET_BODY (*tp),
+				      omp_discover_declare_target_tgt_fn_r,
+				      data);
       *walk_subtrees = 0;
     }
   else if (TYPE_P (*tp))
@@ -2449,9 +2450,9 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return flag_openacc; };
+  bool gate (function *) final override { return flag_openacc; };
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       return execute_oacc_loop_designation ();
     }
@@ -2479,9 +2480,9 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return flag_openacc; };
+  bool gate (function *) final override { return flag_openacc; };
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       return execute_oacc_device_lower ();
     }
@@ -2626,6 +2627,47 @@ execute_omp_device_lower ()
 	tree type = lhs ? TREE_TYPE (lhs) : integer_type_node;
 	switch (gimple_call_internal_fn (stmt))
 	  {
+	  case IFN_GOMP_TARGET_REV:
+	    {
+#ifndef ACCEL_COMPILER
+	      gimple_stmt_iterator gsi2 = gsi;
+	      gsi_next (&gsi2);
+	      gcc_assert (!gsi_end_p (gsi2));
+	      gcc_assert (gimple_call_builtin_p (gsi_stmt (gsi2),
+						 BUILT_IN_GOMP_TARGET));
+	      tree old_decl
+		= TREE_OPERAND (gimple_call_arg (gsi_stmt (gsi2), 1), 0);
+	      tree new_decl = gimple_call_arg (gsi_stmt (gsi), 0);
+	      gimple_call_set_arg (gsi_stmt (gsi2), 1, new_decl);
+	      update_stmt (gsi_stmt (gsi2));
+	      new_decl = TREE_OPERAND (new_decl, 0);
+	      unsigned i;
+	      unsigned num_funcs = vec_safe_length (offload_funcs);
+	      for (i = 0; i < num_funcs; i++)
+		{
+		  if ((*offload_funcs)[i] == old_decl)
+		    {
+		      (*offload_funcs)[i] = new_decl;
+		      break;
+		    }
+		  else if ((*offload_funcs)[i] == new_decl)
+		    break;  /* This can happen due to inlining.  */
+		}
+	      gcc_assert (i < num_funcs);
+#else
+	      tree old_decl = TREE_OPERAND (gimple_call_arg (gsi_stmt (gsi), 0),
+					    0);
+#endif
+	      /* FIXME: Find a way to actually prevent outputting the empty-body
+		 old_decl as debug symbol + function in the assembly file.  */
+	      cgraph_node *node = cgraph_node::get (old_decl);
+	      node->address_taken = false;
+	      node->need_lto_streaming = false;
+	      node->offloadable = false;
+
+	      unlink_stmt_vdef (stmt);
+	    }
+	    break;
 	  case IFN_GOMP_USE_SIMT:
 	    rhs = vf == 1 ? integer_zero_node : integer_one_node;
 	    break;
@@ -2713,13 +2755,13 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *fun)
+  bool gate (function *fun) final override
     {
       return (!(fun->curr_properties & PROP_gimple_lomp_dev)
 	      || (flag_openmp
 		  && cgraph_node::get (fun->decl)->calls_declare_variant_alt));
     }
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       return execute_omp_device_lower ();
     }
@@ -2759,7 +2801,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *fun)
+  bool gate (function *fun) final override
     {
 #ifdef ACCEL_COMPILER
       return offloading_function_p (fun->decl);
@@ -2769,7 +2811,7 @@ public:
 #endif
     }
 
-  virtual unsigned execute (function *);
+  unsigned execute (function *) final override;
 };
 
 /* Callback for walk_gimple_stmt used to scan for link var operands.  */
@@ -2802,6 +2844,15 @@ pass_omp_target_link::execute (function *fun)
 	{
 	  if (gimple_call_builtin_p (gsi_stmt (gsi), BUILT_IN_GOMP_TARGET))
 	    {
+	      tree dev = gimple_call_arg (gsi_stmt (gsi), 0);
+	      tree fn = gimple_call_arg (gsi_stmt (gsi), 1);
+	      if (POINTER_TYPE_P (TREE_TYPE (fn)))
+		fn = TREE_OPERAND (fn, 0);
+	      if (TREE_CODE (dev) == INTEGER_CST
+		  && wi::to_wide (dev) == GOMP_DEVICE_HOST_FALLBACK
+		  && lookup_attribute ("omp target device_ancestor_nohost",
+				       DECL_ATTRIBUTES (fn)) != NULL_TREE)
+		continue;  /* ancestor:1  */
 	      /* Nullify the second argument of __builtin_GOMP_target_ext.  */
 	      gimple_call_set_arg (gsi_stmt (gsi), 1, null_pointer_node);
 	      update_stmt (gsi_stmt (gsi));

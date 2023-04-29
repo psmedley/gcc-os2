@@ -1,7 +1,7 @@
 /* This file contains routines to construct OpenACC and OpenMP constructs,
    called from parsing in the C and C++ front ends.
 
-   Copyright (C) 2005-2022 Free Software Foundation, Inc.
+   Copyright (C) 2005-2023 Free Software Foundation, Inc.
    Contributed by Richard Henderson <rth@redhat.com>,
 		  Diego Novillo <dnovillo@redhat.com>.
 
@@ -36,7 +36,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "gimplify.h"
 #include "langhooks.h"
 #include "bitmap.h"
-#include "gimple-fold.h"
 
 
 /* Complete a #pragma oacc wait construct.  LOC is the location of
@@ -715,8 +714,17 @@ c_finish_omp_depobj (location_t loc, tree depobj,
 
   if (clause)
     {
-      gcc_assert (TREE_CODE (clause) == OMP_CLAUSE
-		  && OMP_CLAUSE_CODE (clause) == OMP_CLAUSE_DEPEND);
+      gcc_assert (TREE_CODE (clause) == OMP_CLAUSE);
+      if (OMP_CLAUSE_CODE (clause) == OMP_CLAUSE_DOACROSS)
+	{
+	  error_at (OMP_CLAUSE_LOCATION (clause),
+		    "%<depend(%s)%> is only allowed in %<omp ordered%>",
+		    OMP_CLAUSE_DOACROSS_KIND (clause)
+		    == OMP_CLAUSE_DOACROSS_SOURCE
+		    ? "source" : "sink");
+	  return;
+	}
+      gcc_assert (OMP_CLAUSE_CODE (clause) == OMP_CLAUSE_DEPEND);
       if (OMP_CLAUSE_CHAIN (clause))
 	error_at (OMP_CLAUSE_LOCATION (clause),
 		  "more than one locator in %<depend%> clause on %<depobj%> "
@@ -728,17 +736,11 @@ c_finish_omp_depobj (location_t loc, tree depobj,
 		    "%<depobj%> dependence type specified in %<depend%> "
 		    "clause on %<depobj%> construct");
 	  return;
-	case OMP_CLAUSE_DEPEND_SOURCE:
-	case OMP_CLAUSE_DEPEND_SINK:
-	  error_at (OMP_CLAUSE_LOCATION (clause),
-		    "%<depend(%s)%> is only allowed in %<omp ordered%>",
-		    OMP_CLAUSE_DEPEND_KIND (clause) == OMP_CLAUSE_DEPEND_SOURCE
-		    ? "source" : "sink");
-	  return;
 	case OMP_CLAUSE_DEPEND_IN:
 	case OMP_CLAUSE_DEPEND_OUT:
 	case OMP_CLAUSE_DEPEND_INOUT:
 	case OMP_CLAUSE_DEPEND_MUTEXINOUTSET:
+	case OMP_CLAUSE_DEPEND_INOUTSET:
 	  kind = OMP_CLAUSE_DEPEND_KIND (clause);
 	  t = OMP_CLAUSE_DECL (clause);
 	  gcc_assert (t);
@@ -757,7 +759,7 @@ c_finish_omp_depobj (location_t loc, tree depobj,
 	      t = build2 (COMPOUND_EXPR, TREE_TYPE (t1), TREE_OPERAND (t, 0),
 			  t1);
 	    }
-	  else
+	  else if (t != null_pointer_node)
 	    t = build_fold_addr_expr (t);
 	  break;
 	default:
@@ -765,7 +767,7 @@ c_finish_omp_depobj (location_t loc, tree depobj,
 	}
     }
   else
-    gcc_assert (kind != OMP_CLAUSE_DEPEND_SOURCE);
+    gcc_assert (kind != OMP_CLAUSE_DEPEND_INVALID);
 
   if (depobj == error_mark_node)
     return;
@@ -796,6 +798,9 @@ c_finish_omp_depobj (location_t loc, tree depobj,
       break;
     case OMP_CLAUSE_DEPEND_MUTEXINOUTSET:
       k = GOMP_DEPEND_MUTEXINOUTSET;
+      break;
+    case OMP_CLAUSE_DEPEND_INOUTSET:
+      k = GOMP_DEPEND_INOUTSET;
       break;
     case OMP_CLAUSE_DEPEND_LAST:
       k = -1;
@@ -1306,10 +1311,11 @@ c_omp_is_loop_iterator (tree decl, struct c_omp_check_loop_iv_data *d)
     else if (TREE_CODE (TREE_VEC_ELT (d->declv, i)) == TREE_LIST
 	     && TREE_CHAIN (TREE_VEC_ELT (d->declv, i))
 	     && (TREE_CODE (TREE_CHAIN (TREE_VEC_ELT (d->declv, i)))
-		 == TREE_VEC)
-	     && decl == TREE_VEC_ELT (TREE_CHAIN (TREE_VEC_ELT (d->declv,
-						  i)), 2))
-      return TREE_VEC_LENGTH (d->declv);
+		 == TREE_VEC))
+      for (int j = 2;
+	   j < TREE_VEC_LENGTH (TREE_CHAIN (TREE_VEC_ELT (d->declv, i))); j++)
+	if (decl == TREE_VEC_ELT (TREE_CHAIN (TREE_VEC_ELT (d->declv, i)), j))
+	  return TREE_VEC_LENGTH (d->declv);
   return -1;
 }
 
@@ -1870,6 +1876,12 @@ c_omp_split_clauses (location_t loc, enum tree_code code,
 	case OMP_CLAUSE_HAS_DEVICE_ADDR:
 	case OMP_CLAUSE_DEFAULTMAP:
 	case OMP_CLAUSE_DEPEND:
+	  s = C_OMP_CLAUSE_SPLIT_TARGET;
+	  break;
+	case OMP_CLAUSE_DOACROSS:
+	  /* This can happen with invalid depend(source) or
+	     depend(sink:vec) on target combined with other constructs.  */
+	  gcc_assert (OMP_CLAUSE_DOACROSS_DEPEND (clauses));
 	  s = C_OMP_CLAUSE_SPLIT_TARGET;
 	  break;
 	case OMP_CLAUSE_NUM_TEAMS:
@@ -3086,23 +3098,23 @@ c_omp_adjust_map_clauses (tree clauses, bool is_target)
     }
 }
 
-static const struct c_omp_directive omp_directives[] = {
+const struct c_omp_directive c_omp_directives[] = {
   /* Keep this alphabetically sorted by the first word.  Non-null second/third
      if any should precede null ones.  */
   { "allocate", nullptr, nullptr, PRAGMA_OMP_ALLOCATE,
     C_OMP_DIR_DECLARATIVE, false },
-  /* { "assume", nullptr, nullptr, PRAGMA_OMP_ASSUME,
-    C_OMP_DIR_INFORMATIONAL, false }, */
-  /* { "assumes", nullptr, nullptr, PRAGMA_OMP_ASSUMES,
-    C_OMP_DIR_INFORMATIONAL, false }, */
+  { "assume", nullptr, nullptr, PRAGMA_OMP_ASSUME,
+    C_OMP_DIR_INFORMATIONAL, false },
+  { "assumes", nullptr, nullptr, PRAGMA_OMP_ASSUMES,
+    C_OMP_DIR_INFORMATIONAL, false },
   { "atomic", nullptr, nullptr, PRAGMA_OMP_ATOMIC,
     C_OMP_DIR_CONSTRUCT, false },
   { "barrier", nullptr, nullptr, PRAGMA_OMP_BARRIER,
     C_OMP_DIR_STANDALONE, false },
-  /* { "begin", "assumes", nullptr, PRAGMA_OMP_BEGIN,
-    C_OMP_DIR_INFORMATIONAL, false }, */
-  /* { "begin", "declare", "target", PRAGMA_OMP_BEGIN,
-    C_OMP_DIR_DECLARATIVE, false }, */
+  { "begin", "assumes", nullptr, PRAGMA_OMP_BEGIN,
+    C_OMP_DIR_INFORMATIONAL, false },
+  { "begin", "declare", "target", PRAGMA_OMP_BEGIN,
+    C_OMP_DIR_DECLARATIVE, false },
   /* { "begin", "declare", "variant", PRAGMA_OMP_BEGIN,
     C_OMP_DIR_DECLARATIVE, false }, */
   /* { "begin", "metadirective", nullptr, PRAGMA_OMP_BEGIN,
@@ -3129,9 +3141,9 @@ static const struct c_omp_directive omp_directives[] = {
     C_OMP_DIR_CONSTRUCT, false },  */
   { "distribute", nullptr, nullptr, PRAGMA_OMP_DISTRIBUTE,
     C_OMP_DIR_CONSTRUCT, true },
-  /* { "end", "assumes", nullptr, PRAGMA_OMP_END,
-    C_OMP_DIR_INFORMATIONAL, false }, */
-  { "end", "declare", "target", PRAGMA_OMP_END_DECLARE_TARGET,
+  { "end", "assumes", nullptr, PRAGMA_OMP_END,
+    C_OMP_DIR_INFORMATIONAL, false },
+  { "end", "declare", "target", PRAGMA_OMP_END,
     C_OMP_DIR_DECLARATIVE, false },
   /* { "end", "declare", "variant", PRAGMA_OMP_END,
     C_OMP_DIR_DECLARATIVE, false }, */
@@ -3213,26 +3225,26 @@ const struct c_omp_directive *
 c_omp_categorize_directive (const char *first, const char *second,
 			    const char *third)
 {
-  const size_t n_omp_directives = ARRAY_SIZE (omp_directives);
+  const size_t n_omp_directives = ARRAY_SIZE (c_omp_directives);
   for (size_t i = 0; i < n_omp_directives; i++)
     {
-      if ((unsigned char) omp_directives[i].first[0]
+      if ((unsigned char) c_omp_directives[i].first[0]
 	  < (unsigned char) first[0])
 	continue;
-      if ((unsigned char) omp_directives[i].first[0]
+      if ((unsigned char) c_omp_directives[i].first[0]
 	  > (unsigned char) first[0])
 	break;
-      if (strcmp (omp_directives[i].first, first))
+      if (strcmp (c_omp_directives[i].first, first))
 	continue;
-      if (!omp_directives[i].second)
-	return &omp_directives[i];
-      if (!second || strcmp (omp_directives[i].second, second))
+      if (!c_omp_directives[i].second)
+	return &c_omp_directives[i];
+      if (!second || strcmp (c_omp_directives[i].second, second))
 	continue;
-      if (!omp_directives[i].third)
-	return &omp_directives[i];
-      if (!third || strcmp (omp_directives[i].third, third))
+      if (!c_omp_directives[i].third)
+	return &c_omp_directives[i];
+      if (!third || strcmp (c_omp_directives[i].third, third))
 	continue;
-      return &omp_directives[i];
+      return &c_omp_directives[i];
     }
   return NULL;
 }

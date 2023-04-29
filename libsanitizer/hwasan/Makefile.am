@@ -12,6 +12,7 @@ AM_CCASFLAGS = $(EXTRA_ASFLAGS)
 ACLOCAL_AMFLAGS = -I $(top_srcdir) -I $(top_srcdir)/config
 
 toolexeclib_LTLIBRARIES = libhwasan.la
+nodist_toolexeclib_HEADERS = libhwasan_preinit.o
 
 hwasan_files = \
 	hwasan_allocation_functions.cpp \
@@ -47,6 +48,9 @@ endif
 libhwasan_la_LIBADD += $(LIBSTDCXX_RAW_CXX_LDFLAGS)
 
 libhwasan_la_LDFLAGS = -version-info `grep -v '^\#' $(srcdir)/libtool-version` $(link_libhwasan)
+
+libhwasan_preinit.o: hwasan_preinit.o
+	cp $< $@
 
 # Work around what appears to be a GNU make bug handling MAKEFLAGS
 # values defined in terms of make variables, as is the case for CC and

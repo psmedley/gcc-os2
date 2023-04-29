@@ -1,6 +1,6 @@
 // Debugging support implementation -*- C++ -*-
 
-// Copyright (C) 2003-2022 Free Software Foundation, Inc.
+// Copyright (C) 2003-2023 Free Software Foundation, Inc.
 //
 // This file is part of the GNU ISO C++ Library.  This library is free
 // software; you can redistribute it and/or modify it under the
@@ -466,9 +466,5 @@ _GLIBCXX_DEBUG_VERIFY(_F > 0.0f,					\
 _GLIBCXX_DEBUG_VERIFY(_This.get_allocator() == _Other.get_allocator(),	\
 		      _M_message(__gnu_debug::__msg_equal_allocs)	\
 		      ._M_sequence(_This, "this"))
-
-#define __glibcxx_check_string(_String) _GLIBCXX_DEBUG_PEDASSERT(_String != 0)
-#define __glibcxx_check_string_len(_String,_Len) \
-  _GLIBCXX_DEBUG_PEDASSERT(_String != 0 || _Len == 0)
 
 #endif

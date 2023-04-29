@@ -1,5 +1,5 @@
 /* Support routines for the various generation passes.
-   Copyright (C) 2000-2022 Free Software Foundation, Inc.
+   Copyright (C) 2000-2023 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -2310,7 +2310,7 @@ class gen_reader : public rtx_reader
 {
  public:
   gen_reader () : rtx_reader (false) {}
-  void handle_unknown_directive (file_location, const char *);
+  void handle_unknown_directive (file_location, const char *) final override;
 };
 
 void

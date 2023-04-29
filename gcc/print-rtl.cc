@@ -1,5 +1,5 @@
 /* Print RTL for GCC.
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -453,6 +453,10 @@ rtx_writer::print_rtx_operand_code_i (const_rtx in_rtx, int idx)
 	  expanded_location xloc = insn_location (in_insn);
 	  fprintf (m_outfile, " \"%s\":%i:%i", xloc.file, xloc.line,
 		   xloc.column);
+	  int discriminator = insn_discriminator (in_insn);
+	    if (discriminator)
+	      fprintf (m_outfile, " discrim %d", discriminator);
+
 	}
 #endif
     }
@@ -941,7 +945,7 @@ rtx_writer::print_rtx (const_rtx in_rtx)
     {
 #ifndef GENERATOR_FILE
     case MEM:
-      if (__builtin_expect (final_insns_dump_p, false))
+      if (UNLIKELY (final_insns_dump_p))
 	fprintf (m_outfile, " [");
       else
 	fprintf (m_outfile, " [" HOST_WIDE_INT_PRINT_DEC,

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /* Definitions of target machine for GNU compiler,
    for IBM RS/6000 POWER running AIX V7.1.
-   Copyright (C) 2002-2022 Free Software Foundation, Inc.
+   Copyright (C) 2002-2023 Free Software Foundation, Inc.
    Contributed by David Edelsohn (edelsohn@gnu.org).
 
    This file is part of GCC.
@@ -137,9 +137,11 @@ do {									\
 
 #undef  TARGET_DEFAULT
 #ifdef RS6000_BI_ARCH
-#define TARGET_DEFAULT (MASK_PPC_GPOPT | MASK_PPC_GFXOPT | MASK_MFCRF | MASK_POWERPC64 | MASK_64BIT)
+#define TARGET_DEFAULT (OPTION_MASK_PPC_GPOPT | OPTION_MASK_PPC_GFXOPT \
+			| OPTION_MASK_MFCRF | MASK_POWERPC64 | MASK_64BIT)
 #else
-#define TARGET_DEFAULT (MASK_PPC_GPOPT | MASK_PPC_GFXOPT | MASK_MFCRF)
+#define TARGET_DEFAULT (OPTION_MASK_PPC_GPOPT | OPTION_MASK_PPC_GFXOPT \
+			| OPTION_MASK_MFCRF)
 #endif
 
 #undef  PROCESSOR_DEFAULT

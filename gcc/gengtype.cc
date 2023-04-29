@@ -1,5 +1,5 @@
 /* Process source files and output type information.
-   Copyright (C) 2002-2022 Free Software Foundation, Inc.
+   Copyright (C) 2002-2023 Free Software Foundation, Inc.
 
    This file is part of GCC.
 
@@ -519,7 +519,6 @@ pair_p typedefs = NULL;
 type_p structures = NULL;
 pair_p variables = NULL;
 
-static type_p adjust_field_tree_exp (type_p t, options_p opt);
 static type_p adjust_field_rtx_def (type_p t, options_p opt);
 
 /* Define S as a typedef to T at POS.  */
@@ -1392,36 +1391,6 @@ adjust_field_rtx_def (type_p t, options_p ARG_UNUSED (opt))
 			nodot, NULL);
 }
 
-/* Handle `special("tree_exp")'.  This is a special case for
-   field `operands' of struct tree_exp, which although it claims to contain
-   pointers to trees, actually sometimes contains pointers to RTL too.
-   Passed T, the old type of the field, and OPT its options.  Returns
-   a new type for the field.  */
-
-static type_p
-adjust_field_tree_exp (type_p t, options_p opt ATTRIBUTE_UNUSED)
-{
-  pair_p flds;
-  options_p nodot;
-
-  if (t->kind != TYPE_ARRAY)
-    {
-      error_at_line (&lexer_line,
-		     "special `tree_exp' must be applied to an array");
-      return &string_type;
-    }
-
-  nodot = create_string_option (NULL, "dot", "");
-
-  flds = create_field (NULL, t, "");
-  flds->opt = create_string_option (nodot, "length",
-				    "TREE_OPERAND_LENGTH ((tree) &%0)");
-  flds->opt = create_string_option (flds->opt, "default", "");
-
-  return new_structure ("tree_exp_subunion", TYPE_UNION, &lexer_line, flds,
-			nodot, NULL);
-}
-
 /* Perform any special processing on a type T, about to become the type
    of a field.  Return the appropriate type for the field.
    At present:
@@ -1455,9 +1424,7 @@ adjust_field_type (type_p t, options_p opt)
 	     && opt->kind == OPTION_STRING)
       {
 	const char *special_name = opt->info.string;
-	if (strcmp (special_name, "tree_exp") == 0)
-	  t = adjust_field_tree_exp (t, opt);
-	else if (strcmp (special_name, "rtx_def") == 0)
+	if (strcmp (special_name, "rtx_def") == 0)
 	  t = adjust_field_rtx_def (t, opt);
 	else
 	  error_at_line (&lexer_line, "unknown special `%s'", special_name);
@@ -1639,7 +1606,7 @@ static outf_p
 create_file (const char *name, const char *oname)
 {
   static const char *const hdr[] = {
-    "   Copyright (C) 2004-2022 Free Software Foundation, Inc.\n",
+    "   Copyright (C) 2004-2023 Free Software Foundation, Inc.\n",
     "\n",
     "This file is part of GCC.\n",
     "\n",
@@ -1744,9 +1711,10 @@ open_base_files (void)
       "alias.h", "insn-config.h", "flags.h", "expmed.h", "dojump.h",
       "explow.h", "calls.h", "memmodel.h", "emit-rtl.h", "varasm.h",
       "stmt.h", "expr.h", "alloc-pool.h", "cselib.h", "insn-addr.h",
-      "optabs.h", "libfuncs.h", "debug.h", "internal-fn.h", "gimple-fold.h",
-      "value-range.h",
-      "tree-eh.h", "gimple-iterator.h", "gimple-ssa.h", "tree-cfg.h",
+      "optabs.h", "libfuncs.h", "debug.h", "internal-fn.h",
+      "gimple-iterator.h", "gimple-fold.h", "value-range.h",
+      "value-range-storage.h",
+      "tree-eh.h", "gimple-ssa.h", "tree-cfg.h",
       "tree-vrp.h", "tree-phinodes.h", "ssa-iterators.h", "stringpool.h",
       "tree-ssanames.h", "tree-ssa-loop.h", "tree-ssa-loop-ivopts.h",
       "tree-ssa-loop-manip.h", "tree-ssa-loop-niter.h", "tree-into-ssa.h",
@@ -2443,7 +2411,7 @@ struct write_types_data
   enum write_types_kinds kind;
 };
 
-static void output_escaped_param (struct walk_type_data *d,
+static void output_escaped_param (const struct walk_type_data *d,
 				  const char *, const char *);
 static void output_mangled_typename (outf_p, const_type_p);
 static void walk_type (type_p t, struct walk_type_data *d);
@@ -2577,7 +2545,7 @@ output_mangled_typename (outf_p of, const_type_p t)
    print error messages.  */
 
 static void
-output_escaped_param (struct walk_type_data *d, const char *param,
+output_escaped_param (const struct walk_type_data *d, const char *param,
 		      const char *oname)
 {
   const char *p;
@@ -2616,7 +2584,7 @@ const char *
 get_string_option (options_p opt, const char *key)
 {
   for (; opt; opt = opt->next)
-    if (strcmp (opt->name, key) == 0)
+    if (opt->kind == OPTION_STRING && strcmp (opt->name, key) == 0)
       return opt->info.string;
   return NULL;
 }
@@ -2739,6 +2707,8 @@ walk_type (type_p t, struct walk_type_data *d)
     else if (strcmp (oo->name, "for_user") == 0)
       ;
     else if (strcmp (oo->name, "callback") == 0)
+      ;
+    else if (strcmp (oo->name, "string_length") == 0)
       ;
     else
       error_at_line (d->line, "unknown option `%s'\n", oo->name);
@@ -3291,7 +3261,22 @@ write_types_process_field (type_p f, const struct walk_type_data *d)
 	{
 	  oprintf (d->of, "%*sgt_%s_", d->indent, "", wtd->prefix);
 	  output_mangled_typename (d->of, f);
-	  oprintf (d->of, " (%s%s);\n", cast, d->val);
+
+	  /* Check if we need to call the special pch note version
+	     for strings that takes an explicit length.  */
+	  const auto length_override
+	    = (f->kind == TYPE_STRING && !strcmp (wtd->prefix, "pch_n")
+	       ? get_string_option (d->opt, "string_length")
+	       : nullptr);
+	  if (length_override)
+	    {
+	      oprintf (d->of, "2 (%s%s, ", cast, d->val);
+	      output_escaped_param (d, length_override, "string_length");
+	    }
+	  else
+	    oprintf (d->of, " (%s%s", cast, d->val);
+
+	  oprintf (d->of, ");\n");
 	  if (d->reorder_fn && wtd->reorder_note_routine)
 	    oprintf (d->of, "%*s%s (%s%s, %s%s, %s);\n", d->indent, "",
 		     wtd->reorder_note_routine, cast, d->val, cast, d->val,
@@ -4910,7 +4895,7 @@ static htab_t seen_types;
 static void
 dump_type (int indent, type_p t)
 {
-  PTR *slot;
+  void **slot;
 
   printf ("%*cType at %p: ", indent, ' ', (void *) t);
   if (t->kind == TYPE_UNDEFINED)
@@ -5159,7 +5144,7 @@ static htab_t input_file_htab;
 input_file*
 input_file_by_name (const char* name)
 {
-  PTR* slot;
+  void ** slot;
   input_file* f = NULL;
   int namlen = 0;
   if (!name)
@@ -5268,7 +5253,7 @@ main (int argc, char **argv)
       POS_HERE (do_scalar_typedef ("machine_mode", &pos));
       POS_HERE (do_scalar_typedef ("fixed_size_mode", &pos));
       POS_HERE (do_scalar_typedef ("CONSTEXPR", &pos));
-      POS_HERE (do_typedef ("PTR", 
+      POS_HERE (do_typedef ("void *",
 			    create_pointer (resolve_typedef ("void", &pos)),
 			    &pos));
 #undef POS_HERE

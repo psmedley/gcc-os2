@@ -49,7 +49,6 @@ extern (C):
 
 nothrow:
 @nogc:
-@system:
 
 //
 // Required
@@ -118,6 +117,12 @@ version (linux)
     enum F_SETLKW       = 7;
   }
   else version (PPC64)
+  {
+    enum F_GETLK        = 5;
+    enum F_SETLK        = 6;
+    enum F_SETLKW       = 7;
+  }
+  else version (RISCV64)
   {
     enum F_GETLK        = 5;
     enum F_SETLK        = 6;

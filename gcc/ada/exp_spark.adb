@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -850,9 +850,12 @@ package body Exp_SPARK is
    --  Start of processing for Expand_SPARK_Potential_Renaming
 
    begin
-      --  Replace a reference to a renaming with the actual renamed object
+      --  Replace a reference to a renaming with the actual renamed object.
+      --  Protect against previous errors leaving no entity in N.
 
-      if Is_Object (Obj_Id) then
+      if Present (Obj_Id)
+        and then Is_Object (Obj_Id)
+      then
          Ren := Renamed_Object (Obj_Id);
 
          if Present (Ren) then
@@ -892,7 +895,7 @@ package body Exp_SPARK is
    procedure SPARK_Freeze_Type (N : Entity_Id) is
       Typ : constant Entity_Id := Entity (N);
 
-      Renamed_Eq : Node_Id;
+      Renamed_Eq : Entity_Id;
       --  Defining unit name for the predefined equality function in the case
       --  where the type has a primitive operation that is a renaming of
       --  predefined equality (but only if there is also an overriding

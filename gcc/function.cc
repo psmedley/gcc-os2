@@ -1,5 +1,5 @@
 /* Expands front end tree to back end RTL for GCC.
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -2029,7 +2029,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       return instantiate_virtual_regs ();
     }
@@ -2088,6 +2088,9 @@ aggregate_value_p (const_tree exp, const_tree fntype)
       }
 
   if (VOID_TYPE_P (type))
+    return 0;
+
+  if (error_operand_p (fntype))
     return 0;
 
   /* If a record should be passed the same as its first (and only) member
@@ -3472,6 +3475,17 @@ assign_parm_setup_stack (struct assign_parm_data_all *all, tree parm,
 
       emit_move_insn (tempreg, validize_mem (copy_rtx (data->entry_parm)));
 
+      /* Some ABIs require scalar floating point modes to be passed
+	 in a wider scalar integer mode.  We need to explicitly
+	 truncate to an integer mode of the correct precision before
+	 using a SUBREG to reinterpret as a floating point value.  */
+      if (SCALAR_FLOAT_MODE_P (data->nominal_mode)
+	  && SCALAR_INT_MODE_P (data->arg.mode)
+	  && known_lt (GET_MODE_SIZE (data->nominal_mode),
+		       GET_MODE_SIZE (data->arg.mode)))
+	tempreg = convert_wider_int_to_float (data->nominal_mode,
+					      data->arg.mode, tempreg);
+
       push_to_sequence2 (all->first_conversion_insn, all->last_conversion_insn);
       to_conversion = true;
 
@@ -3635,6 +3649,12 @@ assign_parms (tree fndecl)
 
   assign_parms_initialize_all (&all);
   fnargs = assign_parms_augmented_arg_list (&all);
+
+  if (TYPE_NO_NAMED_ARGS_STDARG_P (TREE_TYPE (fndecl)))
+    {
+      struct assign_parm_data_one data = {};
+      assign_parms_setup_varargs (&all, &data, false);
+    }
 
   FOR_EACH_VEC_ELT (fnargs, i, parm)
     {
@@ -4628,14 +4648,6 @@ number_blocks (tree fn)
   int n_blocks;
   tree *block_vector;
 
-  /* For XCOFF debugging output, we start numbering the blocks
-     from 1 within each function, rather than keeping a running
-     count.  */
-#if defined (XCOFF_DEBUGGING_INFO)
-  if (write_symbols == XCOFF_DEBUG)
-    next_block_index = 1;
-#endif
-
   block_vector = get_block_vector (DECL_INITIAL (fn), &n_blocks);
 
   /* The top-level BLOCK isn't numbered at all.  */
@@ -4879,7 +4891,7 @@ allocate_struct_function (tree fndecl, bool abstract_p)
    instead of just setting it.  */
 
 void
-push_struct_function (tree fndecl)
+push_struct_function (tree fndecl, bool abstract_p)
 {
   /* When in_dummy_function we might be in the middle of a pop_cfun and
      current_function_decl and cfun may not match.  */
@@ -4888,7 +4900,7 @@ push_struct_function (tree fndecl)
 	      || (cfun && current_function_decl == cfun->decl));
   cfun_stack.safe_push (cfun);
   current_function_decl = fndecl;
-  allocate_struct_function (fndecl, false);
+  allocate_struct_function (fndecl, abstract_p);
 }
 
 /* Reset crtl and other non-struct-function variables to defaults as
@@ -4985,7 +4997,8 @@ init_function_start (tree subr)
   /* Warn if this value is an aggregate type,
      regardless of which calling convention we are using for it.  */
   if (AGGREGATE_TYPE_P (TREE_TYPE (DECL_RESULT (subr))))
-    warning (OPT_Waggregate_return, "function returns an aggregate");
+    warning_at (DECL_SOURCE_LOCATION (DECL_RESULT (subr)),
+		OPT_Waggregate_return, "function returns an aggregate");
 }
 
 /* Expand code to verify the stack_protect_guard.  This is invoked at
@@ -5049,9 +5062,12 @@ stack_protect_epilogue (void)
    PARMS_HAVE_CLEANUPS is nonzero if there are cleanups associated with
    the function's parameters, which must be run at any return statement.  */
 
+bool currently_expanding_function_start;
 void
 expand_function_start (tree subr)
 {
+  currently_expanding_function_start = true;
+
   /* Make sure volatile mem refs aren't considered
      valid operands of arithmetic insns.  */
   init_recog_no_volatile ();
@@ -5244,6 +5260,8 @@ expand_function_start (tree subr)
   /* If we are doing generic stack checking, the probe should go here.  */
   if (flag_stack_check == GENERIC_STACK_CHECK)
     stack_check_probe_note = emit_note (NOTE_INSN_DELETED);
+
+  currently_expanding_function_start = false;
 }
 
 void
@@ -6246,10 +6264,18 @@ thread_prologue_and_epilogue_insns (void)
 	}
     }
 
-  /* Threading the prologue and epilogue changes the artificial refs
-     in the entry and exit blocks.  */
-  epilogue_completed = 1;
-  df_update_entry_exit_and_calls ();
+  /* Threading the prologue and epilogue changes the artificial refs in the
+     entry and exit blocks, and may invalidate DF info for tail calls.  */
+  if (optimize
+      || flag_optimize_sibling_calls
+      || flag_ipa_icf_functions
+      || in_lto_p)
+    df_update_entry_exit_and_calls ();
+  else
+    {
+      df_update_entry_block_defs ();
+      df_update_exit_block_uses ();
+    }
 }
 
 /* Reposition the prologue-end and epilogue-begin notes after
@@ -6516,7 +6542,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       return rest_of_handle_check_leaf_regs ();
     }
@@ -6532,7 +6558,7 @@ make_pass_leaf_regs (gcc::context *ctxt)
 }
 
 static unsigned int
-rest_of_handle_thread_prologue_and_epilogue (void)
+rest_of_handle_thread_prologue_and_epilogue (function *fun)
 {
   /* prepare_shrink_wrap is sensitive to the block structure of the control
      flow graph, so clean it up first.  */
@@ -6548,6 +6574,13 @@ rest_of_handle_thread_prologue_and_epilogue (void)
   /* Some non-cold blocks may now be only reachable from cold blocks.
      Fix that up.  */
   fixup_partitions ();
+
+  /* After prologue and epilogue generation, the judgement on whether
+     one memory access onto stack frame may trap or not could change,
+     since we get more exact stack information by now.  So try to
+     remove any EH edges here, see PR90259.  */
+  if (fun->can_throw_non_call_exceptions)
+    purge_all_dead_edges ();
 
   /* Shrink-wrapping can result in unreachable edges in the epilogue,
      see PR57320.  */
@@ -6617,9 +6650,9 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual unsigned int execute (function *)
+  unsigned int execute (function * fun) final override
     {
-      return rest_of_handle_thread_prologue_and_epilogue ();
+      return rest_of_handle_thread_prologue_and_epilogue (fun);
     }
 
 }; // class pass_thread_prologue_and_epilogue
@@ -6655,7 +6688,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual unsigned int execute (function *);
+  unsigned int execute (function *) final override;
 
 }; // class pass_zero_call_used_regs
 
@@ -6926,7 +6959,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual unsigned int execute (function *);
+  unsigned int execute (function *) final override;
 
 }; // class pass_match_asm_constraints
 

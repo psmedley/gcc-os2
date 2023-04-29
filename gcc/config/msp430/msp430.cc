@@ -1,5 +1,5 @@
 /* Subroutines used for code generation on TI MSP430 processors.
-   Copyright (C) 2012-2022 Free Software Foundation, Inc.
+   Copyright (C) 2012-2023 Free Software Foundation, Inc.
    Contributed by Red Hat.
 
    This file is part of GCC.
@@ -1460,7 +1460,7 @@ msp430_get_inner_dest_code (rtx x)
 /* Calculate the cost of an MSP430 single-operand instruction, for operand DST
    within the RTX OUTER_RTX, optimizing for speed if SPEED is true.  */
 static int
-msp430_single_op_cost (rtx dst, bool speed, rtx outer_rtx)
+msp430_single_op_cost (rtx dst, bool speed, rtx /* outer_rtx */)
 {
   enum rtx_code dst_code = GET_CODE (dst);
   const struct single_op_cost *cost_p;

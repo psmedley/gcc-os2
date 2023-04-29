@@ -1,5 +1,5 @@
 /* Prototypes for exported functions defined in arm.cc and pe.c
-   Copyright (C) 1999-2022 Free Software Foundation, Inc.
+   Copyright (C) 1999-2023 Free Software Foundation, Inc.
    Contributed by Richard Earnshaw (rearnsha@arm.com)
    Minor hacks by Nick Clifton (nickc@cygnus.com)
 
@@ -24,6 +24,8 @@
 
 #include "sbitmap.h"
 
+rtl_opt_pass *make_pass_insert_bti (gcc::context *ctxt);
+
 extern enum unwind_info_type arm_except_unwind_info (struct gcc_options *);
 extern int use_return_insn (int, rtx);
 extern bool use_simple_return_p (void);
@@ -45,7 +47,7 @@ extern HOST_WIDE_INT arm_compute_initial_elimination_offset (unsigned int,
 							     unsigned int);
 extern HOST_WIDE_INT thumb_compute_initial_elimination_offset (unsigned int,
 							       unsigned int);
-extern unsigned int arm_dbx_register_number (unsigned int);
+extern unsigned int arm_debugger_regno (unsigned int);
 extern void arm_output_fn_unwind (FILE *, bool);
 
 extern rtx arm_expand_builtin (tree exp, rtx target, rtx subtarget
@@ -103,7 +105,6 @@ extern void neon_pairwise_reduce (rtx, rtx, machine_mode,
 				  rtx (*) (rtx, rtx, rtx));
 extern rtx mve_bool_vec_to_const (rtx const_vec);
 extern rtx neon_make_constant (rtx, bool generate = true);
-extern tree arm_builtin_vectorized_function (unsigned int, tree, tree);
 extern void neon_expand_vector_init (rtx, rtx);
 extern void neon_lane_bounds (rtx, HOST_WIDE_INT, HOST_WIDE_INT, const_tree);
 extern void arm_const_bounds (rtx, HOST_WIDE_INT, HOST_WIDE_INT);
@@ -123,6 +124,7 @@ extern int arm_coproc_mem_operand_wb (rtx, int);
 extern int neon_vector_mem_operand (rtx, int, bool);
 extern int mve_vector_mem_operand (machine_mode, rtx, bool);
 extern int neon_struct_mem_operand (rtx);
+extern int mve_struct_mem_operand (rtx);
 
 extern rtx *neon_vcmla_lane_prepare_operands (rtx *);
 
@@ -379,6 +381,7 @@ extern int vfp3_const_double_for_bits (rtx);
 extern void arm_emit_coreregs_64bit_shift (enum rtx_code, rtx, rtx, rtx, rtx,
 					   rtx);
 extern bool arm_fusion_enabled_p (tune_params::fuse_ops);
+extern bool arm_current_function_pac_enabled_p (void);
 extern bool arm_valid_symbolic_address_p (rtx);
 extern bool arm_validize_comparison (rtx *, rtx *, rtx *);
 extern bool arm_expand_vector_compare (rtx, rtx_code, rtx, rtx, bool);
@@ -402,10 +405,6 @@ extern const char *arm_rewrite_selected_cpu (const char *name);
 extern void arm_lang_object_attributes_init (void);
 extern void arm_register_target_pragmas (void);
 extern void arm_cpu_cpp_builtins (struct cpp_reader *);
-
-/* Defined in arm-d.cc  */
-extern void arm_d_target_versions (void);
-extern void arm_d_register_target_info (void);
 
 extern bool arm_is_constant_pool_ref (rtx);
 
@@ -585,6 +584,7 @@ struct cpu_option
 
 extern const arch_option all_architectures[];
 extern const cpu_option all_cores[];
+
 
 const cpu_option *arm_parse_cpu_option_name (const cpu_option *, const char *,
 					     const char *, bool = true);

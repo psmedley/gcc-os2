@@ -1,5 +1,5 @@
 /* RTL simplification functions for GNU compiler.
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -414,7 +414,7 @@ simplify_replace_fn_rtx (rtx x, const_rtx old_rtx,
   rtvec vec, newvec;
   int i, j;
 
-  if (__builtin_expect (fn != NULL, 0))
+  if (UNLIKELY (fn != NULL))
     {
       newx = fn (x, old_rtx, data);
       if (newx)
@@ -1366,10 +1366,34 @@ simplify_context::simplify_unary_operation_1 (rtx_code code, machine_mode mode,
 	break;
 
       /* If operand is something known to be positive, ignore the ABS.  */
-      if (GET_CODE (op) == FFS || GET_CODE (op) == ABS
-	  || val_signbit_known_clear_p (GET_MODE (op),
-					nonzero_bits (op, GET_MODE (op))))
+      if (val_signbit_known_clear_p (GET_MODE (op),
+				     nonzero_bits (op, GET_MODE (op))))
 	return op;
+
+      /* Using nonzero_bits doesn't (currently) work for modes wider than
+	 HOST_WIDE_INT, so the following transformations help simplify
+	 ABS for TImode and wider.  */
+      switch (GET_CODE (op))
+	{
+	case ABS:
+	case CLRSB:
+	case FFS:
+	case PARITY:
+	case POPCOUNT:
+	case SS_ABS:
+	  return op;
+
+	case LSHIFTRT:
+	  if (CONST_INT_P (XEXP (op, 1))
+	      && INTVAL (XEXP (op, 1)) > 0
+	      && is_a <scalar_int_mode> (mode, &int_mode)
+	      && INTVAL (XEXP (op, 1)) < GET_MODE_PRECISION (int_mode))
+	    return op;
+	  break;
+
+	default:
+	  break;
+	}
 
       /* If operand is known to be only -1 or 0, convert ABS to NEG.  */
       if (is_a <scalar_int_mode> (mode, &int_mode)
@@ -1380,21 +1404,31 @@ simplify_context::simplify_unary_operation_1 (rtx_code code, machine_mode mode,
       break;
 
     case FFS:
-      /* (ffs (*_extend <X>)) = (ffs <X>) */
+      /* (ffs (*_extend <X>)) = (*_extend (ffs <X>)).  */
       if (GET_CODE (op) == SIGN_EXTEND
 	  || GET_CODE (op) == ZERO_EXTEND)
-	return simplify_gen_unary (FFS, mode, XEXP (op, 0),
-				   GET_MODE (XEXP (op, 0)));
+	{
+	  temp = simplify_gen_unary (FFS, GET_MODE (XEXP (op, 0)),
+				     XEXP (op, 0), GET_MODE (XEXP (op, 0)));
+	  return simplify_gen_unary (GET_CODE (op), mode, temp,
+				     GET_MODE (temp));
+	}
       break;
 
     case POPCOUNT:
       switch (GET_CODE (op))
 	{
 	case BSWAP:
-	case ZERO_EXTEND:
-	  /* (popcount (zero_extend <X>)) = (popcount <X>) */
+	  /* (popcount (bswap <X>)) = (popcount <X>).  */
 	  return simplify_gen_unary (POPCOUNT, mode, XEXP (op, 0),
 				     GET_MODE (XEXP (op, 0)));
+
+	case ZERO_EXTEND:
+	  /* (popcount (zero_extend <X>)) = (zero_extend (popcount <X>)).  */
+	  temp = simplify_gen_unary (POPCOUNT, GET_MODE (XEXP (op, 0)),
+				     XEXP (op, 0), GET_MODE (XEXP (op, 0)));
+	  return simplify_gen_unary (ZERO_EXTEND, mode, temp,
+				     GET_MODE (temp));
 
 	case ROTATE:
 	case ROTATERT:
@@ -1414,10 +1448,15 @@ simplify_context::simplify_unary_operation_1 (rtx_code code, machine_mode mode,
 	{
 	case NOT:
 	case BSWAP:
-	case ZERO_EXTEND:
-	case SIGN_EXTEND:
 	  return simplify_gen_unary (PARITY, mode, XEXP (op, 0),
 				     GET_MODE (XEXP (op, 0)));
+
+	case ZERO_EXTEND:
+	case SIGN_EXTEND:
+	  temp = simplify_gen_unary (PARITY, GET_MODE (XEXP (op, 0)),
+				     XEXP (op, 0), GET_MODE (XEXP (op, 0)));
+	  return simplify_gen_unary (GET_CODE (op), mode, temp,
+				     GET_MODE (temp));
 
 	case ROTATE:
 	case ROTATERT:
@@ -1615,6 +1654,24 @@ simplify_context::simplify_unary_operation_1 (rtx_code code, machine_mode mode,
 	    }
 	}
 
+      /* We can canonicalize SIGN_EXTEND (op) as ZERO_EXTEND (op) when
+         we know the sign bit of OP must be clear.  */
+      if (val_signbit_known_clear_p (GET_MODE (op),
+				     nonzero_bits (op, GET_MODE (op))))
+	return simplify_gen_unary (ZERO_EXTEND, mode, op, GET_MODE (op));
+
+      /* (sign_extend:DI (subreg:SI (ctz:DI ...))) is (ctz:DI ...).  */
+      if (GET_CODE (op) == SUBREG
+	  && subreg_lowpart_p (op)
+	  && GET_MODE (SUBREG_REG (op)) == mode
+	  && is_a <scalar_int_mode> (mode, &int_mode)
+	  && is_a <scalar_int_mode> (GET_MODE (op), &op_mode)
+	  && GET_MODE_PRECISION (int_mode) <= HOST_BITS_PER_WIDE_INT
+	  && GET_MODE_PRECISION (op_mode) < GET_MODE_PRECISION (int_mode)
+	  && (nonzero_bits (SUBREG_REG (op), mode)
+	      & ~(GET_MODE_MASK (op_mode) >> 1)) == 0)
+	return SUBREG_REG (op);
+
 #if defined(POINTERS_EXTEND_UNSIGNED)
       /* As we do not know which address space the pointer is referring to,
 	 we can do this only if the target does not support different pointer
@@ -1764,6 +1821,18 @@ simplify_context::simplify_unary_operation_1 (rtx_code code, machine_mode mode,
 	  return simplify_gen_unary (ZERO_EXTEND, int_mode, SUBREG_REG (op),
 				     op0_mode);
 	}
+
+      /* (zero_extend:DI (subreg:SI (ctz:DI ...))) is (ctz:DI ...).  */
+      if (GET_CODE (op) == SUBREG
+	  && subreg_lowpart_p (op)
+	  && GET_MODE (SUBREG_REG (op)) == mode
+	  && is_a <scalar_int_mode> (mode, &int_mode)
+	  && is_a <scalar_int_mode> (GET_MODE (op), &op_mode)
+	  && GET_MODE_PRECISION (int_mode) <= HOST_BITS_PER_WIDE_INT
+	  && GET_MODE_PRECISION (op_mode) < GET_MODE_PRECISION (int_mode)
+	  && (nonzero_bits (SUBREG_REG (op), mode)
+	      & ~GET_MODE_MASK (op_mode)) == 0)
+	return SUBREG_REG (op);
 
 #if defined(POINTERS_EXTEND_UNSIGNED)
       /* As we do not know which address space the pointer is referring to,
@@ -3683,7 +3752,13 @@ simplify_context::simplify_binary_operation_1 (rtx_code code,
 	return op0;
       if (HWI_COMPUTABLE_MODE_P (mode))
 	{
-	  HOST_WIDE_INT nzop0 = nonzero_bits (trueop0, mode);
+	  /* When WORD_REGISTER_OPERATIONS is true, we need to know the
+	     nonzero bits in WORD_MODE rather than MODE.  */
+	  scalar_int_mode tmode = as_a <scalar_int_mode> (mode);
+	  if (WORD_REGISTER_OPERATIONS
+	      && GET_MODE_BITSIZE (tmode) < BITS_PER_WORD)
+	    tmode = word_mode;
+	  HOST_WIDE_INT nzop0 = nonzero_bits (trueop0, tmode);
 	  HOST_WIDE_INT nzop1;
 	  if (CONST_INT_P (trueop1))
 	    {
@@ -7598,6 +7673,22 @@ simplify_context::simplify_subreg (machine_mode outermode, rtx op,
 	}
     }
 
+  /* If the outer mode is not integral, try taking a subreg with the equivalent
+     integer outer mode and then bitcasting the result.
+     Other simplifications rely on integer to integer subregs and we'd
+     potentially miss out on optimizations otherwise.  */
+  if (known_gt (GET_MODE_SIZE (innermode),
+		GET_MODE_SIZE (outermode))
+      && SCALAR_INT_MODE_P (innermode)
+      && !SCALAR_INT_MODE_P (outermode)
+      && int_mode_for_size (GET_MODE_BITSIZE (outermode),
+			    0).exists (&int_outermode))
+    {
+      rtx tem = simplify_subreg (int_outermode, op, innermode, byte);
+      if (tem)
+	return simplify_gen_subreg (outermode, tem, int_outermode, byte);
+    }
+
   /* If OP is a vector comparison and the subreg is not changing the
      number of elements or the size of the elements, change the result
      of the comparison to the new mode.  */
@@ -8380,7 +8471,7 @@ test_vector_subregs_fore_back (machine_mode inner_mode)
   for (unsigned int i = 0; i < count; ++i)
     builder.quick_push (gen_int_mode (i, int_mode));
   for (unsigned int i = 0; i < count; ++i)
-    builder.quick_push (gen_int_mode (-(int) i, int_mode));
+    builder.quick_push (gen_int_mode (-1 - (int) i, int_mode));
   rtx x = builder.build ();
 
   test_vector_subregs_modes (x);

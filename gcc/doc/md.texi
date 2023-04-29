@@ -1,4 +1,4 @@
-@c Copyright (C) 1988-2022 Free Software Foundation, Inc.
+@c Copyright (C) 1988-2023 Free Software Foundation, Inc.
 @c This is part of the GCC manual.
 @c For copying conditions, see the file gcc.texi.
 
@@ -156,9 +156,9 @@ operands of the instruction.
 If the vector has multiple elements, the RTL template is treated as a
 @code{parallel} expression.
 
-@item
 @cindex pattern conditions
 @cindex conditions, in patterns
+@item
 The condition: This is a string which contains a C expression.  When the
 compiler attempts to match RTL against a pattern, the condition is
 evaluated.  If the condition evaluates to @code{true}, the match is
@@ -377,7 +377,7 @@ commutative arithmetic operators of RTL and whose mode is @var{mode}:
 
 @smallexample
 int
-commutative_integer_operator (x, mode)
+commutative_operator (x, mode)
      rtx x;
      machine_mode mode;
 @{
@@ -1511,7 +1511,7 @@ operand 1 (meaning it must match operand 0), and @samp{dKs} for operand
 2.  The second alternative has @samp{d} (data register) for operand 0,
 @samp{0} for operand 1, and @samp{dmKs} for operand 2.  The @samp{=} and
 @samp{%} in the constraints apply to all the alternatives; their
-meaning is explained in the next section (@pxref{Class Preferences}).
+meaning is explained in a later section (@pxref{Modifiers}).
 
 If all the operands fit any one alternative, the instruction is valid.
 Otherwise, for each alternative, the compiler counts how many instructions
@@ -2193,43 +2193,8 @@ An integer constant with exactly a single bit set.
 An integer constant with all bits set except exactly one.
 
 @item H
-
-@item Q
+@itemx Q
 Any SYMBOL_REF.
-@end table
-
-@item CR16 Architecture---@file{config/cr16/cr16.h}
-@table @code
-
-@item b
-Registers from r0 to r14 (registers without stack pointer)
-
-@item t
-Register from r0 to r11 (all 16-bit registers)
-
-@item p
-Register from r12 to r15 (all 32-bit registers)
-
-@item I
-Signed constant that fits in 4 bits
-
-@item J
-Signed constant that fits in 5 bits
-
-@item K
-Signed constant that fits in 6 bits
-
-@item L
-Unsigned constant that fits in 4 bits
-
-@item M
-Signed constant that fits in 32 bits
-
-@item N
-Check for 64 bits wide constants for add/sub instructions
-
-@item G
-Floating point constant that is legal for store immediate
 @end table
 
 @item C-SKY---@file{config/csky/constraints.md}
@@ -2316,7 +2281,7 @@ This constraint won't match unless @option{-mprefer-short-insn-regs} is
 in effect.
 
 @item Rsc
-The the register class of registers that can be used to hold a
+The register class of registers that can be used to hold a
 sibcall call address.  I.e., a caller-saved register.
 
 @item Rct
@@ -3301,9 +3266,6 @@ Like @code{b}, if @option{-mpowerpc64} is used; otherwise, @code{NO_REGS}.
 @item wB
 Signed 5-bit constant integer that can be loaded into an Altivec register.
 
-@item wD
-Int constant that is the element number of the 64-bit scalar in a vector.
-
 @item wE
 Vector constant that can be loaded with the XXSPLTIB instruction.
 
@@ -3856,154 +3818,6 @@ A memory operand with an address that cannot be used in an unaligned access.
 @end ifset
 @item Z
 Register B14 (aka DP).
-
-@end table
-
-@item TILE-Gx---@file{config/tilegx/constraints.md}
-@table @code
-@item R00
-@itemx R01
-@itemx R02
-@itemx R03
-@itemx R04
-@itemx R05
-@itemx R06
-@itemx R07
-@itemx R08
-@itemx R09
-@itemx R10
-Each of these represents a register constraint for an individual
-register, from r0 to r10.
-
-@item I
-Signed 8-bit integer constant.
-
-@item J
-Signed 16-bit integer constant.
-
-@item K
-Unsigned 16-bit integer constant.
-
-@item L
-Integer constant that fits in one signed byte when incremented by one
-(@minus{}129 @dots{} 126).
-
-@item m
-Memory operand.  If used together with @samp{<} or @samp{>}, the
-operand can have postincrement which requires printing with @samp{%In}
-and @samp{%in} on TILE-Gx.  For example:
-
-@smallexample
-asm ("st_add %I0,%1,%i0" : "=m<>" (*mem) : "r" (val));
-@end smallexample
-
-@item M
-A bit mask suitable for the BFINS instruction.
-
-@item N
-Integer constant that is a byte tiled out eight times.
-
-@item O
-The integer zero constant.
-
-@item P
-Integer constant that is a sign-extended byte tiled out as four shorts.
-
-@item Q
-Integer constant that fits in one signed byte when incremented
-(@minus{}129 @dots{} 126), but excluding -1.
-
-@item S
-Integer constant that has all 1 bits consecutive and starting at bit 0.
-
-@item T
-A 16-bit fragment of a got, tls, or pc-relative reference.
-
-@item U
-Memory operand except postincrement.  This is roughly the same as
-@samp{m} when not used together with @samp{<} or @samp{>}.
-
-@item W
-An 8-element vector constant with identical elements.
-
-@item Y
-A 4-element vector constant with identical elements.
-
-@item Z0
-The integer constant 0xffffffff.
-
-@item Z1
-The integer constant 0xffffffff00000000.
-
-@end table
-
-@item TILEPro---@file{config/tilepro/constraints.md}
-@table @code
-@item R00
-@itemx R01
-@itemx R02
-@itemx R03
-@itemx R04
-@itemx R05
-@itemx R06
-@itemx R07
-@itemx R08
-@itemx R09
-@itemx R10
-Each of these represents a register constraint for an individual
-register, from r0 to r10.
-
-@item I
-Signed 8-bit integer constant.
-
-@item J
-Signed 16-bit integer constant.
-
-@item K
-Nonzero integer constant with low 16 bits zero.
-
-@item L
-Integer constant that fits in one signed byte when incremented by one
-(@minus{}129 @dots{} 126).
-
-@item m
-Memory operand.  If used together with @samp{<} or @samp{>}, the
-operand can have postincrement which requires printing with @samp{%In}
-and @samp{%in} on TILEPro.  For example:
-
-@smallexample
-asm ("swadd %I0,%1,%i0" : "=m<>" (mem) : "r" (val));
-@end smallexample
-
-@item M
-A bit mask suitable for the MM instruction.
-
-@item N
-Integer constant that is a byte tiled out four times.
-
-@item O
-The integer zero constant.
-
-@item P
-Integer constant that is a sign-extended byte tiled out as two shorts.
-
-@item Q
-Integer constant that fits in one signed byte when incremented
-(@minus{}129 @dots{} 126), but excluding -1.
-
-@item T
-A symbolic operand, or a 16-bit fragment of a got, tls, or pc-relative
-reference.
-
-@item U
-Memory operand except postincrement.  This is roughly the same as
-@samp{m} when not used together with @samp{<} or @samp{>}.
-
-@item W
-A 4-element vector constant with identical elements.
-
-@item Y
-A 2-element vector constant with identical elements.
 
 @end table
 
@@ -5132,13 +4946,22 @@ This pattern is not allowed to @code{FAIL}.
 @cindex @code{while_ult@var{m}@var{n}} instruction pattern
 @item @code{while_ult@var{m}@var{n}}
 Set operand 0 to a mask that is true while incrementing operand 1
-gives a value that is less than operand 2.  Operand 0 has mode @var{n}
-and operands 1 and 2 are scalar integers of mode @var{m}.
-The operation is equivalent to:
+gives a value that is less than operand 2, for a vector length up to operand 3.
+Operand 0 has mode @var{n} and operands 1 and 2 are scalar integers of mode
+@var{m}.  Operand 3 should be omitted when @var{n} is a vector mode, and
+a @code{CONST_INT} otherwise.  The operation for vector modes is equivalent to:
 
 @smallexample
 operand0[0] = operand1 < operand2;
 for (i = 1; i < GET_MODE_NUNITS (@var{n}); i++)
+  operand0[i] = operand0[i - 1] && (operand1 + i < operand2);
+@end smallexample
+
+And for non-vector modes the operation is equivalent to:
+
+@smallexample
+operand0[0] = operand1 < operand2;
+for (i = 1; i < operand3; i++)
   operand0[i] = operand0[i - 1] && (operand1 + i < operand2);
 @end smallexample
 
@@ -5467,10 +5290,10 @@ operand 0 is the scalar result, with mode equal to the mode of the elements of
 the input vector.
 
 @cindex @code{reduc_and_scal_@var{m}} instruction pattern
-@item @samp{reduc_and_scal_@var{m}}
 @cindex @code{reduc_ior_scal_@var{m}} instruction pattern
-@itemx @samp{reduc_ior_scal_@var{m}}
 @cindex @code{reduc_xor_scal_@var{m}} instruction pattern
+@item @samp{reduc_and_scal_@var{m}}
+@itemx @samp{reduc_ior_scal_@var{m}}
 @itemx @samp{reduc_xor_scal_@var{m}}
 Compute the bitwise @code{AND}/@code{IOR}/@code{XOR} reduction of the elements
 of a vector of mode @var{m}.  Operand 1 is the vector input and operand 0
@@ -5558,8 +5381,8 @@ usdot<signed op0, unsigned op1, signed op2, signed op3> ==
 @end smallexample
 
 @cindex @code{ssad@var{m}} instruction pattern
-@item @samp{ssad@var{m}}
 @cindex @code{usad@var{m}} instruction pattern
+@item @samp{ssad@var{m}}
 @item @samp{usad@var{m}}
 Compute the sum of absolute differences of two signed/unsigned elements.
 Operand 1 and operand 2 are of the same mode. Their absolute difference, which
@@ -5568,8 +5391,8 @@ equal or wider than the mode of the absolute difference. The result is placed
 in operand 0, which is of the same mode as operand 3.
 
 @cindex @code{widen_ssum@var{m3}} instruction pattern
-@item @samp{widen_ssum@var{m3}}
 @cindex @code{widen_usum@var{m3}} instruction pattern
+@item @samp{widen_ssum@var{m3}}
 @itemx @samp{widen_usum@var{m3}}
 Operands 0 and 2 are of the same mode, which is wider than the mode of
 operand 1. Add operand 1 to operand 2 and place the widened result in
@@ -5577,8 +5400,8 @@ operand 0. (This is used express accumulation of elements into an accumulator
 of a wider mode.)
 
 @cindex @code{smulhs@var{m3}} instruction pattern
-@item @samp{smulhs@var{m3}}
 @cindex @code{umulhs@var{m3}} instruction pattern
+@item @samp{smulhs@var{m3}}
 @itemx @samp{umulhs@var{m3}}
 Signed/unsigned multiply high with scale. This is equivalent to the C code:
 @smallexample
@@ -5590,8 +5413,8 @@ where the sign of @samp{narrow} determines whether this is a signed
 or unsigned operation, and @var{N} is the size of @samp{wide} in bits.
 
 @cindex @code{smulhrs@var{m3}} instruction pattern
-@item @samp{smulhrs@var{m3}}
 @cindex @code{umulhrs@var{m3}} instruction pattern
+@item @samp{smulhrs@var{m3}}
 @itemx @samp{umulhrs@var{m3}}
 Signed/unsigned multiply high with round and scale. This is
 equivalent to the C code:
@@ -5604,8 +5427,8 @@ where the sign of @samp{narrow} determines whether this is a signed
 or unsigned operation, and @var{N} is the size of @samp{wide} in bits.
 
 @cindex @code{sdiv_pow2@var{m3}} instruction pattern
-@item @samp{sdiv_pow2@var{m3}}
 @cindex @code{sdiv_pow2@var{m3}} instruction pattern
+@item @samp{sdiv_pow2@var{m3}}
 @itemx @samp{sdiv_pow2@var{m3}}
 Signed division by power-of-2 immediate. Equivalent to:
 @smallexample
@@ -6207,6 +6030,17 @@ floating-point mode.
 
 This pattern is not allowed to @code{FAIL}.
 
+@cindex @code{signbit@var{m}2} instruction pattern
+@item @samp{signbit@var{m}2}
+Store the sign bit of floating-point operand 1 in operand 0.
+@var{m} is either a scalar or vector mode.  When it is a scalar,
+operand 1 has mode @var{m} but operand 0 must have mode @code{SImode}.
+When @var{m} is a vector, operand 1 has the mode @var{m}.
+operand 0's mode should be an vector integer mode which has
+the same number of elements and the same size as mode @var{m}.
+
+This pattern is not allowed to @code{FAIL}.
+
 @cindex @code{significand@var{m}2} instruction pattern
 @item @samp{significand@var{m}2}
 Store the significand of floating-point operand 1 in operand 0.
@@ -6331,6 +6165,10 @@ All operands have mode @var{m}, which is a scalar or vector
 floating-point mode.
 
 This pattern is not allowed to @code{FAIL}.
+
+@cindex @code{issignaling@var{m}2} instruction pattern
+@item @samp{issignaling@var{m}2}
+Set operand 0 to 1 if operand 1 is a signaling NaN and to 0 otherwise.
 
 @cindex @code{cadd90@var{m}3} instruction pattern
 @item @samp{cadd90@var{m}3}
@@ -7135,6 +6973,13 @@ to convert a positive result from @code{STORE_FLAG_VALUE} to 1; in this
 case, you can and should make operand 1's predicate reject some operators
 in the @samp{cstore@var{mode}4} pattern, or remove the pattern altogether
 from the machine description.
+
+@cindex @code{tbranch_@var{op}@var{mode}3} instruction pattern
+@item @samp{tbranch_@var{op}@var{mode}3}
+Conditional branch instruction combined with a bit test-and-compare
+instruction. Operand 0 is the operand of the comparison.  Operand 1 is the bit
+position of Operand 1 to test.  Operand 3 is the @code{code_label} to jump to.
+@var{op} is one of @var{eq} or @var{ne}.
 
 @cindex @code{cbranch@var{mode}4} instruction pattern
 @item @samp{cbranch@var{mode}4}
@@ -8378,12 +8223,12 @@ can itself be a @code{plus}.  @code{and}, @code{ior}, @code{xor},
 @code{umax} are associative when applied to integers, and sometimes to
 floating-point.
 
-@item
 @cindex @code{neg}, canonicalization of
 @cindex @code{not}, canonicalization of
 @cindex @code{mult}, canonicalization of
 @cindex @code{plus}, canonicalization of
 @cindex @code{minus}, canonicalization of
+@item
 For these operators, if only one operand is a @code{neg}, @code{not},
 @code{mult}, @code{plus}, or @code{minus} expression, it will be the
 first operand.
@@ -8922,21 +8767,21 @@ insns that don't.  Instead, write two separate @code{define_split}
 definitions, one for the insns that are valid and one for the insns that
 are not valid.
 
-The splitter is allowed to split jump instructions into sequence of
-jumps or create new jumps in while splitting non-jump instructions.  As
-the control flow graph and branch prediction information needs to be updated,
-several restriction apply.
+The splitter is allowed to split jump instructions into a sequence of jumps or
+create new jumps while splitting non-jump instructions.  As the control flow
+graph and branch prediction information needs to be updated after the splitter
+runs, several restrictions apply.
 
-Splitting of jump instruction into sequence that over by another jump
-instruction is always valid, as compiler expect identical behavior of new
-jump.  When new sequence contains multiple jump instructions or new labels,
-more assistance is needed.  Splitter is required to create only unconditional
-jumps, or simple conditional jump instructions.  Additionally it must attach a
-@code{REG_BR_PROB} note to each conditional jump.  A global variable
-@code{split_branch_probability} holds the probability of the original branch in case
-it was a simple conditional jump, @minus{}1 otherwise.  To simplify
-recomputing of edge frequencies, the new sequence is required to have only
-forward jumps to the newly created labels.
+Splitting of a jump instruction into a sequence that has another jump
+instruction to the same label is always valid, as the compiler expects
+identical behavior of the new jump.  When the new sequence contains multiple
+jump instructions or new labels, more assistance is needed.  The splitter is
+permitted to create only unconditional jumps, or simple conditional jump
+instructions.  Additionally it must attach a @code{REG_BR_PROB} note to each
+conditional jump.  A global variable @code{split_branch_probability} holds the
+probability of the original branch in case it was a simple conditional jump,
+@minus{}1 otherwise.  To simplify recomputing of edge frequencies, the new
+sequence is permitted to have only forward jumps to the newly-created labels.
 
 @findex define_insn_and_split
 For the common case where the pattern of a define_split exactly matches the
@@ -9118,8 +8963,7 @@ It looks like:
 
 @smallexample
 
-(include
-  @var{pathname})
+(include @var{pathname})
 @end smallexample
 
 For example:
@@ -9486,6 +9330,11 @@ so here's a silly made-up example:
   "")
 @end smallexample
 
+@noindent
+If we had not added the @code{(match_dup 4)} in the middle of the input
+sequence, it might have been the case that the register we chose at the
+beginning of the sequence is killed by the first or second @code{set}.
+
 There are two special macros defined for use in the preparation statements:
 @code{DONE} and @code{FAIL}.  Use them with a following semicolon,
 as a statement.
@@ -9512,11 +9361,6 @@ prevents the input insn from being split at all.)
 If the preparation falls through (invokes neither @code{DONE} nor
 @code{FAIL}), then the @code{define_peephole2} uses the replacement
 template.
-
-@noindent
-If we had not added the @code{(match_dup 4)} in the middle of the input
-sequence, it might have been the case that the register we chose at the
-beginning of the sequence is killed by the first or second @code{set}.
 
 @end ifset
 @ifset INTERNALS
@@ -11253,8 +11097,8 @@ values in @file{sync.md} rather than in the main @file{.md} file.
 Some enumeration names have special significance to GCC:
 
 @table @code
-@item unspecv
 @findex unspec_volatile
+@item unspecv
 If an enumeration called @code{unspecv} is defined, GCC will use it
 when printing out @code{unspec_volatile} expressions.  For example:
 
@@ -11270,8 +11114,8 @@ causes GCC to print @samp{(unspec_volatile @dots{} 0)} as:
 (unspec_volatile ... UNSPECV_BLOCKAGE)
 @end smallexample
 
-@item unspec
 @findex unspec
+@item unspec
 If an enumeration called @code{unspec} is defined, GCC will use
 it when printing out @code{unspec} expressions.  GCC will also use
 it when printing out @code{unspec_volatile} expressions unless an
@@ -11510,7 +11354,7 @@ This is exactly equivalent to:
   [(set (match_operand:DI 0 "register_operand" "=d")
         (minus:DI (match_operand:DI 1 "register_operand" "d")
                   (match_operand:DI 2 "register_operand" "d")))]
-  ""
+  "TARGET_64BIT"
   "dsubu\t%0,%1,%2"
   [(set_attr "type" "arith")
    (set_attr "mode" "DI")])

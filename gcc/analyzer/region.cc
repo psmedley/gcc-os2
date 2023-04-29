@@ -1,5 +1,5 @@
 /* Regions of memory.
-   Copyright (C) 2019-2022 Free Software Foundation, Inc.
+   Copyright (C) 2019-2023 Free Software Foundation, Inc.
    Contributed by David Malcolm <dmalcolm@redhat.com>.
 
 This file is part of GCC.
@@ -19,6 +19,7 @@ along with GCC; see the file COPYING3.  If not see
 <http://www.gnu.org/licenses/>.  */
 
 #include "config.h"
+#define INCLUDE_MEMORY
 #include "system.h"
 #include "coretypes.h"
 #include "tree.h"
@@ -40,11 +41,7 @@ along with GCC; see the file COPYING3.  If not see
 #include "tree-pretty-print.h"
 #include "diagnostic-color.h"
 #include "diagnostic-metadata.h"
-#include "tristate.h"
 #include "bitmap.h"
-#include "selftest.h"
-#include "function.h"
-#include "json.h"
 #include "analyzer/analyzer.h"
 #include "analyzer/analyzer-logging.h"
 #include "ordered-hash-map.h"
@@ -290,10 +287,10 @@ region::maybe_get_decl () const
    first call and caching it internally).  */
 
 region_offset
-region::get_offset () const
+region::get_offset (region_model_manager *mgr) const
 {
   if(!m_cached_offset)
-    m_cached_offset = new region_offset (calc_offset ());
+    m_cached_offset = new region_offset (calc_offset (mgr));
   return *m_cached_offset;
 }
 
@@ -491,10 +488,11 @@ region::get_subregions_for_binding (region_model_manager *mgr,
    or a symbolic offset.  */
 
 region_offset
-region::calc_offset () const
+region::calc_offset (region_model_manager *mgr) const
 {
   const region *iter_region = this;
   bit_offset_t accum_bit_offset = 0;
+  const svalue *accum_byte_sval = NULL;
 
   while (iter_region)
     {
@@ -504,16 +502,36 @@ region::calc_offset () const
 	case RK_ELEMENT:
 	case RK_OFFSET:
 	case RK_BIT_RANGE:
-	  {
-	    bit_offset_t rel_bit_offset;
-	    if (!iter_region->get_relative_concrete_offset (&rel_bit_offset))
-	      return region_offset::make_symbolic
-		(iter_region->get_parent_region ());
-	    accum_bit_offset += rel_bit_offset;
-	    iter_region = iter_region->get_parent_region ();
-	  }
+	  if (accum_byte_sval)
+	    {
+	      const svalue *sval
+		= iter_region->get_relative_symbolic_offset (mgr);
+	      accum_byte_sval
+		= mgr->get_or_create_binop (sval->get_type (), PLUS_EXPR,
+					    accum_byte_sval, sval);
+	      iter_region = iter_region->get_parent_region ();
+	    }
+	  else
+	    {
+	      bit_offset_t rel_bit_offset;
+	      if (iter_region->get_relative_concrete_offset (&rel_bit_offset))
+		{
+		  accum_bit_offset += rel_bit_offset;
+		  iter_region = iter_region->get_parent_region ();
+		}
+	      else
+		{
+		  /* If the iter_region is not concrete anymore, convert the
+		     accumulated bits to a svalue in bytes and revisit the
+		     iter_region collecting the symbolic value.  */
+		  byte_offset_t byte_offset = accum_bit_offset / BITS_PER_UNIT;
+		  tree offset_tree = wide_int_to_tree (integer_type_node,
+						       byte_offset);
+		  accum_byte_sval
+		    = mgr->get_or_create_constant_svalue (offset_tree);
+		}
+	    }
 	  continue;
-
 	case RK_SIZED:
 	  iter_region = iter_region->get_parent_region ();
 	  continue;
@@ -527,10 +545,18 @@ region::calc_offset () const
 	  continue;
 
 	default:
-	  return region_offset::make_concrete (iter_region, accum_bit_offset);
+	  return accum_byte_sval
+		  ? region_offset::make_symbolic (iter_region,
+						  accum_byte_sval)
+		  : region_offset::make_concrete (iter_region,
+						  accum_bit_offset);
 	}
     }
-  return region_offset::make_concrete (iter_region, accum_bit_offset);
+
+  return accum_byte_sval ? region_offset::make_symbolic (iter_region,
+							 accum_byte_sval)
+			 : region_offset::make_concrete (iter_region,
+							 accum_bit_offset);
 }
 
 /* Base implementation of region::get_relative_concrete_offset vfunc.  */
@@ -539,6 +565,14 @@ bool
 region::get_relative_concrete_offset (bit_offset_t *) const
 {
   return false;
+}
+
+/* Base implementation of region::get_relative_symbolic_offset vfunc.  */
+
+const svalue *
+region::get_relative_symbolic_offset (region_model_manager *mgr) const
+{
+  return mgr->get_or_create_unknown_svalue (integer_type_node);
 }
 
 /* Attempt to get the position and size of this region expressed as a
@@ -589,8 +623,7 @@ json::value *
 region::to_json () const
 {
   label_text desc = get_desc (true);
-  json::value *reg_js = new json::string (desc.m_buffer);
-  desc.maybe_free ();
+  json::value *reg_js = new json::string (desc.get ());
   return reg_js;
 }
 
@@ -626,6 +659,26 @@ region::symbolic_for_unknown_ptr_p () const
 {
   if (const symbolic_region *sym_reg = dyn_cast_symbolic_region ())
     if (sym_reg->get_pointer ()->get_kind () == SK_UNKNOWN)
+      return true;
+  return false;
+}
+
+/* Return true if this is a symbolic region.  */
+
+bool
+region::symbolic_p () const
+{
+  return get_kind () == RK_SYMBOLIC;
+}
+
+/* Return true if this region is known to be zero bits in size.  */
+
+bool
+region::empty_p () const
+{
+  bit_size_t num_bits;
+  if (get_bit_size (&num_bits))
+    if (num_bits == 0)
       return true;
   return false;
 }
@@ -1009,6 +1062,17 @@ root_region::dump_to_pp (pretty_printer *pp, bool simple) const
     pp_string (pp, "root_region()");
 }
 
+/* class thread_local_region : public space_region.  */
+
+void
+thread_local_region::dump_to_pp (pretty_printer *pp, bool simple) const
+{
+  if (simple)
+    pp_string (pp, "thread_local_region");
+  else
+    pp_string (pp, "thread_local_region()");
+}
+
 /* class symbolic_region : public map_region.  */
 
 /* symbolic_region's ctor.  */
@@ -1144,6 +1208,9 @@ decl_region::get_svalue_for_initializer (region_model_manager *mgr) const
       if (DECL_EXTERNAL (m_decl))
 	return NULL;
 
+      if (empty_p ())
+	return NULL;
+
       /* Implicit initialization to zero; use a compound_svalue for it.
 	 Doing so requires that we have a concrete binding for this region,
 	 which can fail if we have a region with unknown size
@@ -1151,6 +1218,11 @@ decl_region::get_svalue_for_initializer (region_model_manager *mgr) const
       const binding_key *binding
 	= binding_key::make (mgr->get_store_manager (), this);
       if (binding->symbolic_p ())
+	return NULL;
+
+      /* If we don't care about tracking the content of this region, then
+	 it's unused, and the value doesn't matter.  */
+      if (!tracked_p ())
 	return NULL;
 
       binding_cluster c (this);
@@ -1304,6 +1376,25 @@ field_region::get_relative_concrete_offset (bit_offset_t *out) const
   return true;
 }
 
+
+/* Implementation of region::get_relative_symbolic_offset vfunc
+   for field_region.
+   If known, the returned svalue is equal to the offset converted to bytes and
+   rounded off.  */
+
+const svalue *
+field_region::get_relative_symbolic_offset (region_model_manager *mgr) const
+{
+  bit_offset_t out;
+  if (get_relative_concrete_offset (&out))
+    {
+      tree cst_tree
+	= wide_int_to_tree (integer_type_node, out / BITS_PER_UNIT);
+      return mgr->get_or_create_constant_svalue (cst_tree);
+    }
+  return mgr->get_or_create_unknown_svalue (integer_type_node);
+}
+
 /* class element_region : public region.  */
 
 /* Implementation of region::accept vfunc for element_region.  */
@@ -1370,6 +1461,29 @@ element_region::get_relative_concrete_offset (bit_offset_t *out) const
   return false;
 }
 
+/* Implementation of region::get_relative_symbolic_offset vfunc
+   for element_region.  */
+
+const svalue *
+element_region::get_relative_symbolic_offset (region_model_manager *mgr) const
+{
+  tree elem_type = get_type ();
+
+  /* First, use int_size_in_bytes, to reject the case where we
+     have an incomplete type, or a non-constant value.  */
+  HOST_WIDE_INT hwi_byte_size = int_size_in_bytes (elem_type);
+  if (hwi_byte_size > 0)
+	  {
+      tree byte_size_tree = wide_int_to_tree (integer_type_node,
+					      hwi_byte_size);
+      const svalue *byte_size_sval
+	= mgr->get_or_create_constant_svalue (byte_size_tree);
+      return mgr->get_or_create_binop (integer_type_node, MULT_EXPR,
+				       m_index, byte_size_sval);
+    }
+  return mgr->get_or_create_unknown_svalue (integer_type_node);
+}
+
 /* class offset_region : public region.  */
 
 /* Implementation of region::accept vfunc for offset_region.  */
@@ -1424,6 +1538,40 @@ offset_region::get_relative_concrete_offset (bit_offset_t *out) const
       return true;
     }
   return false;
+}
+
+/* Implementation of region::get_relative_symbolic_offset vfunc
+   for offset_region.  */
+
+const svalue *
+offset_region::get_relative_symbolic_offset (region_model_manager *mgr
+					      ATTRIBUTE_UNUSED) const
+{
+  return get_byte_offset ();
+}
+
+/* Implementation of region::get_byte_size_sval vfunc for offset_region.  */
+
+const svalue *
+offset_region::get_byte_size_sval (region_model_manager *mgr) const
+{
+  tree offset_cst = get_byte_offset ()->maybe_get_constant ();
+  byte_size_t byte_size;
+  /* If the offset points in the middle of the region,
+     return the remaining bytes.  */
+  if (get_byte_size (&byte_size) && offset_cst)
+    {
+      byte_size_t offset = wi::to_offset (offset_cst);
+      byte_range r (0, byte_size);
+      if (r.contains_p (offset))
+	{
+	  tree remaining_byte_size = wide_int_to_tree (size_type_node,
+						       byte_size - offset);
+	  return mgr->get_or_create_constant_svalue (remaining_byte_size);
+	}
+    }
+
+  return region::get_byte_size_sval (mgr);
 }
 
 /* class sized_region : public region.  */
@@ -1520,6 +1668,16 @@ cast_region::dump_to_pp (pretty_printer *pp, bool simple) const
     }
 }
 
+/* Implementation of region::get_relative_concrete_offset vfunc
+   for cast_region.  */
+
+bool
+cast_region::get_relative_concrete_offset (bit_offset_t *out) const
+{
+  *out = (int) 0;
+  return true;
+}
+
 /* class heap_allocated_region : public region.  */
 
 /* Implementation of region::dump_to_pp vfunc for heap_allocated_region.  */
@@ -1541,9 +1699,9 @@ void
 alloca_region::dump_to_pp (pretty_printer *pp, bool simple) const
 {
   if (simple)
-    pp_string (pp, "ALLOCA_REGION");
+    pp_printf (pp, "ALLOCA_REGION(%i)", get_id ());
   else
-    pp_string (pp, "alloca_region()");
+    pp_printf (pp, "alloca_region(%i)", get_id ());
 }
 
 /* class string_region : public region.  */
@@ -1635,6 +1793,59 @@ bit_range_region::get_relative_concrete_offset (bit_offset_t *out) const
 {
   *out = m_bits.get_start_bit_offset ();
   return true;
+}
+
+/* Implementation of region::get_relative_symbolic_offset vfunc for
+   bit_range_region.
+   The returned svalue is equal to the offset converted to bytes and
+   rounded off.  */
+
+const svalue *
+bit_range_region::get_relative_symbolic_offset (region_model_manager *mgr)
+  const
+{
+  byte_offset_t start_byte = m_bits.get_start_bit_offset () / BITS_PER_UNIT;
+  tree start_bit_tree = wide_int_to_tree (integer_type_node, start_byte);
+  return mgr->get_or_create_constant_svalue (start_bit_tree);
+}
+
+/* class var_arg_region : public region.  */
+
+void
+var_arg_region::dump_to_pp (pretty_printer *pp, bool simple) const
+{
+  if (simple)
+    {
+      pp_string (pp, "VAR_ARG_REG(");
+      get_parent_region ()->dump_to_pp (pp, simple);
+      pp_printf (pp, ", arg_idx: %d)", m_idx);
+    }
+  else
+    {
+      pp_string (pp, "var_arg_region(");
+      get_parent_region ()->dump_to_pp (pp, simple);
+      pp_printf (pp, ", arg_idx: %d)", m_idx);
+    }
+}
+
+/* Get the frame_region for this var_arg_region.  */
+
+const frame_region *
+var_arg_region::get_frame_region () const
+{
+  gcc_assert (get_parent_region ());
+  return as_a <const frame_region *> (get_parent_region ());
+}
+
+/* class errno_region : public region.  */
+
+void
+errno_region::dump_to_pp (pretty_printer *pp, bool simple) const
+{
+  if (simple)
+    pp_string (pp, "errno_region");
+  else
+    pp_string (pp, "errno_region()");
 }
 
 /* class unknown_region : public region.  */

@@ -1,6 +1,6 @@
 // -*- C++ -*- operator<=> three-way comparison support.
 
-// Copyright (C) 2019-2022 Free Software Foundation, Inc.
+// Copyright (C) 2019-2023 Free Software Foundation, Inc.
 //
 // This file is part of GCC.
 //
@@ -34,15 +34,13 @@
 
 #if __cplusplus > 201703L && __cpp_impl_three_way_comparison >= 201907L
 
-#pragma GCC visibility push(default)
-
 #include <concepts>
 
 #if __cpp_lib_concepts
 # define __cpp_lib_three_way_comparison 201907L
 #endif
 
-namespace std
+namespace std _GLIBCXX_VISIBILITY(default)
 {
   // [cmp.categories], comparison category types
 
@@ -674,7 +672,7 @@ namespace std
 	_X86_80bit,  // x86 80-bit extended precision
 	_M68k_80bit, // m68k 80-bit extended precision
 	_Dbldbl, // IBM 128-bit double-double
-	// TODO: _Bfloat16,
+	_Bfloat16,   // std::bfloat16_t
       };
 
 #ifndef __cpp_using_enum
@@ -686,6 +684,7 @@ namespace std
       static constexpr _Fp_fmt _X86_80bit = _Fp_fmt::_X86_80bit;
       static constexpr _Fp_fmt _M68k_80bit = _Fp_fmt::_M68k_80bit;
       static constexpr _Fp_fmt _Dbldbl = _Fp_fmt::_Dbldbl;
+      static constexpr _Fp_fmt _Bfloat16 = _Fp_fmt::_Bfloat16;
 #endif
 
       // Identify the format used by a floating-point type.
@@ -715,6 +714,10 @@ namespace std
 #ifdef __SIZEOF_FLOAT80__
 	  if constexpr (__is_same(_Tp, __float80))
 	    return _X86_80bit;
+#endif
+#ifdef __STDCPP_BFLOAT16_T__
+	  if constexpr (__is_same(_Tp, decltype(0.0bf16)))
+	    return _Bfloat16;
 #endif
 
 	  constexpr int __width = sizeof(_Tp) * __CHAR_BIT__;
@@ -1238,8 +1241,6 @@ namespace std
   } // namespace __detail
 #endif // concepts
 } // namespace std
-
-#pragma GCC visibility pop
 
 #endif // C++20
 

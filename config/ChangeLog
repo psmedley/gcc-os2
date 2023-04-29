@@ -1,10 +1,45 @@
-2022-08-19  Release Manager
+2023-04-26  Release Manager
 
-	* GCC 12.2.0 released.
+	* GCC 13.1.0 released.
 
-2022-05-06  Release Manager
+2022-11-14  Martin Liska  <mliska@suse.cz>
 
-	* GCC 12.1.0 released.
+	Revert:
+	2022-11-09  Martin Liska  <mliska@suse.cz>
+
+	* acx.m4: Do not wrap REPORT_BUGS_TO.
+
+2022-11-09  Martin Liska  <mliska@suse.cz>
+
+	* acx.m4: Do not wrap REPORT_BUGS_TO.
+
+2022-10-19  LIU Hao  <lh_mouse@126.com>
+
+	* gthr.m4 (GCC_AC_THREAD_HEADER): Add new case for `mcf` thread
+	model
+
+2022-08-31  Martin Liska  <mliska@suse.cz>
+
+	* mh-pa-hpux10: Removed.
+
+2022-08-01  Roger Sayle  <roger@nextmovesoftware.com>
+	    Arnaud Charlet  <charlet@adacore.com>
+
+	* acx.m4 (AC_PROG_GNAT): Update conftest.adb to include
+	features required of the host gnat compiler.
+
+2022-06-01  David Seifert  <soap@gentoo.org>
+
+	PR plugins/95648
+	* gcc-plugin.m4: Use libtool's $ac_cv_prog_OBJDUMP.
+
+2022-05-20  Christophe Lyon  <christophe.lyon@arm.com>
+
+	* dfp.m4: Add aarch64 support.
+
+2022-05-03  Christophe Lyon  <christophe.lyon@arm.com>
+
+	* dfp.m4: Add license header.
 
 2022-03-29  Chenghua Xu  <xuchenghua@loongson.cn>
 	    Lulu Cheng  <chenglulu@loongson.cn>

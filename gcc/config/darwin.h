@@ -1,5 +1,5 @@
 /* Target definitions for Darwin (Mac OS X) systems.
-   Copyright (C) 1989-2022 Free Software Foundation, Inc.
+   Copyright (C) 1989-2023 Free Software Foundation, Inc.
    Contributed by Apple Computer Inc.
 
 This file is part of GCC.
@@ -396,10 +396,10 @@ extern GTY(()) int darwin_ms_struct;
 
 #define DSYMUTIL_SPEC \
   "%{!c:%{!E:%{!S:%{!r:%{!M:%{!MM:%{!fsyntax-only:%{!fdump=*:\
-     %{g*:%{!gctf:%{!gbtf:%{!gstabs*:%{%:debug-level-gt(0): -idsym \
+     %{g*:%{!gctf:%{!gbtf:%{%:debug-level-gt(0): -idsym \
        %{.c|.cc|.C|.cpp|.cp|.c++|.cxx|.CPP|.m|.mm|.s|.f|.f90|\
 	 .f95|.f03|.f77|.for|.F|.F90|.F95|.F03|.d: -dsym }\
-      }}}}}\
+      }}}}\
    }}}}}}}}"
 
 #define LINK_COMMAND_SPEC LINK_COMMAND_SPEC_A DSYMUTIL_SPEC
@@ -443,10 +443,16 @@ extern GTY(()) int darwin_ms_struct;
                      %:replace-outfile(-lobjc libobjc-gnu.a%s); \
                     :%:replace-outfile(-lobjc -lobjc-gnu )}}\
    %{static|static-libgcc|static-libgfortran:%:replace-outfile(-lgfortran libgfortran.a%s)}\
+   %{static|static-libgcc|static-libquadmath:%:replace-outfile(-lquadmath libquadmath.a%s)}\
    %{static|static-libgcc|static-libphobos:%:replace-outfile(-lgphobos libgphobos.a%s)}\
    %{static|static-libgcc|static-libstdc++|static-libgfortran:%:replace-outfile(-lgomp libgomp.a%s)}\
    %{static|static-libgcc|static-libstdc++:%:replace-outfile(-lstdc++ libstdc++.a%s)}\
-   %{force_cpusubtype_ALL:-arch %(darwin_arch)} \
+   %{static|static-libgm2:%:replace-outfile(-lm2pim libm2pim.a%s)}\
+   %{static|static-libgm2:%:replace-outfile(-lm2iso libm2iso.a%s)}\
+   %{static|static-libgm2:%:replace-outfile(-lm2min libm2min.a%s)}\
+   %{static|static-libgm2:%:replace-outfile(-lm2log libm2log.a%s)}\
+   %{static|static-libgm2:%:replace-outfile(-lm2cor libm2cor.a%s)}\
+  %{force_cpusubtype_ALL:-arch %(darwin_arch)} \
    %{!force_cpusubtype_ALL:-arch %(darwin_subarch)} "\
    LINK_SYSROOT_SPEC \
   "%{mmacosx-version-min=*:-macosx_version_min %*} \
@@ -460,48 +466,36 @@ extern GTY(()) int darwin_ms_struct;
 
 #define LIB_SPEC "%{!static:-lSystem}"
 
-/*
-   Note that by default, -lgcc_eh is not linked against.
-   This is because,in general, we need to unwind through system libraries that
-   are linked with the shared unwinder in libunwind (or libgcc_s for 10.4/5).
+/* Note that by default, -lgcc_eh (which provides a statically-linked unwinder)
+   is not used. This is because, in general, we need to unwind through system
+   libraries that are linked with the shared unwinder in libunwind (or libgcc_s
+   for OSX 10.4/5 [darwin8/9]).
 
-   For -static-libgcc: < 10.6, use the unwinder in libgcc_eh (and find
-   the emultls impl. there too).
+   When -static-libgcc is forced: < 10.6, use the unwinder in libgcc_eh (and
+   find the emultls impl. there too).
 
    For -static-libgcc: >= 10.6, the unwinder *still* comes from libSystem and
    we find the emutls impl from lemutls_w. In either case, the builtins etc.
-   are linked from -lgcc.
+   are linked from -lgcc.  The eh library is still available so that it could
+   be specified explicitly if there is some reason to do so.
 
    When we have specified shared-libgcc or any case that might require
    exceptions, we pull the libgcc content (including emulated tls) from
-   -lgcc_s.1 in GCC and the unwinder from /usr/lib/libgcc_s.1 for < 10.6 and
+   -lgcc_s.1.1 in GCC and the unwinder from /usr/lib/libgcc_s.1 for < 10.6 and
    libSystem for >= 10.6 respectively.
    Otherwise, we just link the emutls/builtins from convenience libs.
-
-   If we need exceptions, prior to 10.3.9, then we have to link the static
-   eh lib, since there's no shared version on the system.
-
-   In all cases, libgcc_s.1 will be installed with the compiler, or any app
-   built using it, so we can link the builtins and emutls shared on all.
 
    We have to work around that DYLD_XXXX are disabled in macOS 10.11+ which
    means that any bootstrap trying to use a shared libgcc with a bumped SO-
    name will fail.  This means that we do not accept shared libgcc for these
-   versions.
+   versions (the primary reason for forcing a shared libgcc was that it
+   contained the unwinder on Darwin8 and 9).
 
-   For -static-libgcc: >= 10.6, the unwinder *still* comes from libSystem and
-   we find the emutls impl from lemutls_w. In either case, the builtins etc.
-   are linked from -lgcc.
->
-   Otherwise, we just link the shared version of gcc_s.1.1 and pick up
-   exceptions:
+   When using the shared version of gcc_s.1.1 the unwinder is provided by:
      * Prior to 10.3.9, then we have to link the static eh lib, since there
-       is no shared version on the system.
+       is no shared unwinder version on the system.
      * from 10.3.9 to 10.5, from /usr/lib/libgcc_s.1.dylib
      * from 10.6 onwards, from libSystem.dylib
-
-   In all cases, libgcc_s.1.1 will be installed with the compiler, or any app
-   built using it, so we can link the builtins and emutls shared on all.
 */
 #undef REAL_LIBGCC_SPEC
 #define REAL_LIBGCC_SPEC \
@@ -594,14 +588,7 @@ extern GTY(()) int darwin_ms_struct;
 "%{static} -arch %(darwin_arch) " \
 ASM_OPTIONS ASM_MMACOSX_VERSION_MIN_SPEC
 
-#ifdef HAVE_AS_STABS_DIRECTIVE
-/* We only pass a debug option to the assembler if that supports stabs, since
-   dwarf is not uniformly supported in the assemblers.  */
-#define ASM_DEBUG_SPEC  "%{g*:%{%:debug-level-gt(0):%{!gdwarf*:--gstabs}}}"
-#else
 #define ASM_DEBUG_SPEC  ""
-#endif
-
 #undef  ASM_DEBUG_OPTION_SPEC
 #define ASM_DEBUG_OPTION_SPEC	""
 
@@ -614,10 +601,6 @@ ASM_OPTIONS ASM_MMACOSX_VERSION_MIN_SPEC
 
 #define DWARF2_DEBUGGING_INFO 1
 #define PREFERRED_DEBUGGING_TYPE DWARF2_DEBUG
-
-#ifdef HAVE_AS_STABS_DIRECTIVE
-#define DBX_DEBUGGING_INFO 1
-#endif
 
 #define DEBUG_FRAME_SECTION	  "__DWARF,__debug_frame,regular,debug"
 #define DEBUG_INFO_SECTION	  "__DWARF,__debug_info,regular,debug"
@@ -649,18 +632,6 @@ ASM_OPTIONS ASM_MMACOSX_VERSION_MIN_SPEC
 #define DEBUG_PUBTYPES_SECTION   ((debug_generate_pub_sections == 2) \
                                ? "__DWARF,__debug_gnu_pubt,regular,debug" \
                                : "__DWARF,__debug_pubtypes,regular,debug")
-
-/* When generating stabs debugging, use N_BINCL entries.  */
-
-#define DBX_USE_BINCL
-
-/* There is no limit to the length of stabs strings.  */
-
-#define DBX_CONTIN_LENGTH 0
-
-/* gdb needs a null N_SO at the end of each file for scattered loading.  */
-
-#define DBX_OUTPUT_NULL_N_SO_AT_MAIN_SOURCE_FILE_END
 
 /* GCC's definition of 'one_only' is the same as its definition of 'weak'.  */
 #define MAKE_DECL_ONE_ONLY(DECL) (DECL_WEAK (DECL) = 1)

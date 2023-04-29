@@ -1,5 +1,5 @@
 /* Expand builtin functions.
-   Copyright (C) 1988-2022 Free Software Foundation, Inc.
+   Copyright (C) 1988-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -67,13 +67,13 @@ along with GCC; see the file COPYING3.  If not see
 #include "asan.h"
 #include "internal-fn.h"
 #include "case-cfn-macros.h"
+#include "gimple-iterator.h"
 #include "gimple-fold.h"
 #include "intl.h"
 #include "file-prefix-map.h" /* remap_macro_filename()  */
 #include "gomp-constants.h"
 #include "omp-general.h"
 #include "tree-dfa.h"
-#include "gimple-iterator.h"
 #include "gimple-ssa.h"
 #include "tree-ssa-live.h"
 #include "tree-outof-ssa.h"
@@ -123,6 +123,7 @@ static rtx expand_builtin_fegetround (tree, rtx, machine_mode);
 static rtx expand_builtin_feclear_feraise_except (tree, rtx, machine_mode,
 						  optab);
 static rtx expand_builtin_cexpi (tree, rtx);
+static rtx expand_builtin_issignaling (tree, rtx);
 static rtx expand_builtin_int_roundingfn (tree, rtx);
 static rtx expand_builtin_int_roundingfn_2 (tree, rtx);
 static rtx expand_builtin_next_arg (void);
@@ -613,7 +614,7 @@ c_strlen (tree arg, int only_value, c_strlen_data *data, unsigned eltsize)
   if (eltsize != tree_to_uhwi (TYPE_SIZE_UNIT (TREE_TYPE (TREE_TYPE (src)))))
     return NULL_TREE;
 
-  /* Set MAXELTS to sizeof (SRC) / sizeof (*SRC) - 1, the maximum possible
+  /* Set MAXELTS to ARRAY_SIZE (SRC) - 1, the maximum possible
      length of SRC.  Prefer TYPE_SIZE() to TREE_STRING_LENGTH() if possible
      in case the latter is less than the size of the array, such as when
      SRC refers to a short string literal used to initialize a large array.
@@ -695,14 +696,14 @@ c_strlen (tree arg, int only_value, c_strlen_data *data, unsigned eltsize)
     {
       /* Suppress multiple warnings for propagated constant strings.  */
       if (only_value != 2
-	  && !warning_suppressed_p (arg, OPT_Warray_bounds)
-	  && warning_at (loc, OPT_Warray_bounds,
+	  && !warning_suppressed_p (arg, OPT_Warray_bounds_)
+	  && warning_at (loc, OPT_Warray_bounds_,
 			 "offset %qwi outside bounds of constant string",
 			 eltoff))
 	{
 	  if (decl)
 	    inform (DECL_SOURCE_LOCATION (decl), "%qE declared here", decl);
-	  suppress_warning (arg, OPT_Warray_bounds);
+	  suppress_warning (arg, OPT_Warray_bounds_);
 	}
       return NULL_TREE;
     }
@@ -1445,18 +1446,19 @@ apply_args_size (void)
 	  {
 	    fixed_size_mode mode = targetm.calls.get_raw_arg_mode (regno);
 
-	    gcc_assert (mode != VOIDmode);
-
-	    align = GET_MODE_ALIGNMENT (mode) / BITS_PER_UNIT;
-	    if (size % align != 0)
-	      size = CEIL (size, align) * align;
-	    size += GET_MODE_SIZE (mode);
-	    apply_args_mode[regno] = mode;
+	    if (mode != VOIDmode)
+	      {
+		align = GET_MODE_ALIGNMENT (mode) / BITS_PER_UNIT;
+		if (size % align != 0)
+		  size = CEIL (size, align) * align;
+		size += GET_MODE_SIZE (mode);
+		apply_args_mode[regno] = mode;
+	      }
+	    else
+	      apply_args_mode[regno] = as_a <fixed_size_mode> (VOIDmode);
 	  }
 	else
-	  {
-	    apply_args_mode[regno] = as_a <fixed_size_mode> (VOIDmode);
-	  }
+	  apply_args_mode[regno] = as_a <fixed_size_mode> (VOIDmode);
     }
   return size;
 }
@@ -1480,13 +1482,16 @@ apply_result_size (void)
 	  {
 	    fixed_size_mode mode = targetm.calls.get_raw_result_mode (regno);
 
-	    gcc_assert (mode != VOIDmode);
-
-	    align = GET_MODE_ALIGNMENT (mode) / BITS_PER_UNIT;
-	    if (size % align != 0)
-	      size = CEIL (size, align) * align;
-	    size += GET_MODE_SIZE (mode);
-	    apply_result_mode[regno] = mode;
+	    if (mode != VOIDmode)
+	      {
+		align = GET_MODE_ALIGNMENT (mode) / BITS_PER_UNIT;
+		if (size % align != 0)
+		  size = CEIL (size, align) * align;
+		size += GET_MODE_SIZE (mode);
+		apply_result_mode[regno] = mode;
+	      }
+	    else
+	      apply_result_mode[regno] = as_a <fixed_size_mode> (VOIDmode);
 	  }
 	else
 	  apply_result_mode[regno] = as_a <fixed_size_mode> (VOIDmode);
@@ -1930,45 +1935,50 @@ mathfn_built_in_2 (tree type, combined_fn fn)
   built_in_function fcodef64x = END_BUILTINS;
   built_in_function fcodef128x = END_BUILTINS;
 
+  /* If <math.h> has been included somehow, HUGE_VAL and NAN definitions
+     break the uses below.  */
+#undef HUGE_VAL
+#undef NAN
+
   switch (fn)
     {
 #define SEQ_OF_CASE_MATHFN			\
-    CASE_MATHFN (ACOS)				\
-    CASE_MATHFN (ACOSH)				\
-    CASE_MATHFN (ASIN)				\
-    CASE_MATHFN (ASINH)				\
-    CASE_MATHFN (ATAN)				\
-    CASE_MATHFN (ATAN2)				\
-    CASE_MATHFN (ATANH)				\
-    CASE_MATHFN (CBRT)				\
+    CASE_MATHFN_FLOATN (ACOS)			\
+    CASE_MATHFN_FLOATN (ACOSH)			\
+    CASE_MATHFN_FLOATN (ASIN)			\
+    CASE_MATHFN_FLOATN (ASINH)			\
+    CASE_MATHFN_FLOATN (ATAN)			\
+    CASE_MATHFN_FLOATN (ATAN2)			\
+    CASE_MATHFN_FLOATN (ATANH)			\
+    CASE_MATHFN_FLOATN (CBRT)			\
     CASE_MATHFN_FLOATN (CEIL)			\
     CASE_MATHFN (CEXPI)				\
     CASE_MATHFN_FLOATN (COPYSIGN)		\
-    CASE_MATHFN (COS)				\
-    CASE_MATHFN (COSH)				\
+    CASE_MATHFN_FLOATN (COS)			\
+    CASE_MATHFN_FLOATN (COSH)			\
     CASE_MATHFN (DREM)				\
-    CASE_MATHFN (ERF)				\
-    CASE_MATHFN (ERFC)				\
-    CASE_MATHFN (EXP)				\
+    CASE_MATHFN_FLOATN (ERF)			\
+    CASE_MATHFN_FLOATN (ERFC)			\
+    CASE_MATHFN_FLOATN (EXP)			\
     CASE_MATHFN (EXP10)				\
-    CASE_MATHFN (EXP2)				\
-    CASE_MATHFN (EXPM1)				\
-    CASE_MATHFN (FABS)				\
-    CASE_MATHFN (FDIM)				\
+    CASE_MATHFN_FLOATN (EXP2)			\
+    CASE_MATHFN_FLOATN (EXPM1)			\
+    CASE_MATHFN_FLOATN (FABS)			\
+    CASE_MATHFN_FLOATN (FDIM)			\
     CASE_MATHFN_FLOATN (FLOOR)			\
     CASE_MATHFN_FLOATN (FMA)			\
     CASE_MATHFN_FLOATN (FMAX)			\
     CASE_MATHFN_FLOATN (FMIN)			\
-    CASE_MATHFN (FMOD)				\
-    CASE_MATHFN (FREXP)				\
+    CASE_MATHFN_FLOATN (FMOD)			\
+    CASE_MATHFN_FLOATN (FREXP)			\
     CASE_MATHFN (GAMMA)				\
     CASE_MATHFN_REENT (GAMMA) /* GAMMA_R */	\
-    CASE_MATHFN (HUGE_VAL)			\
-    CASE_MATHFN (HYPOT)				\
-    CASE_MATHFN (ILOGB)				\
+    CASE_MATHFN_FLOATN (HUGE_VAL)		\
+    CASE_MATHFN_FLOATN (HYPOT)			\
+    CASE_MATHFN_FLOATN (ILOGB)			\
     CASE_MATHFN (ICEIL)				\
     CASE_MATHFN (IFLOOR)			\
-    CASE_MATHFN (INF)				\
+    CASE_MATHFN_FLOATN (INF)			\
     CASE_MATHFN (IRINT)				\
     CASE_MATHFN (IROUND)			\
     CASE_MATHFN (ISINF)				\
@@ -1976,47 +1986,47 @@ mathfn_built_in_2 (tree type, combined_fn fn)
     CASE_MATHFN (J1)				\
     CASE_MATHFN (JN)				\
     CASE_MATHFN (LCEIL)				\
-    CASE_MATHFN (LDEXP)				\
+    CASE_MATHFN_FLOATN (LDEXP)			\
     CASE_MATHFN (LFLOOR)			\
-    CASE_MATHFN (LGAMMA)			\
+    CASE_MATHFN_FLOATN (LGAMMA)			\
     CASE_MATHFN_REENT (LGAMMA) /* LGAMMA_R */	\
     CASE_MATHFN (LLCEIL)			\
     CASE_MATHFN (LLFLOOR)			\
-    CASE_MATHFN (LLRINT)			\
-    CASE_MATHFN (LLROUND)			\
-    CASE_MATHFN (LOG)				\
-    CASE_MATHFN (LOG10)				\
-    CASE_MATHFN (LOG1P)				\
-    CASE_MATHFN (LOG2)				\
-    CASE_MATHFN (LOGB)				\
-    CASE_MATHFN (LRINT)				\
-    CASE_MATHFN (LROUND)			\
-    CASE_MATHFN (MODF)				\
-    CASE_MATHFN (NAN)				\
-    CASE_MATHFN (NANS)				\
+    CASE_MATHFN_FLOATN (LLRINT)			\
+    CASE_MATHFN_FLOATN (LLROUND)		\
+    CASE_MATHFN_FLOATN (LOG)			\
+    CASE_MATHFN_FLOATN (LOG10)			\
+    CASE_MATHFN_FLOATN (LOG1P)			\
+    CASE_MATHFN_FLOATN (LOG2)			\
+    CASE_MATHFN_FLOATN (LOGB)			\
+    CASE_MATHFN_FLOATN (LRINT)			\
+    CASE_MATHFN_FLOATN (LROUND)			\
+    CASE_MATHFN_FLOATN (MODF)			\
+    CASE_MATHFN_FLOATN (NAN)			\
+    CASE_MATHFN_FLOATN (NANS)			\
     CASE_MATHFN_FLOATN (NEARBYINT)		\
-    CASE_MATHFN (NEXTAFTER)			\
+    CASE_MATHFN_FLOATN (NEXTAFTER)		\
     CASE_MATHFN (NEXTTOWARD)			\
-    CASE_MATHFN (POW)				\
+    CASE_MATHFN_FLOATN (POW)			\
     CASE_MATHFN (POWI)				\
     CASE_MATHFN (POW10)				\
-    CASE_MATHFN (REMAINDER)			\
-    CASE_MATHFN (REMQUO)			\
+    CASE_MATHFN_FLOATN (REMAINDER)		\
+    CASE_MATHFN_FLOATN (REMQUO)			\
     CASE_MATHFN_FLOATN (RINT)			\
     CASE_MATHFN_FLOATN (ROUND)			\
     CASE_MATHFN_FLOATN (ROUNDEVEN)		\
     CASE_MATHFN (SCALB)				\
-    CASE_MATHFN (SCALBLN)			\
-    CASE_MATHFN (SCALBN)			\
+    CASE_MATHFN_FLOATN (SCALBLN)		\
+    CASE_MATHFN_FLOATN (SCALBN)			\
     CASE_MATHFN (SIGNBIT)			\
     CASE_MATHFN (SIGNIFICAND)			\
-    CASE_MATHFN (SIN)				\
+    CASE_MATHFN_FLOATN (SIN)			\
     CASE_MATHFN (SINCOS)			\
-    CASE_MATHFN (SINH)				\
+    CASE_MATHFN_FLOATN (SINH)			\
     CASE_MATHFN_FLOATN (SQRT)			\
-    CASE_MATHFN (TAN)				\
-    CASE_MATHFN (TANH)				\
-    CASE_MATHFN (TGAMMA)			\
+    CASE_MATHFN_FLOATN (TAN)			\
+    CASE_MATHFN_FLOATN (TANH)			\
+    CASE_MATHFN_FLOATN (TGAMMA)			\
     CASE_MATHFN_FLOATN (TRUNC)			\
     CASE_MATHFN (Y0)				\
     CASE_MATHFN (Y1)				\
@@ -2081,6 +2091,14 @@ tree
 mathfn_built_in (tree type, combined_fn fn)
 {
   return mathfn_built_in_1 (type, fn, /*implicit=*/ 1);
+}
+
+/* Like mathfn_built_in_1, but always use the explicit array.  */
+
+tree
+mathfn_built_in_explicit (tree type, combined_fn fn)
+{
+  return mathfn_built_in_1 (type, fn, /*implicit=*/ 0);
 }
 
 /* Like mathfn_built_in_1, but take a built_in_function and
@@ -2745,6 +2763,300 @@ build_call_nofold_loc (location_t loc, tree fndecl, int n, ...)
   va_end (ap);
   SET_EXPR_LOCATION (fn, loc);
   return fn;
+}
+
+/* Expand the __builtin_issignaling builtin.  This needs to handle
+   all floating point formats that do support NaNs (for those that
+   don't it just sets target to 0).  */
+
+static rtx
+expand_builtin_issignaling (tree exp, rtx target)
+{
+  if (!validate_arglist (exp, REAL_TYPE, VOID_TYPE))
+    return NULL_RTX;
+
+  tree arg = CALL_EXPR_ARG (exp, 0);
+  scalar_float_mode fmode = SCALAR_FLOAT_TYPE_MODE (TREE_TYPE (arg));
+  const struct real_format *fmt = REAL_MODE_FORMAT (fmode);
+
+  /* Expand the argument yielding a RTX expression. */
+  rtx temp = expand_normal (arg);
+
+  /* If mode doesn't support NaN, always return 0.
+     Don't use !HONOR_SNANS (fmode) here, so there is some possibility of
+     __builtin_issignaling working without -fsignaling-nans.  Especially
+     when -fno-signaling-nans is the default.
+     On the other side, MODE_HAS_NANS (fmode) is unnecessary, with
+     -ffinite-math-only even __builtin_isnan or __builtin_fpclassify
+     fold to 0 or non-NaN/Inf classification.  */
+  if (!HONOR_NANS (fmode))
+    {
+      emit_move_insn (target, const0_rtx);
+      return target;
+    }
+
+  /* Check if the back end provides an insn that handles issignaling for the
+     argument's mode. */
+  enum insn_code icode = optab_handler (issignaling_optab, fmode);
+  if (icode != CODE_FOR_nothing)
+    {
+      rtx_insn *last = get_last_insn ();
+      rtx this_target = gen_reg_rtx (TYPE_MODE (TREE_TYPE (exp)));
+      if (maybe_emit_unop_insn (icode, this_target, temp, UNKNOWN))
+	return this_target;
+      delete_insns_since (last);
+    }
+
+  if (DECIMAL_FLOAT_MODE_P (fmode))
+    {
+      scalar_int_mode imode;
+      rtx hi;
+      switch (fmt->ieee_bits)
+	{
+	case 32:
+	case 64:
+	  imode = int_mode_for_mode (fmode).require ();
+	  temp = gen_lowpart (imode, temp);
+	  break;
+	case 128:
+	  imode = int_mode_for_size (64, 1).require ();
+	  hi = NULL_RTX;
+	  /* For decimal128, TImode support isn't always there and even when
+	     it is, working on the DImode high part is usually better.  */
+	  if (!MEM_P (temp))
+	    {
+	      if (rtx t = simplify_gen_subreg (imode, temp, fmode,
+					       subreg_highpart_offset (imode,
+								       fmode)))
+		hi = t;
+	      else
+		{
+		  scalar_int_mode imode2;
+		  if (int_mode_for_mode (fmode).exists (&imode2))
+		    {
+		      rtx temp2 = gen_lowpart (imode2, temp);
+		      poly_uint64 off = subreg_highpart_offset (imode, imode2);
+		      if (rtx t = simplify_gen_subreg (imode, temp2,
+						       imode2, off))
+			hi = t;
+		    }
+		}
+	      if (!hi)
+		{
+		  rtx mem = assign_stack_temp (fmode, GET_MODE_SIZE (fmode));
+		  emit_move_insn (mem, temp);
+		  temp = mem;
+		}
+	    }
+	  if (!hi)
+	    {
+	      poly_int64 offset
+		= subreg_highpart_offset (imode, GET_MODE (temp));
+	      hi = adjust_address (temp, imode, offset);
+	    }
+	  temp = hi;
+	  break;
+	default:
+	  gcc_unreachable ();
+	}
+      /* In all of decimal{32,64,128}, there is MSB sign bit and sNaN
+	 have 6 bits below it all set.  */
+      rtx val
+	= GEN_INT (HOST_WIDE_INT_C (0x3f) << (GET_MODE_BITSIZE (imode) - 7));
+      temp = expand_binop (imode, and_optab, temp, val,
+			   NULL_RTX, 1, OPTAB_LIB_WIDEN);
+      temp = emit_store_flag_force (target, EQ, temp, val, imode, 1, 1);
+      return temp;
+    }
+
+  /* Only PDP11 has these defined differently but doesn't support NaNs.  */
+  gcc_assert (FLOAT_WORDS_BIG_ENDIAN == WORDS_BIG_ENDIAN);
+  gcc_assert (fmt->signbit_ro > 0 && fmt->b == 2);
+  gcc_assert (MODE_COMPOSITE_P (fmode)
+	      || (fmt->pnan == fmt->p
+		  && fmt->signbit_ro == fmt->signbit_rw));
+
+  switch (fmt->p)
+    {
+    case 106: /* IBM double double  */
+      /* For IBM double double, recurse on the most significant double.  */
+      gcc_assert (MODE_COMPOSITE_P (fmode));
+      temp = convert_modes (DFmode, fmode, temp, 0);
+      fmode = DFmode;
+      fmt = REAL_MODE_FORMAT (DFmode);
+      /* FALLTHRU */
+    case 8: /* bfloat */
+    case 11: /* IEEE half */
+    case 24: /* IEEE single */
+    case 53: /* IEEE double or Intel extended with rounding to double */
+      if (fmt->p == 53 && fmt->signbit_ro == 79)
+	goto extended;
+      {
+	scalar_int_mode imode = int_mode_for_mode (fmode).require ();
+	temp = gen_lowpart (imode, temp);
+	rtx val = GEN_INT ((HOST_WIDE_INT_M1U << (fmt->p - 2))
+			   & ~(HOST_WIDE_INT_M1U << fmt->signbit_ro));
+	if (fmt->qnan_msb_set)
+	  {
+	    rtx mask = GEN_INT (~(HOST_WIDE_INT_M1U << fmt->signbit_ro));
+	    rtx bit = GEN_INT (HOST_WIDE_INT_1U << (fmt->p - 2));
+	    /* For non-MIPS/PA IEEE single/double/half or bfloat, expand to:
+	       ((temp ^ bit) & mask) > val.  */
+	    temp = expand_binop (imode, xor_optab, temp, bit,
+				 NULL_RTX, 1, OPTAB_LIB_WIDEN);
+	    temp = expand_binop (imode, and_optab, temp, mask,
+				 NULL_RTX, 1, OPTAB_LIB_WIDEN);
+	    temp = emit_store_flag_force (target, GTU, temp, val, imode,
+					  1, 1);
+	  }
+	else
+	  {
+	    /* For MIPS/PA IEEE single/double, expand to:
+	       (temp & val) == val.  */
+	    temp = expand_binop (imode, and_optab, temp, val,
+				 NULL_RTX, 1, OPTAB_LIB_WIDEN);
+	    temp = emit_store_flag_force (target, EQ, temp, val, imode,
+					  1, 1);
+	  }
+      }
+      break;
+    case 113: /* IEEE quad */
+      {
+	rtx hi = NULL_RTX, lo = NULL_RTX;
+	scalar_int_mode imode = int_mode_for_size (64, 1).require ();
+	/* For IEEE quad, TImode support isn't always there and even when
+	   it is, working on DImode parts is usually better.  */
+	if (!MEM_P (temp))
+	  {
+	    hi = simplify_gen_subreg (imode, temp, fmode,
+				      subreg_highpart_offset (imode, fmode));
+	    lo = simplify_gen_subreg (imode, temp, fmode,
+				      subreg_lowpart_offset (imode, fmode));
+	    if (!hi || !lo)
+	      {
+		scalar_int_mode imode2;
+		if (int_mode_for_mode (fmode).exists (&imode2))
+		  {
+		    rtx temp2 = gen_lowpart (imode2, temp);
+		    hi = simplify_gen_subreg (imode, temp2, imode2,
+					      subreg_highpart_offset (imode,
+								      imode2));
+		    lo = simplify_gen_subreg (imode, temp2, imode2,
+					      subreg_lowpart_offset (imode,
+								     imode2));
+		  }
+	      }
+	    if (!hi || !lo)
+	      {
+		rtx mem = assign_stack_temp (fmode, GET_MODE_SIZE (fmode));
+		emit_move_insn (mem, temp);
+		temp = mem;
+	      }
+	  }
+	if (!hi || !lo)
+	  {
+	    poly_int64 offset
+	      = subreg_highpart_offset (imode, GET_MODE (temp));
+	    hi = adjust_address (temp, imode, offset);
+	    offset = subreg_lowpart_offset (imode, GET_MODE (temp));
+	    lo = adjust_address (temp, imode, offset);
+	  }
+	rtx val = GEN_INT ((HOST_WIDE_INT_M1U << (fmt->p - 2 - 64))
+			   & ~(HOST_WIDE_INT_M1U << (fmt->signbit_ro - 64)));
+	if (fmt->qnan_msb_set)
+	  {
+	    rtx mask = GEN_INT (~(HOST_WIDE_INT_M1U << (fmt->signbit_ro
+							- 64)));
+	    rtx bit = GEN_INT (HOST_WIDE_INT_1U << (fmt->p - 2 - 64));
+	    /* For non-MIPS/PA IEEE quad, expand to:
+	       (((hi ^ bit) | ((lo | -lo) >> 63)) & mask) > val.  */
+	    rtx nlo = expand_unop (imode, neg_optab, lo, NULL_RTX, 0);
+	    lo = expand_binop (imode, ior_optab, lo, nlo,
+			       NULL_RTX, 1, OPTAB_LIB_WIDEN);
+	    lo = expand_shift (RSHIFT_EXPR, imode, lo, 63, NULL_RTX, 1);
+	    temp = expand_binop (imode, xor_optab, hi, bit,
+				 NULL_RTX, 1, OPTAB_LIB_WIDEN);
+	    temp = expand_binop (imode, ior_optab, temp, lo,
+				 NULL_RTX, 1, OPTAB_LIB_WIDEN);
+	    temp = expand_binop (imode, and_optab, temp, mask,
+				 NULL_RTX, 1, OPTAB_LIB_WIDEN);
+	    temp = emit_store_flag_force (target, GTU, temp, val, imode,
+					  1, 1);
+	  }
+	else
+	  {
+	    /* For MIPS/PA IEEE quad, expand to:
+	       (hi & val) == val.  */
+	    temp = expand_binop (imode, and_optab, hi, val,
+				 NULL_RTX, 1, OPTAB_LIB_WIDEN);
+	    temp = emit_store_flag_force (target, EQ, temp, val, imode,
+					  1, 1);
+	  }
+      }
+      break;
+    case 64: /* Intel or Motorola extended */
+    extended:
+      {
+	rtx ex, hi, lo;
+	scalar_int_mode imode = int_mode_for_size (32, 1).require ();
+	scalar_int_mode iemode = int_mode_for_size (16, 1).require ();
+	if (!MEM_P (temp))
+	  {
+	    rtx mem = assign_stack_temp (fmode, GET_MODE_SIZE (fmode));
+	    emit_move_insn (mem, temp);
+	    temp = mem;
+	  }
+	if (fmt->signbit_ro == 95)
+	  {
+	    /* Motorola, always big endian, with 16-bit gap in between
+	       16-bit sign+exponent and 64-bit mantissa.  */
+	    ex = adjust_address (temp, iemode, 0);
+	    hi = adjust_address (temp, imode, 4);
+	    lo = adjust_address (temp, imode, 8);
+	  }
+	else if (!WORDS_BIG_ENDIAN)
+	  {
+	    /* Intel little endian, 64-bit mantissa followed by 16-bit
+	       sign+exponent and then either 16 or 48 bits of gap.  */
+	    ex = adjust_address (temp, iemode, 8);
+	    hi = adjust_address (temp, imode, 4);
+	    lo = adjust_address (temp, imode, 0);
+	  }
+	else
+	  {
+	    /* Big endian Itanium.  */
+	    ex = adjust_address (temp, iemode, 0);
+	    hi = adjust_address (temp, imode, 2);
+	    lo = adjust_address (temp, imode, 6);
+	  }
+	rtx val = GEN_INT (HOST_WIDE_INT_M1U << 30);
+	gcc_assert (fmt->qnan_msb_set);
+	rtx mask = GEN_INT (0x7fff);
+	rtx bit = GEN_INT (HOST_WIDE_INT_1U << 30);
+	/* For Intel/Motorola extended format, expand to:
+	   (ex & mask) == mask && ((hi ^ bit) | ((lo | -lo) >> 31)) > val.  */
+	rtx nlo = expand_unop (imode, neg_optab, lo, NULL_RTX, 0);
+	lo = expand_binop (imode, ior_optab, lo, nlo,
+			   NULL_RTX, 1, OPTAB_LIB_WIDEN);
+	lo = expand_shift (RSHIFT_EXPR, imode, lo, 31, NULL_RTX, 1);
+	temp = expand_binop (imode, xor_optab, hi, bit,
+			     NULL_RTX, 1, OPTAB_LIB_WIDEN);
+	temp = expand_binop (imode, ior_optab, temp, lo,
+			     NULL_RTX, 1, OPTAB_LIB_WIDEN);
+	temp = emit_store_flag_force (target, GTU, temp, val, imode, 1, 1);
+	ex = expand_binop (iemode, and_optab, ex, mask,
+			   NULL_RTX, 1, OPTAB_LIB_WIDEN);
+	ex = emit_store_flag_force (gen_reg_rtx (GET_MODE (temp)), EQ,
+				    ex, mask, iemode, 1, 1);
+	temp = expand_binop (GET_MODE (temp), and_optab, temp, ex,
+			     NULL_RTX, 1, OPTAB_LIB_WIDEN);
+      }
+      break;
+    default:
+      gcc_unreachable ();
+    }
+
+  return temp;
 }
 
 /* Expand a call to one of the builtin rounding functions gcc defines
@@ -3904,7 +4216,7 @@ builtin_memset_read_str (void *data, void *prev,
 	return const_vec;
 
       /* Use the move expander with CONST_VECTOR.  */
-      target = targetm.gen_memset_scratch_rtx (mode);
+      target = gen_reg_rtx (mode);
       emit_move_insn (target, const_vec);
       return target;
     }
@@ -3948,7 +4260,7 @@ builtin_memset_gen_str (void *data, void *prev,
 	 the memset expander.  */
       insn_code icode = optab_handler (vec_duplicate_optab, mode);
 
-      target = targetm.gen_memset_scratch_rtx (mode);
+      target = gen_reg_rtx (mode);
       class expand_operand ops[2];
       create_output_operand (&ops[0], target, mode);
       create_input_operand (&ops[1], (rtx) data, QImode);
@@ -5189,6 +5501,9 @@ expand_builtin_trap (void)
 static void
 expand_builtin_unreachable (void)
 {
+  /* Use gimple_build_builtin_unreachable or builtin_decl_unreachable
+     to avoid this.  */
+  gcc_checking_assert (!sanitize_flags_p (SANITIZE_UNREACHABLE));
   emit_barrier ();
 }
 
@@ -5505,9 +5820,9 @@ expand_builtin_signbit (tree exp, rtx target)
   if (icode != CODE_FOR_nothing)
     {
       rtx_insn *last = get_last_insn ();
-      target = gen_reg_rtx (TYPE_MODE (TREE_TYPE (exp)));
-      if (maybe_emit_unop_insn (icode, target, temp, UNKNOWN))
-	return target;
+      rtx this_target = gen_reg_rtx (TYPE_MODE (TREE_TYPE (exp)));
+      if (maybe_emit_unop_insn (icode, this_target, temp, UNKNOWN))
+	return this_target;
       delete_insns_since (last);
     }
 
@@ -6031,8 +6346,8 @@ expand_ifn_atomic_compare_exchange_into_call (gcall *call, machine_mode mode)
       if (GET_MODE (boolret) != mode)
 	boolret = convert_modes (mode, GET_MODE (boolret), boolret, 1);
       x = force_reg (mode, x);
-      write_complex_part (target, boolret, true);
-      write_complex_part (target, x, false);
+      write_complex_part (target, boolret, true, true);
+      write_complex_part (target, x, false, false);
     }
 }
 
@@ -6087,8 +6402,8 @@ expand_ifn_atomic_compare_exchange (gcall *call)
       rtx target = expand_expr (lhs, NULL_RTX, VOIDmode, EXPAND_WRITE);
       if (GET_MODE (boolret) != mode)
 	boolret = convert_modes (mode, GET_MODE (boolret), boolret, 1);
-      write_complex_part (target, boolret, true);
-      write_complex_part (target, oldval, false);
+      write_complex_part (target, boolret, true, true);
+      write_complex_part (target, oldval, false, false);
     }
 }
 
@@ -6831,8 +7146,16 @@ inline_string_cmp (rtx target, tree var_str, const char *const_str,
 
       op0 = convert_modes (mode, unit_mode, op0, 1);
       op1 = convert_modes (mode, unit_mode, op1, 1);
-      result = expand_simple_binop (mode, MINUS, op0, op1,
-				    result, 1, OPTAB_WIDEN);
+      rtx diff = expand_simple_binop (mode, MINUS, op0, op1,
+				      result, 1, OPTAB_WIDEN);
+
+      /* Force the difference into result register.  We cannot reassign
+	 result here ("result = diff") or we may end up returning
+	 uninitialized result when expand_simple_binop allocates a new
+	 pseudo-register for returning.  */
+      if (diff != result)
+	emit_move_insn (result, diff);
+
       if (i < length - 1)
 	emit_cmp_and_jump_insns (result, CONST0_RTX (mode), NE, NULL_RTX,
 	    			 mode, true, ne_label);
@@ -6859,8 +7182,8 @@ inline_expand_builtin_bytecmp (tree exp, rtx target)
   bool is_ncmp = (fcode == BUILT_IN_STRNCMP || fcode == BUILT_IN_MEMCMP);
 
   /* Do NOT apply this inlining expansion when optimizing for size or
-     optimization level below 2.  */
-  if (optimize < 2 || optimize_insn_for_size_p ())
+     optimization level below 2 or if unused *cmp hasn't been DCEd.  */
+  if (optimize < 2 || optimize_insn_for_size_p () || target == const0_rtx)
     return NULL_RTX;
 
   gcc_checking_assert (fcode == BUILT_IN_STRCMP
@@ -7023,7 +7346,24 @@ expand_builtin (tree exp, rtx target, rtx subtarget, machine_mode mode,
      by ASan.  */
 
   enum built_in_function fcode = DECL_FUNCTION_CODE (fndecl);
-  if ((flag_sanitize & SANITIZE_ADDRESS) && asan_intercepted_p (fcode))
+  if (param_asan_kernel_mem_intrinsic_prefix
+      && sanitize_flags_p (SANITIZE_KERNEL_ADDRESS
+			   | SANITIZE_KERNEL_HWADDRESS))
+    switch (fcode)
+      {
+	rtx save_decl_rtl, ret;
+      case BUILT_IN_MEMCPY:
+      case BUILT_IN_MEMMOVE:
+      case BUILT_IN_MEMSET:
+	save_decl_rtl = DECL_RTL (fndecl);
+	DECL_RTL (fndecl) = asan_memfn_rtl (fndecl);
+	ret = expand_call (exp, target, ignore);
+	DECL_RTL (fndecl) = save_decl_rtl;
+	return ret;
+      default:
+	break;
+      }
+  if (sanitize_flags_p (SANITIZE_ADDRESS) && asan_intercepted_p (fcode))
     return expand_call (exp, target, ignore);
 
   /* When not optimizing, generate calls to library functions for a certain
@@ -7095,6 +7435,7 @@ expand_builtin (tree exp, rtx target, rtx subtarget, machine_mode mode,
       /* Just do a normal library call if we were unable to fold
 	 the values.  */
     CASE_FLT_FN (BUILT_IN_CABS):
+    CASE_FLT_FN_FLOATN_NX (BUILT_IN_CABS):
       break;
 
     CASE_FLT_FN (BUILT_IN_FMA):
@@ -7113,6 +7454,12 @@ expand_builtin (tree exp, rtx target, rtx subtarget, machine_mode mode,
     case BUILT_IN_ISFINITE:
     case BUILT_IN_ISNORMAL:
       target = expand_builtin_interclass_mathfn (exp, target);
+      if (target)
+	return target;
+      break;
+
+    case BUILT_IN_ISSIGNALING:
+      target = expand_builtin_issignaling (exp, target);
       if (target)
 	return target;
       break;
@@ -7469,15 +7816,7 @@ expand_builtin (tree exp, rtx target, rtx subtarget, machine_mode mode,
 	  tree label = TREE_OPERAND (CALL_EXPR_ARG (exp, 1), 0);
 	  rtx_insn *label_r = label_rtx (label);
 
-	  /* This is copied from the handling of non-local gotos.  */
 	  expand_builtin_setjmp_setup (buf_addr, label_r);
-	  nonlocal_goto_handler_labels
-	    = gen_rtx_INSN_LIST (VOIDmode, label_r,
-				 nonlocal_goto_handler_labels);
-	  /* ??? Do not let expand_label treat us as such since we would
-	     not want to be both on the list of non-local labels and on
-	     the list of forced labels.  */
-	  FORCED_LABEL (label) = 0;
 	  return const0_rtx;
 	}
       break;
@@ -7490,6 +7829,13 @@ expand_builtin (tree exp, rtx target, rtx subtarget, machine_mode mode,
 	  rtx_insn *label_r = label_rtx (label);
 
 	  expand_builtin_setjmp_receiver (label_r);
+	  nonlocal_goto_handler_labels
+	    = gen_rtx_INSN_LIST (VOIDmode, label_r,
+				 nonlocal_goto_handler_labels);
+	  /* ??? Do not let expand_label treat us as such since we would
+	     not want to be both on the list of non-local labels and on
+	     the list of forced labels.  */
+	  FORCED_LABEL (label) = 0;
 	  return const0_rtx;
 	}
       break;
@@ -7535,6 +7881,7 @@ expand_builtin (tree exp, rtx target, rtx subtarget, machine_mode mode,
       break;
 
     case BUILT_IN_TRAP:
+    case BUILT_IN_UNREACHABLE_TRAP:
       expand_builtin_trap ();
       return const0_rtx;
 
@@ -8393,8 +8740,6 @@ fold_builtin_strlen (location_t loc, tree expr, tree type, tree arg)
 static tree
 fold_builtin_inf (location_t loc, tree type, int warn)
 {
-  REAL_VALUE_TYPE real;
-
   /* __builtin_inff is intended to be usable to define INFINITY on all
      targets.  If an infinity is not available, INFINITY expands "to a
      positive constant of type float that overflows at translation
@@ -8405,8 +8750,7 @@ fold_builtin_inf (location_t loc, tree type, int warn)
   if (!MODE_HAS_INFINITIES (TYPE_MODE (type)) && warn)
     pedwarn (loc, 0, "target format does not support infinity");
 
-  real_inf (&real);
-  return build_real (type, real);
+  return build_real (type, dconstinf);
 }
 
 /* Fold function call to builtin sincos, sincosf, or sincosl.  Return
@@ -8627,7 +8971,7 @@ fold_builtin_frexp (location_t loc, tree arg0, tree arg1, tree rettype)
   if (TYPE_MAIN_VARIANT (TREE_TYPE (arg1)) == integer_type_node)
     {
       const REAL_VALUE_TYPE *const value = TREE_REAL_CST_PTR (arg0);
-      tree frac, exp;
+      tree frac, exp, res;
 
       switch (value->cl)
       {
@@ -8658,7 +9002,9 @@ fold_builtin_frexp (location_t loc, tree arg0, tree arg1, tree rettype)
       /* Create the COMPOUND_EXPR (*arg1 = trunc, frac). */
       arg1 = fold_build2_loc (loc, MODIFY_EXPR, rettype, arg1, exp);
       TREE_SIDE_EFFECTS (arg1) = 1;
-      return fold_build2_loc (loc, COMPOUND_EXPR, rettype, arg1, frac);
+      res = fold_build2_loc (loc, COMPOUND_EXPR, rettype, arg1, frac);
+      suppress_warning (res, OPT_Wunused_value);
+      return res;
     }
 
   return NULL_TREE;
@@ -8684,6 +9030,7 @@ fold_builtin_modf (location_t loc, tree arg0, tree arg1, tree rettype)
     {
       const REAL_VALUE_TYPE *const value = TREE_REAL_CST_PTR (arg0);
       REAL_VALUE_TYPE trunc, frac;
+      tree res;
 
       switch (value->cl)
       {
@@ -8713,8 +9060,10 @@ fold_builtin_modf (location_t loc, tree arg0, tree arg1, tree rettype)
       arg1 = fold_build2_loc (loc, MODIFY_EXPR, rettype, arg1,
 			  build_real (rettype, trunc));
       TREE_SIDE_EFFECTS (arg1) = 1;
-      return fold_build2_loc (loc, COMPOUND_EXPR, rettype, arg1,
-			  build_real (rettype, frac));
+      res = fold_build2_loc (loc, COMPOUND_EXPR, rettype, arg1,
+			     build_real (rettype, frac));
+      suppress_warning (res, OPT_Wunused_value);
+      return res;
     }
 
   return NULL_TREE;
@@ -8956,6 +9305,17 @@ fold_builtin_classify (location_t loc, tree fndecl, tree arg, int builtin_index)
       arg = builtin_save_expr (arg);
       return fold_build2_loc (loc, UNORDERED_EXPR, type, arg, arg);
 
+    case BUILT_IN_ISSIGNALING:
+      /* Folding to true for REAL_CST is done in fold_const_call_ss.
+	 Don't use tree_expr_signaling_nan_p (arg) -> integer_one_node
+	 and !tree_expr_maybe_signaling_nan_p (arg) -> integer_zero_node
+	 here, so there is some possibility of __builtin_issignaling working
+	 without -fsignaling-nans.  Especially when -fno-signaling-nans is
+	 the default.  */
+      if (!tree_expr_maybe_nan_p (arg))
+	return omit_one_operand_loc (loc, type, integer_zero_node, arg);
+      return NULL_TREE;
+
     default:
       gcc_unreachable ();
     }
@@ -9017,9 +9377,8 @@ fold_builtin_fpclassify (location_t loc, tree *args, int nargs)
 
   if (tree_expr_maybe_infinite_p (arg))
     {
-      real_inf (&r);
       tmp = fold_build2_loc (loc, EQ_EXPR, integer_type_node, arg,
-			 build_real (type, r));
+			 build_real (type, dconstinf));
       res = fold_build3_loc (loc, COND_EXPR, integer_type_node, tmp,
 			 fp_infinite, res);
     }
@@ -9206,10 +9565,10 @@ fold_builtin_FILE (location_t loc)
 	 __FILE__ macro so it appears appropriate to use the same file prefix
 	 mappings.  */
       fname = remap_macro_filename (fname);
-    return build_string_literal (strlen (fname) + 1, fname);
+      return build_string_literal (fname);
     }
 
-  return build_string_literal (1, "");
+  return build_string_literal ("");
 }
 
 /* Fold a call to __builtin_FUNCTION to a constant string.  */
@@ -9222,7 +9581,7 @@ fold_builtin_FUNCTION ()
   if (current_function_decl)
     name = lang_hooks.decl_printable_name (current_function_decl, 0);
 
-  return build_string_literal (strlen (name) + 1, name);
+  return build_string_literal (name);
 }
 
 /* Fold a call to __builtin_LINE to an integer constant.  */
@@ -9265,6 +9624,12 @@ fold_builtin_0 (location_t loc, tree fndecl)
 
     case BUILT_IN_CLASSIFY_TYPE:
       return fold_builtin_classify_type (NULL_TREE);
+
+    case BUILT_IN_UNREACHABLE:
+      /* Rewrite any explicit calls to __builtin_unreachable.  */
+      if (sanitize_flags_p (SANITIZE_UNREACHABLE))
+	return build_builtin_unreachable (loc);
+      break;
 
     default:
       break;
@@ -9340,6 +9705,7 @@ fold_builtin_1 (location_t loc, tree expr, tree fndecl, tree arg0)
     break;
 
     CASE_FLT_FN (BUILT_IN_CARG):
+    CASE_FLT_FN_FLOATN_NX (BUILT_IN_CARG):
       return fold_builtin_carg (loc, arg0, type);
 
     case BUILT_IN_ISASCII:
@@ -9385,6 +9751,9 @@ fold_builtin_1 (location_t loc, tree expr, tree fndecl, tree arg0)
     case BUILT_IN_ISNAND64:
     case BUILT_IN_ISNAND128:
       return fold_builtin_classify (loc, fndecl, arg0, BUILT_IN_ISNAN);
+
+    case BUILT_IN_ISSIGNALING:
+      return fold_builtin_classify (loc, fndecl, arg0, BUILT_IN_ISSIGNALING);
 
     case BUILT_IN_FREE:
       if (integer_zerop (arg0))
@@ -10669,8 +11038,10 @@ do_mpfr_remquo (tree arg0, tree arg1, tree arg_quo)
 						  integer_quo));
 		  TREE_SIDE_EFFECTS (result_quo) = 1;
 		  /* Combine the quo assignment with the rem.  */
-		  result = non_lvalue (fold_build2 (COMPOUND_EXPR, type,
-						    result_quo, result_rem));
+		  result = fold_build2 (COMPOUND_EXPR, type,
+					result_quo, result_rem);
+		  suppress_warning (result, OPT_Wunused_value);
+		  result = non_lvalue (result);
 		}
 	    }
 	}
@@ -10977,6 +11348,7 @@ is_inexpensive_builtin (tree decl)
       case BUILT_IN_VA_ARG_PACK_LEN:
       case BUILT_IN_VA_COPY:
       case BUILT_IN_TRAP:
+      case BUILT_IN_UNREACHABLE_TRAP:
       case BUILT_IN_SAVEREGS:
       case BUILT_IN_POPCOUNTL:
       case BUILT_IN_POPCOUNTLL:
@@ -11024,27 +11396,43 @@ builtin_with_linkage_p (tree decl)
     switch (DECL_FUNCTION_CODE (decl))
     {
       CASE_FLT_FN (BUILT_IN_ACOS):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_ACOS):
       CASE_FLT_FN (BUILT_IN_ACOSH):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_ACOSH):
       CASE_FLT_FN (BUILT_IN_ASIN):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_ASIN):
       CASE_FLT_FN (BUILT_IN_ASINH):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_ASINH):
       CASE_FLT_FN (BUILT_IN_ATAN):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_ATAN):
       CASE_FLT_FN (BUILT_IN_ATANH):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_ATANH):
       CASE_FLT_FN (BUILT_IN_ATAN2):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_ATAN2):
       CASE_FLT_FN (BUILT_IN_CBRT):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_CBRT):
       CASE_FLT_FN (BUILT_IN_CEIL):
       CASE_FLT_FN_FLOATN_NX (BUILT_IN_CEIL):
       CASE_FLT_FN (BUILT_IN_COPYSIGN):
       CASE_FLT_FN_FLOATN_NX (BUILT_IN_COPYSIGN):
       CASE_FLT_FN (BUILT_IN_COS):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_COS):
       CASE_FLT_FN (BUILT_IN_COSH):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_COSH):
       CASE_FLT_FN (BUILT_IN_ERF):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_ERF):
       CASE_FLT_FN (BUILT_IN_ERFC):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_ERFC):
       CASE_FLT_FN (BUILT_IN_EXP):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_EXP):
       CASE_FLT_FN (BUILT_IN_EXP2):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_EXP2):
       CASE_FLT_FN (BUILT_IN_EXPM1):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_EXPM1):
       CASE_FLT_FN (BUILT_IN_FABS):
       CASE_FLT_FN_FLOATN_NX (BUILT_IN_FABS):
       CASE_FLT_FN (BUILT_IN_FDIM):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_FDIM):
       CASE_FLT_FN (BUILT_IN_FLOOR):
       CASE_FLT_FN_FLOATN_NX (BUILT_IN_FLOOR):
       CASE_FLT_FN (BUILT_IN_FMA):
@@ -11054,43 +11442,71 @@ builtin_with_linkage_p (tree decl)
       CASE_FLT_FN (BUILT_IN_FMIN):
       CASE_FLT_FN_FLOATN_NX (BUILT_IN_FMIN):
       CASE_FLT_FN (BUILT_IN_FMOD):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_FMOD):
       CASE_FLT_FN (BUILT_IN_FREXP):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_FREXP):
       CASE_FLT_FN (BUILT_IN_HYPOT):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_HYPOT):
       CASE_FLT_FN (BUILT_IN_ILOGB):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_ILOGB):
       CASE_FLT_FN (BUILT_IN_LDEXP):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_LDEXP):
       CASE_FLT_FN (BUILT_IN_LGAMMA):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_LGAMMA):
       CASE_FLT_FN (BUILT_IN_LLRINT):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_LLRINT):
       CASE_FLT_FN (BUILT_IN_LLROUND):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_LLROUND):
       CASE_FLT_FN (BUILT_IN_LOG):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_LOG):
       CASE_FLT_FN (BUILT_IN_LOG10):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_LOG10):
       CASE_FLT_FN (BUILT_IN_LOG1P):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_LOG1P):
       CASE_FLT_FN (BUILT_IN_LOG2):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_LOG2):
       CASE_FLT_FN (BUILT_IN_LOGB):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_LOGB):
       CASE_FLT_FN (BUILT_IN_LRINT):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_LRINT):
       CASE_FLT_FN (BUILT_IN_LROUND):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_LROUND):
       CASE_FLT_FN (BUILT_IN_MODF):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_MODF):
       CASE_FLT_FN (BUILT_IN_NAN):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_NAN):
       CASE_FLT_FN (BUILT_IN_NEARBYINT):
       CASE_FLT_FN_FLOATN_NX (BUILT_IN_NEARBYINT):
       CASE_FLT_FN (BUILT_IN_NEXTAFTER):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_NEXTAFTER):
       CASE_FLT_FN (BUILT_IN_NEXTTOWARD):
       CASE_FLT_FN (BUILT_IN_POW):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_POW):
       CASE_FLT_FN (BUILT_IN_REMAINDER):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_REMAINDER):
       CASE_FLT_FN (BUILT_IN_REMQUO):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_REMQUO):
       CASE_FLT_FN (BUILT_IN_RINT):
       CASE_FLT_FN_FLOATN_NX (BUILT_IN_RINT):
       CASE_FLT_FN (BUILT_IN_ROUND):
       CASE_FLT_FN_FLOATN_NX (BUILT_IN_ROUND):
       CASE_FLT_FN (BUILT_IN_SCALBLN):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_SCALBLN):
       CASE_FLT_FN (BUILT_IN_SCALBN):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_SCALBN):
       CASE_FLT_FN (BUILT_IN_SIN):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_SIN):
       CASE_FLT_FN (BUILT_IN_SINH):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_SINH):
       CASE_FLT_FN (BUILT_IN_SINCOS):
       CASE_FLT_FN (BUILT_IN_SQRT):
       CASE_FLT_FN_FLOATN_NX (BUILT_IN_SQRT):
       CASE_FLT_FN (BUILT_IN_TAN):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_TAN):
       CASE_FLT_FN (BUILT_IN_TANH):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_TANH):
       CASE_FLT_FN (BUILT_IN_TGAMMA):
+      CASE_FLT_FN_FLOATN_NX (BUILT_IN_TGAMMA):
       CASE_FLT_FN (BUILT_IN_TRUNC):
       CASE_FLT_FN_FLOATN_NX (BUILT_IN_TRUNC):
 	return true;

@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 2014-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 2014-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -856,7 +856,7 @@ package body Exp_Unst is
                      S : Entity_Id := E;
 
                   begin
-                     for J in reverse 1 .. L  - 1 loop
+                     for J in reverse 1 .. L - 1 loop
                         S := Enclosing_Subprogram (S);
                         Subps.Table (Subp_Index (S)).Reachable := True;
                      end loop;
@@ -938,7 +938,7 @@ package body Exp_Unst is
                --  subprogram. As above, the called entity must be local and
                --  not imported.
 
-               when N_Handled_Sequence_Of_Statements =>
+               when N_Handled_Sequence_Of_Statements | N_Block_Statement =>
                   if Present (At_End_Proc (N))
                     and then Scope_Within (Entity (At_End_Proc (N)), Subp)
                     and then not Is_Imported (Entity (At_End_Proc (N)))
@@ -1183,6 +1183,15 @@ package body Exp_Unst is
                   --  Make new entry in subprogram table if not already made
 
                   Register_Subprogram (Ent, N);
+
+                  --  Record a call from an At_End_Proc
+
+                  if Present (At_End_Proc (N))
+                    and then Scope_Within (Entity (At_End_Proc (N)), Subp)
+                    and then not Is_Imported (Entity (At_End_Proc (N)))
+                  then
+                     Append_Unique_Call ((N, Ent, Entity (At_End_Proc (N))));
+                  end if;
 
                   --  We make a recursive call to scan the subprogram body, so
                   --  that we can save and restore Current_Subprogram.
@@ -2216,7 +2225,7 @@ package body Exp_Unst is
 
             if No (UPJ.Ref)
               or else not Is_Entity_Name (UPJ.Ref)
-              or else not Present (Entity (UPJ.Ref))
+              or else No (Entity (UPJ.Ref))
               or else not Opt.Generate_C_Code
             then
                goto Continue;
@@ -2583,6 +2592,8 @@ package body Exp_Unst is
                  and then Is_Library_Level_Entity (Spec_Id)
                then
                   Unnest_Subprogram (Spec_Id, N);
+               else
+                  return Skip;
                end if;
             end;
 

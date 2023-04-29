@@ -1,5 +1,5 @@
 /* Definitions of target machine for GNU compiler, for IBM RS/6000.
-   Copyright (C) 2000-2022 Free Software Foundation, Inc.
+   Copyright (C) 2000-2023 Free Software Foundation, Inc.
    Contributed by Richard Kenner (kenner@vlsi1.ultra.nyu.edu)
 
    This file is part of GCC.
@@ -35,6 +35,9 @@ extern bool xxspltib_constant_p (rtx, machine_mode, int *, int *);
 extern int vspltis_shifted (rtx);
 extern HOST_WIDE_INT const_vector_elt_as_int (rtx, unsigned int);
 extern bool macho_lo_sum_memory_operand (rtx, machine_mode);
+extern bool can_be_rotated_to_lowbits (unsigned HOST_WIDE_INT, int, int *);
+extern bool can_be_rotated_to_positive_16bits (HOST_WIDE_INT);
+extern bool can_be_rotated_to_negative_15bits (HOST_WIDE_INT);
 extern int num_insns_constant (rtx, machine_mode);
 extern int small_data_operand (rtx, machine_mode);
 extern bool mem_operand_gpr (rtx, machine_mode);
@@ -291,7 +294,7 @@ extern int rs6000_trampoline_size (void);
 extern alias_set_type get_TOC_alias_set (void);
 extern void rs6000_emit_prologue (void);
 extern void rs6000_emit_load_toc_table (int);
-extern unsigned int rs6000_dbx_register_number (unsigned int, unsigned int);
+extern unsigned int rs6000_debugger_regno (unsigned int, unsigned int);
 extern void rs6000_emit_epilogue (enum epilogue_type);
 extern void rs6000_expand_split_stack_prologue (void);
 extern void rs6000_split_stack_space_check (rtx, rtx);
@@ -320,13 +323,8 @@ extern void rs6000_cpu_cpp_builtins (struct cpp_reader *);
 extern bool rs6000_pragma_target_parse (tree, tree);
 #endif
 extern void rs6000_activate_target_options (tree new_tree);
-extern void rs6000_target_modify_macros (bool, HOST_WIDE_INT, HOST_WIDE_INT);
-extern void (*rs6000_target_modify_macros_ptr) (bool, HOST_WIDE_INT,
-						HOST_WIDE_INT);
-
-/* Declare functions in rs6000-d.cc  */
-extern void rs6000_d_target_versions (void);
-extern void rs6000_d_register_target_info (void);
+extern void rs6000_target_modify_macros (bool, HOST_WIDE_INT);
+extern void (*rs6000_target_modify_macros_ptr) (bool, HOST_WIDE_INT);
 
 #ifdef NO_DOLLAR_IN_LABEL
 const char * rs6000_xcoff_strip_dollar (const char *);
@@ -349,4 +347,6 @@ extern rtx rs6000_gen_lvx (enum machine_mode, rtx, rtx);
 extern rtx rs6000_gen_stvx (enum machine_mode, rtx, rtx);
 
 extern void rs6000_emit_xxspltidp_v2df (rtx, long value);
+extern gimple *currently_expanding_gimple_stmt;
+extern bool rs6000_opaque_type_invalid_use_p (gimple *);
 #endif  /* rs6000-protos.h */

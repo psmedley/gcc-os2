@@ -1,5 +1,5 @@
 /* Target code for NVPTX.
-   Copyright (C) 2014-2022 Free Software Foundation, Inc.
+   Copyright (C) 2014-2023 Free Software Foundation, Inc.
    Contributed by Bernd Schmidt <bernds@codesourcery.com>
 
    This file is part of GCC.
@@ -52,7 +52,6 @@
 #include "tm-preds.h"
 #include "tm-constrs.h"
 #include "langhooks.h"
-#include "dbxout.h"
 #include "cfgrtl.h"
 #include "gimple.h"
 #include "stor-layout.h"
@@ -334,6 +333,10 @@ static void
 nvptx_option_override (void)
 {
   init_machine_status = nvptx_init_machine_status;
+
+  /* Via nvptx 'OPTION_DEFAULT_SPECS', '-misa' always appears on the command
+     line.  */
+  gcc_checking_assert (OPTION_SET_P (ptx_isa_option));
 
   handle_ptx_version_option ();
 
@@ -989,15 +992,15 @@ write_var_marker (FILE *file, bool is_defn, bool globalize, const char *name)
 
 static void
 write_fn_proto_1 (std::stringstream &s, bool is_defn,
-		  const char *name, const_tree decl)
+		  const char *name, const_tree decl, bool force_public)
 {
   if (lookup_attribute ("alias", DECL_ATTRIBUTES (decl)) == NULL)
-    write_fn_marker (s, is_defn, TREE_PUBLIC (decl), name);
+    write_fn_marker (s, is_defn, TREE_PUBLIC (decl) || force_public, name);
 
   /* PTX declaration.  */
   if (DECL_EXTERNAL (decl))
     s << ".extern ";
-  else if (TREE_PUBLIC (decl))
+  else if (TREE_PUBLIC (decl) || force_public)
     s << (DECL_WEAK (decl) ? ".weak " : ".visible ");
   s << (write_as_kernel (DECL_ATTRIBUTES (decl)) ? ".entry " : ".func ");
 
@@ -1086,7 +1089,7 @@ write_fn_proto_1 (std::stringstream &s, bool is_defn,
 
 static void
 write_fn_proto (std::stringstream &s, bool is_defn,
-		const char *name, const_tree decl)
+		const char *name, const_tree decl, bool force_public=false)
 {
   const char *replacement = nvptx_name_replacement (name);
   char *replaced_dots = NULL;
@@ -1103,9 +1106,9 @@ write_fn_proto (std::stringstream &s, bool is_defn,
 
   if (is_defn)
     /* Emit a declaration.  The PTX assembler gets upset without it.  */
-    write_fn_proto_1 (s, false, name, decl);
+    write_fn_proto_1 (s, false, name, decl, force_public);
 
-  write_fn_proto_1 (s, is_defn, name, decl);
+  write_fn_proto_1 (s, is_defn, name, decl, force_public);
 
   if (replaced_dots)
     XDELETE (replaced_dots);
@@ -1481,7 +1484,13 @@ nvptx_declare_function_name (FILE *file, const char *name, const_tree decl)
   tree fntype = TREE_TYPE (decl);
   tree result_type = TREE_TYPE (fntype);
   int argno = 0;
+  bool force_public = false;
 
+  /* For reverse-offload 'nohost' functions: In order to be collectable in
+     '$offload_func_table', cf. mkoffload.cc, the function has to be visible. */
+  if (lookup_attribute ("omp target device_ancestor_nohost",
+			DECL_ATTRIBUTES (decl)))
+    force_public = true;
   if (lookup_attribute ("omp target entrypoint", DECL_ATTRIBUTES (decl))
       && !lookup_attribute ("oacc function", DECL_ATTRIBUTES (decl)))
     {
@@ -1493,7 +1502,7 @@ nvptx_declare_function_name (FILE *file, const char *name, const_tree decl)
   /* We construct the initial part of the function into a string
      stream, in order to share the prototype writing code.  */
   std::stringstream s;
-  write_fn_proto (s, true, name, decl);
+  write_fn_proto (s, true, name, decl, force_public);
   s << "{\n";
 
   bool return_in_mem = write_return_type (s, false, result_type);
@@ -2874,6 +2883,7 @@ nvptx_mem_maybe_shared_p (const_rtx x)
    t -- print a type opcode suffix, promoting QImode to 32 bits
    T -- print a type size in bits
    u -- print a type opcode suffix without promotions.
+   p -- print a '!' for constant 0.
    x -- print a destination operand that may also be a bit bucket.  */
 
 static void
@@ -3006,6 +3016,11 @@ nvptx_print_operand (FILE *file, rtx x, int code)
     case 'J':
       fprintf (file, "@!");
       goto common;
+
+    case 'p':
+      if (INTVAL (x) == 0)
+	fprintf (file, "!");
+      break;
 
     case 'c':
       mode = GET_MODE (XEXP (x, 0));
@@ -6146,8 +6161,89 @@ enum nvptx_builtins
   NVPTX_BUILTIN_CMP_SWAPLL,
   NVPTX_BUILTIN_MEMBAR_GL,
   NVPTX_BUILTIN_MEMBAR_CTA,
+  NVPTX_BUILTIN_BAR_RED_AND,
+  NVPTX_BUILTIN_BAR_RED_OR,
+  NVPTX_BUILTIN_BAR_RED_POPC,
   NVPTX_BUILTIN_MAX
 };
+
+/* Expander for 'bar.red' instruction builtins.  */
+
+static rtx
+nvptx_expand_bar_red (tree exp, rtx target,
+		      machine_mode ARG_UNUSED (m), int ARG_UNUSED (ignore))
+{
+  int code = DECL_MD_FUNCTION_CODE (TREE_OPERAND (CALL_EXPR_FN (exp), 0));
+  machine_mode mode = TYPE_MODE (TREE_TYPE (exp));
+
+  if (!target)
+    target = gen_reg_rtx (mode);
+
+  rtx pred, dst;
+  rtx bar = expand_expr (CALL_EXPR_ARG (exp, 0),
+			 NULL_RTX, SImode, EXPAND_NORMAL);
+  rtx nthr = expand_expr (CALL_EXPR_ARG (exp, 1),
+			  NULL_RTX, SImode, EXPAND_NORMAL);
+  rtx cpl = expand_expr (CALL_EXPR_ARG (exp, 2),
+			 NULL_RTX, SImode, EXPAND_NORMAL);
+  rtx redop = expand_expr (CALL_EXPR_ARG (exp, 3),
+			   NULL_RTX, SImode, EXPAND_NORMAL);
+  if (CONST_INT_P (bar))
+    {
+      if (INTVAL (bar) < 0 || INTVAL (bar) > 15)
+	{
+	  error_at (EXPR_LOCATION (exp),
+		    "barrier value must be within [0,15]");
+	  return const0_rtx;
+	}
+    }
+  else if (!REG_P (bar))
+    bar = copy_to_mode_reg (SImode, bar);
+
+  if (!CONST_INT_P (nthr) && !REG_P (nthr))
+    nthr = copy_to_mode_reg (SImode, nthr);
+
+  if (!CONST_INT_P (cpl))
+    {
+      error_at (EXPR_LOCATION (exp),
+		"complement argument must be constant");
+      return const0_rtx;
+    }
+
+  pred = gen_reg_rtx (BImode);
+  if (!REG_P (redop))
+    redop = copy_to_mode_reg (SImode, redop);
+  emit_insn (gen_rtx_SET (pred, gen_rtx_NE (BImode, redop, GEN_INT (0))));
+  redop = pred;
+
+  rtx pat;
+  switch (code)
+    {
+    case NVPTX_BUILTIN_BAR_RED_AND:
+      dst = gen_reg_rtx (BImode);
+      pat = gen_nvptx_barred_and (dst, bar, nthr, cpl, redop);
+      break;
+    case NVPTX_BUILTIN_BAR_RED_OR:
+      dst = gen_reg_rtx (BImode);
+      pat = gen_nvptx_barred_or (dst, bar, nthr, cpl, redop);
+      break;
+    case NVPTX_BUILTIN_BAR_RED_POPC:
+      dst = gen_reg_rtx (SImode);
+      pat = gen_nvptx_barred_popc (dst, bar, nthr, cpl, redop);
+      break;
+    default:
+      gcc_unreachable ();
+    }
+  emit_insn (pat);
+  if (GET_MODE (dst) == BImode)
+    {
+      rtx tmp = gen_reg_rtx (mode);
+      emit_insn (gen_rtx_SET (tmp, gen_rtx_NE (mode, dst, GEN_INT (0))));
+      dst = tmp;
+    }
+  emit_move_insn (target, dst);
+  return target;
+}
 
 static GTY(()) tree nvptx_builtin_decls[NVPTX_BUILTIN_MAX];
 
@@ -6188,6 +6284,13 @@ nvptx_init_builtins (void)
   DEF (CMP_SWAPLL, "cmp_swapll", (LLUINT, PTRVOID, LLUINT, LLUINT, NULL_TREE));
   DEF (MEMBAR_GL, "membar_gl", (VOID, VOID, NULL_TREE));
   DEF (MEMBAR_CTA, "membar_cta", (VOID, VOID, NULL_TREE));
+
+  DEF (BAR_RED_AND, "bar_red_and",
+       (UINT, UINT, UINT, UINT, UINT, NULL_TREE));
+  DEF (BAR_RED_OR, "bar_red_or",
+       (UINT, UINT, UINT, UINT, UINT, NULL_TREE));
+  DEF (BAR_RED_POPC, "bar_red_popc",
+       (UINT, UINT, UINT, UINT, UINT, NULL_TREE));
 
 #undef DEF
 #undef ST
@@ -6230,6 +6333,11 @@ nvptx_expand_builtin (tree exp, rtx target, rtx ARG_UNUSED (subtarget),
     case NVPTX_BUILTIN_MEMBAR_CTA:
       emit_insn (gen_nvptx_membar_cta ());
       return NULL_RTX;
+
+    case NVPTX_BUILTIN_BAR_RED_AND:
+    case NVPTX_BUILTIN_BAR_RED_OR:
+    case NVPTX_BUILTIN_BAR_RED_POPC:
+      return nvptx_expand_bar_red (exp, target, mode, ignore);
 
     default: gcc_unreachable ();
     }
@@ -7034,7 +7142,7 @@ nvptx_goacc_reduction_fini (gcall *call, offload_attrs *oa)
   enum tree_code op
     = (enum tree_code)TREE_INT_CST_LOW (gimple_call_arg (call, 4));
   gimple_seq seq = NULL;
-  tree r = NULL_TREE;;
+  tree r = NULL_TREE;
 
   push_gimplify_context (true);
 

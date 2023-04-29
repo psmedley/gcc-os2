@@ -1,6 +1,6 @@
 
 /* Compiler implementation of the D programming language
- * Copyright (C) 1999-2022 by The D Language Foundation, All Rights Reserved
+ * Copyright (C) 1999-2023 by The D Language Foundation, All Rights Reserved
  * written by Walter Bright
  * https://www.digitalmars.com
  * Distributed under the Boost Software License, Version 1.0.
@@ -72,6 +72,7 @@ class ExpressionDsymbol;
 class AliasAssign;
 class OverloadSet;
 class StaticAssert;
+class StaticIfDeclaration;
 struct AA;
 #ifdef IN_GCC
 typedef union tree_node Symbol;
@@ -85,6 +86,13 @@ struct Ungag
 
     Ungag(unsigned old) : oldgag(old) {}
     ~Ungag() { global.gag = oldgag; }
+};
+
+enum class ThreeState : uint8_t
+{
+    none,         // value not yet computed
+    no,           // value is false
+    yes,          // value is true
 };
 
 void dsymbolSemantic(Dsymbol *dsym, Scope *sc);
@@ -167,29 +175,35 @@ struct FieldState
     bool inFlight;
 };
 
+struct DsymbolAttributes;
+
 class Dsymbol : public ASTNode
 {
 public:
     Identifier *ident;
     Dsymbol *parent;
-    /// C++ namespace this symbol belongs to
-    CPPNamespaceDeclaration *namespace_;
     Symbol *csym;               // symbol for code generator
     Loc loc;                    // where defined
     Scope *_scope;               // !=NULL means context to use for semantic()
     const utf8_t *prettystring;
+private:
+    DsymbolAttributes* atts;
+public:
     bool errors;                // this symbol failed to pass semantic()
     PASS semanticRun;
     unsigned short localNum;        // perturb mangled name to avoid collisions with those in FuncDeclaration.localsymtab
-    DeprecatedDeclaration *depdecl; // customized deprecation message
-    UserAttributeDeclaration *userAttribDecl;   // user defined attributes
-
     static Dsymbol *create(Identifier *);
-    const char *toChars() const;
+    const char *toChars() const override;
+    DeprecatedDeclaration* depdecl();
+    CPPNamespaceDeclaration* cppnamespace();
+    UserAttributeDeclaration* userAttribDecl();
+    DeprecatedDeclaration* depdecl(DeprecatedDeclaration* dd);
+    CPPNamespaceDeclaration* cppnamespace(CPPNamespaceDeclaration* ns);
+    UserAttributeDeclaration* userAttribDecl(UserAttributeDeclaration* uad);
     virtual const char *toPrettyCharsHelper(); // helper to print fully qualified (template) arguments
     Loc getLoc();
     const char *locToChars();
-    bool equals(const RootObject *o) const;
+    bool equals(const RootObject * const o) const override;
     bool isAnonymous() const;
     void error(const Loc &loc, const char *format, ...);
     void error(const char *format, ...);
@@ -211,7 +225,7 @@ public:
     Ungag ungagSpeculative();
 
     // kludge for template.isSymbol()
-    DYNCAST dyncast() const { return DYNCAST_DSYMBOL; }
+    DYNCAST dyncast() const override final { return DYNCAST_DSYMBOL; }
 
     virtual Identifier *getIdent();
     virtual const char *toPrettyChars(bool QualifyTypes = false);
@@ -244,7 +258,6 @@ public:
     virtual void setFieldOffset(AggregateDeclaration *ad, FieldState& fieldState, bool isunion);
     virtual bool hasPointers();
     virtual bool hasStaticCtorOrDtor();
-    virtual void addLocalClass(ClassDeclarations *) { }
     virtual void addObjcSymbols(ClassDeclarations *, ClassDeclarations *) { }
     virtual void checkCtorConstInit() { }
 
@@ -310,7 +323,8 @@ public:
     virtual OverloadSet *isOverloadSet() { return NULL; }
     virtual CompileDeclaration *isCompileDeclaration() { return NULL; }
     virtual StaticAssert *isStaticAssert() { return NULL; }
-    void accept(Visitor *v) { v->visit(this); }
+    virtual StaticIfDeclaration *isStaticIfDeclaration() { return NULL; }
+    void accept(Visitor *v) override { v->visit(this); }
 };
 
 // Dsymbol that generates a scope
@@ -329,89 +343,87 @@ private:
     BitArray accessiblePackages, privateAccessiblePackages;
 
 public:
-    ScopeDsymbol *syntaxCopy(Dsymbol *s);
-    Dsymbol *search(const Loc &loc, Identifier *ident, int flags = SearchLocalsOnly);
+    ScopeDsymbol *syntaxCopy(Dsymbol *s) override;
+    Dsymbol *search(const Loc &loc, Identifier *ident, int flags = SearchLocalsOnly) override;
     virtual void importScope(Dsymbol *s, Visibility visibility);
     virtual bool isPackageAccessible(Package *p, Visibility visibility, int flags = 0);
-    bool isforwardRef();
+    bool isforwardRef() override final;
     static void multiplyDefined(const Loc &loc, Dsymbol *s1, Dsymbol *s2);
-    const char *kind() const;
+    const char *kind() const override;
     FuncDeclaration *findGetMembers();
     virtual Dsymbol *symtabInsert(Dsymbol *s);
     virtual Dsymbol *symtabLookup(Dsymbol *s, Identifier *id);
-    bool hasStaticCtorOrDtor();
+    bool hasStaticCtorOrDtor() override;
 
-    ScopeDsymbol *isScopeDsymbol() { return this; }
-    void accept(Visitor *v) { v->visit(this); }
+    ScopeDsymbol *isScopeDsymbol() override final { return this; }
+    void accept(Visitor *v) override { v->visit(this); }
 };
 
 // With statement scope
 
-class WithScopeSymbol : public ScopeDsymbol
+class WithScopeSymbol final : public ScopeDsymbol
 {
 public:
     WithStatement *withstate;
 
-    Dsymbol *search(const Loc &loc, Identifier *ident, int flags = SearchLocalsOnly);
+    Dsymbol *search(const Loc &loc, Identifier *ident, int flags = SearchLocalsOnly) override;
 
-    WithScopeSymbol *isWithScopeSymbol() { return this; }
-    void accept(Visitor *v) { v->visit(this); }
+    WithScopeSymbol *isWithScopeSymbol() override { return this; }
+    void accept(Visitor *v) override { v->visit(this); }
 };
 
 // Array Index/Slice scope
 
-class ArrayScopeSymbol : public ScopeDsymbol
+class ArrayScopeSymbol final : public ScopeDsymbol
 {
 private:
     RootObject *arrayContent;
 public:
     Scope *sc;
 
-    Dsymbol *search(const Loc &loc, Identifier *ident, int flags = IgnoreNone);
+    Dsymbol *search(const Loc &loc, Identifier *ident, int flags = IgnoreNone) override;
 
-    ArrayScopeSymbol *isArrayScopeSymbol() { return this; }
-    void accept(Visitor *v) { v->visit(this); }
+    ArrayScopeSymbol *isArrayScopeSymbol() override { return this; }
+    void accept(Visitor *v) override { v->visit(this); }
 };
 
 // Overload Sets
 
-class OverloadSet : public Dsymbol
+class OverloadSet final : public Dsymbol
 {
 public:
     Dsymbols a;         // array of Dsymbols
 
     void push(Dsymbol *s);
-    OverloadSet *isOverloadSet() { return this; }
-    const char *kind() const;
-    void accept(Visitor *v) { v->visit(this); }
+    OverloadSet *isOverloadSet() override { return this; }
+    const char *kind() const override;
+    void accept(Visitor *v) override { v->visit(this); }
 };
 
 // Forwarding ScopeDsymbol
 
-class ForwardingScopeDsymbol : public ScopeDsymbol
+class ForwardingScopeDsymbol final : public ScopeDsymbol
 {
 public:
-    ScopeDsymbol *forward;
+    Dsymbol *symtabInsert(Dsymbol *s) override;
+    Dsymbol *symtabLookup(Dsymbol *s, Identifier *id) override;
+    void importScope(Dsymbol *s, Visibility visibility) override;
+    const char *kind() const override;
 
-    Dsymbol *symtabInsert(Dsymbol *s);
-    Dsymbol *symtabLookup(Dsymbol *s, Identifier *id);
-    void importScope(Dsymbol *s, Visibility visibility);
-    const char *kind() const;
-
-    ForwardingScopeDsymbol *isForwardingScopeDsymbol() { return this; }
+    ForwardingScopeDsymbol *isForwardingScopeDsymbol() override { return this; }
 };
 
-class ExpressionDsymbol : public Dsymbol
+class ExpressionDsymbol final : public Dsymbol
 {
 public:
     Expression *exp;
 
-    ExpressionDsymbol *isExpressionDsymbol() { return this; }
+    ExpressionDsymbol *isExpressionDsymbol() override { return this; }
 };
 
 // Table of Dsymbol's
 
-class DsymbolTable : public RootObject
+class DsymbolTable final : public RootObject
 {
 public:
     AA *tab;

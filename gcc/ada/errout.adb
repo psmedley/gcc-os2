@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -51,7 +51,9 @@ with Sinfo.Utils;    use Sinfo.Utils;
 with Snames;         use Snames;
 with Stand;          use Stand;
 with Stylesw;        use Stylesw;
+with System.OS_Lib;
 with Uname;          use Uname;
+with Warnsw;
 
 package body Errout is
 
@@ -62,13 +64,6 @@ package body Errout is
 
    Finalize_Called : Boolean := False;
    --  Set True if the Finalize routine has been called
-
-   Record_Compilation_Errors : Boolean := False;
-   --  Record that a compilation error was witnessed during a given phase of
-   --  analysis for gnat2why. This is needed as Warning_Mode is modified twice
-   --  in gnat2why, hence Erroutc.Compilation_Errors can only return a suitable
-   --  value for each phase of analysis separately. This is updated at each
-   --  call to Compilation_Errors.
 
    Warn_On_Instance : Boolean;
    --  Flag set true for warning message to be posted on instance
@@ -251,17 +246,8 @@ package body Errout is
    begin
       if not Finalize_Called then
          raise Program_Error;
-
-      --  Record that a compilation error was witnessed during a given phase of
-      --  analysis for gnat2why. This is needed as Warning_Mode is modified
-      --  twice in gnat2why, hence Erroutc.Compilation_Errors can only return a
-      --  suitable value for each phase of analysis separately.
-
       else
-         Record_Compilation_Errors :=
-           Record_Compilation_Errors or else Erroutc.Compilation_Errors;
-
-         return Record_Compilation_Errors;
+         return Erroutc.Compilation_Errors;
       end if;
    end Compilation_Errors;
 
@@ -896,12 +882,41 @@ package body Errout is
    -- Error_Msg_GNAT_Extension --
    ------------------------------
 
-   procedure Error_Msg_GNAT_Extension (Extension : String) is
-      Loc : constant Source_Ptr := Token_Ptr;
+   procedure Error_Msg_GNAT_Extension
+     (Extension : String;
+      Loc : Source_Ptr;
+      Is_Core_Extension : Boolean := False)
+   is
    begin
-      if not Extensions_Allowed then
-         Error_Msg (Extension & " is a 'G'N'A'T specific extension", Loc);
-         Error_Msg ("\unit must be compiled with -gnatX switch", Loc);
+      if (if Is_Core_Extension
+           then Core_Extensions_Allowed
+           else All_Extensions_Allowed)
+      then
+         return;
+      end if;
+
+      Error_Msg (Extension & " is a 'G'N'A'T-specific extension", Loc);
+
+      if No (Ada_Version_Pragma) then
+         if Is_Core_Extension then
+            Error_Msg
+              ("\unit must be compiled with -gnatX '[or -gnatX0'] " &
+               "or use pragma Extensions_Allowed (On) '[or All']", Loc);
+         else
+            Error_Msg
+              ("\unit must be compiled with -gnatX0 " &
+               "or use pragma Extensions_Allowed (All)", Loc);
+         end if;
+      else
+         Error_Msg_Sloc := Sloc (Ada_Version_Pragma);
+         Error_Msg ("\incompatible with Ada version set#", Loc);
+         if Is_Core_Extension then
+            Error_Msg
+              ("\must use pragma Extensions_Allowed (On) '[or All']", Loc);
+         else
+            Error_Msg
+              ("\must use pragma Extensions_Allowed (All)", Loc);
+         end if;
       end if;
    end Error_Msg_GNAT_Extension;
 
@@ -973,14 +988,14 @@ package body Errout is
          --  after fixing the error, the use clause no longer looks like it was
          --  unused.
 
-         Check_Unreferenced := False;
-         Check_Unreferenced_Formals := False;
+         Warnsw.Check_Unreferenced := False;
+         Warnsw.Check_Unreferenced_Formals := False;
       end Handle_Serious_Error;
 
    --  Start of processing for Error_Msg_Internal
 
    begin
-      --  Detect common mistake of prefixing or suffing the message with a
+      --  Detect common mistake of prefixing or suffixing the message with a
       --  space character.
 
       pragma Assert (Msg (Msg'First) /= ' ' and then Msg (Msg'Last) /= ' ');
@@ -1199,7 +1214,7 @@ package body Errout is
           Next                => No_Error_Msg,
           Prev                => No_Error_Msg,
           Sptr                => Span,
-          Optr                => Optr,
+          Optr                => Opan,
           Insertion_Sloc      => (if Has_Insertion_Line then Error_Msg_Sloc
                                   else No_Location),
           Sfile               => Get_Source_File_Index (Sptr),
@@ -1268,7 +1283,7 @@ package body Errout is
                        or else
                           (Sptr = Errors.Table (Last_Error_Msg).Sptr.Ptr
                              and then
-                               Optr > Errors.Table (Last_Error_Msg).Optr))
+                               Optr > Errors.Table (Last_Error_Msg).Optr.Ptr))
          then
             Prev_Msg := Last_Error_Msg;
             Next_Msg := No_Error_Msg;
@@ -1286,7 +1301,8 @@ package body Errout is
                then
                   exit when Sptr < Errors.Table (Next_Msg).Sptr.Ptr
                     or else (Sptr = Errors.Table (Next_Msg).Sptr.Ptr
-                              and then Optr < Errors.Table (Next_Msg).Optr);
+                              and then
+                             Optr < Errors.Table (Next_Msg).Optr.Ptr);
                end if;
 
                Prev_Msg := Next_Msg;
@@ -1665,8 +1681,8 @@ package body Errout is
                    (Warning_Specifically_Suppressed (CE.Sptr.Ptr, CE.Text, Tag)
                                                                 /= No_String
                       or else
-                    Warning_Specifically_Suppressed (CE.Optr, CE.Text, Tag) /=
-                                                                   No_String)
+                    Warning_Specifically_Suppressed (CE.Optr.Ptr, CE.Text, Tag)
+                                                                /= No_String)
             then
                Delete_Warning (Cur);
 
@@ -1906,7 +1922,10 @@ package body Errout is
 
       --  Reset counts for warnings
 
-      Reset_Warnings;
+      Warnings_Treated_As_Errors := 0;
+      Warnings_Detected := 0;
+      Warning_Info_Messages := 0;
+      Warnings_As_Errors_Count := 0;
 
       --  Initialize warnings tables
 
@@ -2075,6 +2094,7 @@ package body Errout is
       --  Return True if E is a continuation message.
 
       procedure Write_JSON_Escaped_String (Str : String_Ptr);
+      procedure Write_JSON_Escaped_String (Str : String);
       --  Write each character of Str, taking care of preceding each quote and
       --  backslash with a backslash. Note that this escaping differs from what
       --  GCC does.
@@ -2088,11 +2108,14 @@ package body Errout is
       --  Write Sptr as a JSON location, an object containing a file attribute,
       --  a line number and a column number.
 
-      procedure Write_JSON_Span (Span : Source_Span);
-      --  Write Span as a JSON span, an object containing a "caret" attribute
-      --  whose value is the JSON location of Span.Ptr. If Span.First and
-      --  Span.Last are different from Span.Ptr, they will be printed as JSON
+      procedure Write_JSON_Span (Error : Error_Msg_Object);
+      --  Write Error as a JSON span, an object containing a "caret" attribute
+      --  whose value is the JSON location of Error.Sptr.Ptr. If Sptr.First and
+      --  Sptr.Last are different from Sptr.Ptr, they will be printed as JSON
       --  locations under the names "start" and "finish".
+      --  When Include_Subprogram_In_Messages is true (-gnatdJ) an additional,
+      --  non-standard, attribute named "subprogram" will be added, allowing
+      --  precisely identifying the subprogram surrounding the span.
 
       -----------------------
       --  Is_Continuation  --
@@ -2107,9 +2130,9 @@ package body Errout is
       -- Write_JSON_Escaped_String --
       -------------------------------
 
-      procedure Write_JSON_Escaped_String (Str : String_Ptr) is
+      procedure Write_JSON_Escaped_String (Str : String) is
       begin
-         for C of Str.all loop
+         for C of Str loop
             if C = '"' or else C = '\' then
                Write_Char ('\');
             end if;
@@ -2118,14 +2141,30 @@ package body Errout is
          end loop;
       end Write_JSON_Escaped_String;
 
+      -------------------------------
+      -- Write_JSON_Escaped_String --
+      -------------------------------
+
+      procedure Write_JSON_Escaped_String (Str : String_Ptr) is
+      begin
+         Write_JSON_Escaped_String (Str.all);
+      end Write_JSON_Escaped_String;
+
       -------------------------
       -- Write_JSON_Location --
       -------------------------
 
       procedure Write_JSON_Location (Sptr : Source_Ptr) is
+         Name : constant File_Name_Type :=
+           Full_Ref_Name (Get_Source_File_Index (Sptr));
       begin
          Write_Str ("{""file"":""");
-         Write_Name (Full_Ref_Name (Get_Source_File_Index (Sptr)));
+         if Full_Path_Name_For_Brief_Errors then
+            Write_JSON_Escaped_String
+              (System.OS_Lib.Normalize_Pathname (Get_Name_String (Name)));
+         else
+            Write_Name (Name);
+         end if;
          Write_Str (""",""line"":");
          Write_Int (Pos (Get_Physical_Line_Number (Sptr)));
          Write_Str (", ""column"":");
@@ -2137,7 +2176,8 @@ package body Errout is
       -- Write_JSON_Span --
       ---------------------
 
-      procedure Write_JSON_Span (Span : Source_Span) is
+      procedure Write_JSON_Span (Error : Error_Msg_Object) is
+         Span : constant Source_Span := Error.Sptr;
       begin
          Write_Str ("{""caret"":");
          Write_JSON_Location (Span.Ptr);
@@ -2152,6 +2192,12 @@ package body Errout is
             Write_JSON_Location (Span.Last);
          end if;
 
+         if Include_Subprogram_In_Messages then
+            Write_Str (",""subprogram"":""");
+            Write_JSON_Escaped_String (Subprogram_Name_Ptr (Error.Node));
+            Write_Str ("""");
+         end if;
+
          Write_Str ("}");
       end Write_JSON_Span;
 
@@ -2162,6 +2208,9 @@ package body Errout is
       Print_Continuations : constant Boolean := not Is_Continuation (E);
       --  Do not print continuations messages as children of the current
       --  message if the current message is a continuation message.
+
+      Option : constant String := Get_Warning_Option (E);
+      --  The option that triggered this message.
 
    --  Start of processing for Output_JSON_Message
 
@@ -2182,17 +2231,24 @@ package body Errout is
       --  Print message location
 
       Write_Str (",""locations"":[");
-      Write_JSON_Span (Errors.Table (E).Sptr);
+      Write_JSON_Span (Errors.Table (E));
 
-      if Errors.Table (E).Optr /= Errors.Table (E).Sptr.Ptr then
+      if Errors.Table (E).Optr.Ptr /= Errors.Table (E).Sptr.Ptr then
          Write_Str (",{""caret"":");
-         Write_JSON_Location (Errors.Table (E).Optr);
+         Write_JSON_Location (Errors.Table (E).Optr.Ptr);
          Write_Str ("}");
+      end if;
+
+      Write_Str ("]");
+
+      --  Print message option, if there is one
+      if Option /= "" then
+         Write_Str (",""option"":""" & Option & """");
       end if;
 
       --  Print message content
 
-      Write_Str ("],""message"":""");
+      Write_Str (",""message"":""");
       Write_JSON_Escaped_String (Errors.Table (E).Text);
       Write_Str ("""");
 
@@ -2899,7 +2955,7 @@ package body Errout is
                            else SGR_Error);
                      begin
                         Write_Source_Code_Lines
-                          (Errors.Table (E).Sptr, SGR_Span);
+                          (Errors.Table (E).Optr, SGR_Span);
                      end;
                   end if;
                end if;
@@ -3274,7 +3330,7 @@ package body Errout is
 
                --  Don't remove if location does not match
 
-               and then Errors.Table (E).Optr = Loc
+               and then Errors.Table (E).Optr.Ptr = Loc
 
                --  Don't remove if not warning/info message. Note that we do
                --  not remove style messages here. They are warning messages
@@ -3294,6 +3350,17 @@ package body Errout is
 
                if Errors.Table (E).Info then
                   Warning_Info_Messages := Warning_Info_Messages - 1;
+               end if;
+
+               --  When warning about a runtime exception has been escalated
+               --  into error, the starting message has increased the total
+               --  errors counter, so here we decrease this counter.
+
+               if Errors.Table (E).Warn_Runtime_Raise
+                 and then not Errors.Table (E).Msg_Cont
+                 and then Warning_Mode = Treat_Run_Time_Warnings_As_Errors
+               then
+                  Total_Errors_Detected := Total_Errors_Detected - 1;
                end if;
 
                return True;
@@ -3330,23 +3397,13 @@ package body Errout is
             E := Errors.Table (E).Next;
          end loop;
 
+         --  Warnings may have been posted on subexpressions of original tree
+
          if Nkind (N) = N_Raise_Constraint_Error
            and then Is_Rewrite_Substitution (N)
            and then No (Condition (N))
          then
-            --  Warnings may have been posted on subexpressions of the original
-            --  tree. We place the original node back on the tree to remove
-            --  those warnings, whose sloc do not match those of any node in
-            --  the current tree. Given that we are in unreachable code, this
-            --  modification to the tree is harmless.
-
-            if Is_List_Member (N) then
-               Set_Condition (N, Original_Node (N));
-               Check_All_Warnings (Condition (N));
-            else
-               Rewrite (N, Original_Node (N));
-               Check_All_Warnings (N);
-            end if;
+            Check_All_Warnings (Original_Node (N));
          end if;
 
          return OK;
@@ -3369,18 +3426,6 @@ package body Errout is
          Next (Stat);
       end loop;
    end Remove_Warning_Messages;
-
-   --------------------
-   -- Reset_Warnings --
-   --------------------
-
-   procedure Reset_Warnings is
-   begin
-      Warnings_Treated_As_Errors := 0;
-      Warnings_Detected := 0;
-      Warning_Info_Messages := 0;
-      Warnings_As_Errors_Count := 0;
-   end Reset_Warnings;
 
    ----------------------
    -- Adjust_Name_Case --
@@ -3578,10 +3623,14 @@ package body Errout is
          end if;
       end if;
 
-      --  The following assignment ensures that a second ampersand insertion
-      --  character will correspond to the Error_Msg_Node_2 parameter.
+      --  The following assignment ensures that further ampersand insertion
+      --  characters will correspond to the Error_Msg_Node_# parameter.
 
       Error_Msg_Node_1 := Error_Msg_Node_2;
+      Error_Msg_Node_2 := Error_Msg_Node_3;
+      Error_Msg_Node_3 := Error_Msg_Node_4;
+      Error_Msg_Node_4 := Error_Msg_Node_5;
+      Error_Msg_Node_5 := Error_Msg_Node_6;
    end Set_Msg_Insertion_Node;
 
    --------------------------------------
@@ -3756,7 +3805,7 @@ package body Errout is
          Set_Msg_Str ("<error>");
 
       else
-         Get_Unit_Name_String (Error_Msg_Unit_1, Suffix);
+         Get_Unit_Name_String (Global_Name_Buffer, Error_Msg_Unit_1, Suffix);
          Set_Msg_Blank;
          Set_Msg_Quote;
          Set_Msg_Name_Buffer;
@@ -3872,7 +3921,7 @@ package body Errout is
       --  dealing with some cases of internal names).
 
       while Name_Len > 1 and then Name_Buffer (Name_Len) in 'A' .. 'Z' loop
-         Name_Len := Name_Len  - 1;
+         Name_Len := Name_Len - 1;
       end loop;
 
       --  If we have any of the names from standard that start with the

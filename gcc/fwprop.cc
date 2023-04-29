@@ -1,5 +1,5 @@
 /* RTL-based forward propagation pass for GNU compiler.
-   Copyright (C) 2005-2022 Free Software Foundation, Inc.
+   Copyright (C) 2005-2023 Free Software Foundation, Inc.
    Contributed by Paolo Bonzini and Steven Bosscher.
 
 This file is part of GCC.
@@ -1029,8 +1029,8 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return gate_fwprop (); }
-  virtual unsigned int execute (function *) { return fwprop (false); }
+  bool gate (function *) final override { return gate_fwprop (); }
+  unsigned int execute (function *) final override { return fwprop (false); }
 
 }; // class pass_rtl_fwprop
 
@@ -1065,8 +1065,8 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return gate_fwprop (); }
-  virtual unsigned int execute (function *) { return fwprop (true); }
+  bool gate (function *) final override { return gate_fwprop (); }
+  unsigned int execute (function *) final override { return fwprop (true); }
 
 }; // class pass_rtl_fwprop_addr
 

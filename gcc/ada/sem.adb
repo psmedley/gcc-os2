@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -61,7 +61,7 @@ with Stylesw;        use Stylesw;
 with Uintp;          use Uintp;
 with Uname;          use Uname;
 
-with Unchecked_Deallocation;
+with Ada.Unchecked_Deallocation;
 
 pragma Warnings (Off, Sem_Util);
 --  Suppress warnings of unused with for Sem_Util (used only in asserts)
@@ -380,22 +380,22 @@ package body Sem is
             Analyze_Arithmetic_Op (N);
 
          when N_Op_Eq =>
-            Analyze_Equality_Op (N);
+            Analyze_Comparison_Equality_Op (N);
 
          when N_Op_Expon =>
             Analyze_Arithmetic_Op (N);
 
          when N_Op_Ge =>
-            Analyze_Comparison_Op (N);
+            Analyze_Comparison_Equality_Op (N);
 
          when N_Op_Gt =>
-            Analyze_Comparison_Op (N);
+            Analyze_Comparison_Equality_Op (N);
 
          when N_Op_Le =>
-            Analyze_Comparison_Op (N);
+            Analyze_Comparison_Equality_Op (N);
 
          when N_Op_Lt =>
-            Analyze_Comparison_Op (N);
+            Analyze_Comparison_Equality_Op (N);
 
          when N_Op_Minus =>
             Analyze_Unary_Op (N);
@@ -407,7 +407,7 @@ package body Sem is
             Analyze_Arithmetic_Op (N);
 
          when N_Op_Ne =>
-            Analyze_Equality_Op (N);
+            Analyze_Comparison_Equality_Op (N);
 
          when N_Op_Not =>
             Analyze_Negation (N);
@@ -556,6 +556,9 @@ package body Sem is
 
          when N_String_Literal =>
             Analyze_String_Literal (N);
+
+         when N_Interpolated_String_Literal =>
+            Analyze_Interpolated_String_Literal (N);
 
          when N_Subprogram_Body =>
             Analyze_Subprogram_Body (N);
@@ -1062,7 +1065,7 @@ package body Sem is
    procedure Initialize is
       Next : Suppress_Stack_Entry_Ptr;
 
-      procedure Free is new Unchecked_Deallocation
+      procedure Free is new Ada.Unchecked_Deallocation
         (Suppress_Stack_Entry, Suppress_Stack_Entry_Ptr);
 
    begin
@@ -1338,7 +1341,15 @@ package body Sem is
       Full_Analysis := False;
       Expander_Mode_Save_And_Set (False);
 
-      Analyze (N);
+      --  See comment in sem_res.adb for Preanalyze_And_Resolve
+
+      if GNATprove_Mode
+        or else Nkind (Parent (N)) = N_Simple_Return_Statement
+      then
+         Analyze (N);
+      else
+         Analyze (N, Suppress => All_Checks);
+      end if;
 
       Expander_Mode_Restore;
       Full_Analysis := Save_Full_Analysis;

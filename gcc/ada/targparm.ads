@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1999-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1999-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -262,9 +262,6 @@ package Targparm is
 
    ZCX_By_Default_On_Target : Boolean := False;
    --  Indicates if zero cost scheme for exceptions
-
-   Frontend_Exceptions_On_Target : Boolean := True;
-   --  Indicates if we're using a front-end scheme for exceptions
 
    ------------------------------------
    -- Run-Time Library Configuration --

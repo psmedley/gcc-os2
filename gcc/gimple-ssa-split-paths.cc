@@ -1,5 +1,5 @@
 /* Support routines for Splitting Paths to loop backedges
-   Copyright (C) 2015-2022 Free Software Foundation, Inc.
+   Copyright (C) 2015-2023 Free Software Foundation, Inc.
    Contributed by Ajit Kumar Agarwal <ajitkum@xilinx.com>.
 
  This file is part of GCC.
@@ -579,9 +579,12 @@ class pass_split_paths : public gimple_opt_pass
       : gimple_opt_pass (pass_data_split_paths, ctxt)
     {}
    /* opt_pass methods: */
-   opt_pass * clone () { return new pass_split_paths (m_ctxt); }
-   virtual bool gate (function *) { return gate_split_paths (); }
-   virtual unsigned int execute (function *) { return execute_split_paths (); }
+  opt_pass * clone () final override { return new pass_split_paths (m_ctxt); }
+  bool gate (function *) final override { return gate_split_paths (); }
+  unsigned int execute (function *) final override
+  {
+    return execute_split_paths ();
+  }
 
 }; // class pass_split_paths
 

@@ -1,5 +1,5 @@
 /* Loop autoparallelization.
-   Copyright (C) 2006-2022 Free Software Foundation, Inc.
+   Copyright (C) 2006-2023 Free Software Foundation, Inc.
    Contributed by Sebastian Pop <pop@cri.ensmp.fr> 
    Zdenek Dvorak <dvorakz@suse.cz> and Razya Ladelsky <razya@il.ibm.com>.
 
@@ -338,8 +338,8 @@ parloops_is_slp_reduction (loop_vec_info loop_info, gimple *phi,
 	      && parloops_valid_reduction_input_p (def_stmt_info))
 	    {
 	      if (dump_enabled_p ())
-		dump_printf_loc (MSG_NOTE, vect_location, "swapping oprnds: %G",
-				 next_stmt);
+		dump_printf_loc (MSG_NOTE, vect_location,
+				 "swapping oprnds: %G", (gimple *) next_stmt);
 
 	      swap_ssa_operands (next_stmt,
 				 gimple_assign_rhs1_ptr (next_stmt),
@@ -1221,8 +1221,11 @@ take_address_of (tree obj, tree type, edge entry,
   uid = DECL_UID (TREE_OPERAND (TREE_OPERAND (*var_p, 0), 0));
   int_tree_map elt;
   elt.uid = uid;
-  int_tree_map *slot = decl_address->find_slot (elt, INSERT);
-  if (!slot->to)
+  int_tree_map *slot = decl_address->find_slot (elt,
+						gsi == NULL
+						? NO_INSERT
+						: INSERT);
+  if (!slot || !slot->to)
     {
       if (gsi == NULL)
 	return NULL;
@@ -2355,12 +2358,6 @@ transform_to_exit_first_loop_alt (class loop *loop,
   tree control = gimple_cond_lhs (cond_stmt);
   edge e;
 
-  /* Rewriting virtuals into loop-closed ssa normal form makes this
-     transformation simpler.  It also ensures that the virtuals are in
-     loop-closed ssa normal from after the transformation, which is required by
-     create_parallel_loop.  */
-  rewrite_virtuals_into_loop_closed_ssa (loop);
-
   /* Create the new_header block.  */
   basic_block new_header = split_block_before_cond_jump (exit->src);
   edge edge_at_split = single_pred_edge (new_header);
@@ -2490,8 +2487,6 @@ transform_to_exit_first_loop_alt (class loop *loop,
   /* Recalculate dominance info.  */
   free_dominance_info (CDI_DOMINATORS);
   calculate_dominance_info (CDI_DOMINATORS);
-
-  checking_verify_ssa (true, true);
 }
 
 /* Tries to moves the exit condition of LOOP to the beginning of its header
@@ -3070,7 +3065,7 @@ gen_parallel_loop (class loop *loop,
 	= force_gimple_operand (many_iterations_cond, &stmts, false, NULL_TREE);
       if (stmts)
 	gsi_insert_seq_on_edge_immediate (loop_preheader_edge (loop), stmts);
-      if (!is_gimple_condexpr (many_iterations_cond))
+      if (!is_gimple_condexpr_for_cond (many_iterations_cond))
 	{
 	  many_iterations_cond
 	    = force_gimple_operand (many_iterations_cond, &stmts,
@@ -3088,7 +3083,7 @@ gen_parallel_loop (class loop *loop,
 		    profile_probability::unlikely (),
 		    profile_probability::likely (),
 		    profile_probability::unlikely (), true);
-      update_ssa (TODO_update_ssa);
+      update_ssa (TODO_update_ssa_no_phi);
       free_original_copy_tables ();
     }
 
@@ -3139,6 +3134,7 @@ gen_parallel_loop (class loop *loop,
 	 to the exit of the loop.  */
       transform_to_exit_first_loop (loop, reduction_list, nit);
     }
+  update_ssa (TODO_update_ssa_no_phi);
 
   /* Generate initializations for reductions.  */
   if (!reduction_list->is_empty ())
@@ -3232,6 +3228,9 @@ build_new_reduction (reduction_info_table_type *reduction_list,
   /* Check for OpenMP supported reduction.  */
   switch (reduction_code)
     {
+    case MINUS_EXPR:
+      reduction_code = PLUS_EXPR;
+      /* Fallthru.  */
     case PLUS_EXPR:
     case MULT_EXPR:
     case MAX_EXPR:
@@ -4173,16 +4172,19 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
   {
     if (oacc_kernels_p)
       return flag_openacc;
     else
       return flag_tree_parallelize_loops > 1;
   }
-  virtual unsigned int execute (function *);
-  opt_pass * clone () { return new pass_parallelize_loops (m_ctxt); }
-  void set_pass_param (unsigned int n, bool param)
+  unsigned int execute (function *) final override;
+  opt_pass * clone () final override
+  {
+    return new pass_parallelize_loops (m_ctxt);
+  }
+  void set_pass_param (unsigned int n, bool param) final override
     {
       gcc_assert (n == 0);
       oacc_kernels_p = param;
@@ -4220,7 +4222,13 @@ pass_parallelize_loops::execute (function *fun)
 
       checking_verify_loop_structure ();
 
-      todo |= TODO_update_ssa;
+      /* ???  Intermediate SSA updates with no PHIs might have lost
+	 the virtual operand renaming needed by separate_decls_in_region,
+	 make sure to rename them again.  */
+      mark_virtual_operands_for_renaming (fun);
+      update_ssa (TODO_update_ssa);
+      if (in_loop_pipeline)
+	rewrite_into_loop_closed_ssa (NULL, 0);
     }
 
   if (!in_loop_pipeline)

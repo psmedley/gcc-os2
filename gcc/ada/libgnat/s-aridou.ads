@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 S p e c                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -34,7 +34,6 @@
 --  or intermediate results are longer than the result type.
 
 with Ada.Numerics.Big_Numbers.Big_Integers_Ghost;
-use Ada.Numerics.Big_Numbers.Big_Integers_Ghost;
 
 generic
 
@@ -67,20 +66,28 @@ is
                             Contract_Cases => Ignore,
                             Ghost          => Ignore);
 
-   package Signed_Conversion is new Signed_Conversions (Int => Double_Int);
+   package BI_Ghost renames Ada.Numerics.Big_Numbers.Big_Integers_Ghost;
+   subtype Big_Integer is BI_Ghost.Big_Integer with Ghost;
+   subtype Big_Natural is BI_Ghost.Big_Natural with Ghost;
+   subtype Big_Positive is BI_Ghost.Big_Positive with Ghost;
+   use type BI_Ghost.Big_Integer;
+
+   package Signed_Conversion is
+     new BI_Ghost.Signed_Conversions (Int => Double_Int);
 
    function Big (Arg : Double_Int) return Big_Integer is
      (Signed_Conversion.To_Big_Integer (Arg))
    with Ghost;
 
-   package Unsigned_Conversion is new Unsigned_Conversions (Int => Double_Uns);
+   package Unsigned_Conversion is
+     new BI_Ghost.Unsigned_Conversions (Int => Double_Uns);
 
    function Big (Arg : Double_Uns) return Big_Integer is
      (Unsigned_Conversion.To_Big_Integer (Arg))
    with Ghost;
 
    function In_Double_Int_Range (Arg : Big_Integer) return Boolean is
-     (In_Range (Arg, Big (Double_Int'First), Big (Double_Int'Last)))
+     (BI_Ghost.In_Range (Arg, Big (Double_Int'First), Big (Double_Int'Last)))
    with Ghost;
 
    function Add_With_Ovflo_Check (X, Y : Double_Int) return Double_Int

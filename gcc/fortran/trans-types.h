@@ -1,5 +1,5 @@
 /* Header for Fortran 95 types backend support.
-   Copyright (C) 2002-2022 Free Software Foundation, Inc.
+   Copyright (C) 2002-2023 Free Software Foundation, Inc.
    Contributed by Paul Brook <paul@nowt.org>
    and Steven Bosscher <s.bosscher@student.tudelft.nl>
 
@@ -57,6 +57,10 @@ extern GTY(()) tree gfc_charlen_type_node;
    real (and complex) kinds with C floating-point types long double
    and _Float128.  */
 extern bool gfc_real16_is_float128;
+
+/* True if IEC 60559 *f128 APIs should be used for _Float128 rather than
+   libquadmath *q APIs.  */
+extern bool gfc_real16_use_iec_60559;
 
 enum gfc_packed {
   PACKED_NO = 0,

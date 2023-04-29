@@ -1,5 +1,5 @@
 /* Common subexpression elimination for GNU compiler.
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -1169,14 +1169,14 @@ compute_const_anchors (rtx cst,
 		       HOST_WIDE_INT *lower_base, HOST_WIDE_INT *lower_offs,
 		       HOST_WIDE_INT *upper_base, HOST_WIDE_INT *upper_offs)
 {
-  HOST_WIDE_INT n = INTVAL (cst);
+  unsigned HOST_WIDE_INT n = UINTVAL (cst);
 
   *lower_base = n & ~(targetm.const_anchor - 1);
-  if (*lower_base == n)
+  if ((unsigned HOST_WIDE_INT) *lower_base == n)
     return false;
 
-  *upper_base =
-    (n + (targetm.const_anchor - 1)) & ~(targetm.const_anchor - 1);
+  *upper_base = ((n + (targetm.const_anchor - 1))
+		 & ~(targetm.const_anchor - 1));
   *upper_offs = n - *upper_base;
   *lower_offs = n - *lower_base;
   return true;
@@ -1193,7 +1193,7 @@ insert_const_anchor (HOST_WIDE_INT anchor, rtx reg, HOST_WIDE_INT offs,
   rtx anchor_exp;
   rtx exp;
 
-  anchor_exp = GEN_INT (anchor);
+  anchor_exp = gen_int_mode (anchor, mode);
   hash = HASH (anchor_exp, mode);
   elt = lookup (anchor_exp, hash, mode);
   if (!elt)
@@ -7571,8 +7571,11 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *) { return optimize > 0; }
-  virtual unsigned int execute (function *) { return rest_of_handle_cse (); }
+  bool gate (function *) final override { return optimize > 0; }
+  unsigned int execute (function *) final override
+  {
+    return rest_of_handle_cse ();
+  }
 
 }; // class pass_cse
 
@@ -7642,12 +7645,15 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       return optimize > 0 && flag_rerun_cse_after_loop;
     }
 
-  virtual unsigned int execute (function *) { return rest_of_handle_cse2 (); }
+  unsigned int execute (function *) final override
+  {
+    return rest_of_handle_cse2 ();
+  }
 
 }; // class pass_cse2
 
@@ -7715,12 +7721,12 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
     {
       return optimize > 0 && flag_rerun_cse_after_global_opts;
     }
 
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       return rest_of_handle_cse_after_global_opts ();
     }

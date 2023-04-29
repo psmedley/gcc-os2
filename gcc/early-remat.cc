@@ -1,5 +1,5 @@
 /* Early (pre-RA) rematerialization
-   Copyright (C) 2017-2022 Free Software Foundation, Inc.
+   Copyright (C) 2017-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -2615,12 +2615,12 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual bool gate (function *)
+  bool gate (function *) final override
   {
     return optimize > 1 && NUM_POLY_INT_COEFFS > 1;
   }
 
-  virtual unsigned int execute (function *f)
+  unsigned int execute (function *f) final override
   {
     auto_sbitmap selected_modes (NUM_MACHINE_MODES);
     bitmap_clear (selected_modes);

@@ -1,5 +1,5 @@
 /* go-lang.cc -- Go frontend gcc interface.
-   Copyright (C) 2009-2022 Free Software Foundation, Inc.
+   Copyright (C) 2009-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -97,9 +97,6 @@ static bool
 go_langhook_init (void)
 {
   build_common_tree_nodes (false);
-
-  /* I don't know why this has to be done explicitly.  */
-  void_list_node = build_tree_list (NULL_TREE, void_type_node);
 
   /* We must create the gogo IR after calling build_common_tree_nodes
      (because Gogo::define_builtin_function_trees refers indirectly
@@ -507,8 +504,7 @@ go_langhook_pushdecl (tree decl ATTRIBUTE_UNUSED)
 }
 
 /* This hook is used to get the current list of declarations as trees.
-   We don't support that; instead we use the write_globals hook.  This
-   can't simply crash because it is called by -gstabs.  */
+   We don't support that; instead we use the write_globals hook.  */
 
 static tree
 go_langhook_getdecls (void)
@@ -543,6 +539,15 @@ go_langhook_eh_personality (void)
       go_preserve_from_gc (personality_decl);
     }
   return personality_decl;
+}
+
+/* Get a value for the SARIF v2.1.0 "artifact.sourceLanguage" property,
+   based on the list in SARIF v2.1.0 Appendix J.  */
+
+static const char *
+go_get_sarif_source_language (const char *)
+{
+  return "go";
 }
 
 /* Functions called directly by the generic backend.  */
@@ -615,6 +620,7 @@ go_localize_identifier (const char *ident)
 #undef LANG_HOOKS_GETDECLS
 #undef LANG_HOOKS_GIMPLIFY_EXPR
 #undef LANG_HOOKS_EH_PERSONALITY
+#undef LANG_HOOKS_GET_SARIF_SOURCE_LANGUAGE
 
 #define LANG_HOOKS_NAME			"GNU Go"
 #define LANG_HOOKS_INIT			go_langhook_init
@@ -631,6 +637,7 @@ go_localize_identifier (const char *ident)
 #define LANG_HOOKS_GETDECLS		go_langhook_getdecls
 #define LANG_HOOKS_GIMPLIFY_EXPR	go_langhook_gimplify_expr
 #define LANG_HOOKS_EH_PERSONALITY	go_langhook_eh_personality
+#define LANG_HOOKS_GET_SARIF_SOURCE_LANGUAGE go_get_sarif_source_language
 
 struct lang_hooks lang_hooks = LANG_HOOKS_INITIALIZER;
 

@@ -6,7 +6,7 @@
 --                                                                          --
 --                                 B o d y                                  --
 --                                                                          --
---          Copyright (C) 1992-2022, Free Software Foundation, Inc.         --
+--          Copyright (C) 1992-2023, Free Software Foundation, Inc.         --
 --                                                                          --
 -- GNAT is free software;  you can  redistribute it  and/or modify it under --
 -- terms of the  GNU General Public License as published  by the Free Soft- --
@@ -44,6 +44,7 @@ with Stringt;  use Stringt;
 with Targparm;
 with Uintp;    use Uintp;
 with Widechar; use Widechar;
+with Warnsw;   use Warnsw;
 
 package body Erroutc is
 
@@ -311,32 +312,33 @@ package body Erroutc is
 
    begin
       w ("Dumping error message, Id = ", Int (Id));
-      w ("  Text     = ", E.Text.all);
-      w ("  Next     = ", Int (E.Next));
-      w ("  Prev     = ", Int (E.Prev));
-      w ("  Sfile    = ", Int (E.Sfile));
+      w ("  Text               = ", E.Text.all);
+      w ("  Next               = ", Int (E.Next));
+      w ("  Prev               = ", Int (E.Prev));
+      w ("  Sfile              = ", Int (E.Sfile));
 
       Write_Str
-        ("  Sptr     = ");
+        ("  Sptr               = ");
       Write_Location (E.Sptr.Ptr);  --  ??? Do not write the full span for now
       Write_Eol;
 
       Write_Str
-        ("  Optr     = ");
-      Write_Location (E.Optr);
+        ("  Optr               = ");
+      Write_Location (E.Optr.Ptr);
       Write_Eol;
 
-      w ("  Line     = ", Int (E.Line));
-      w ("  Col      = ", Int (E.Col));
-      w ("  Warn     = ", E.Warn);
-      w ("  Warn_Err = ", E.Warn_Err);
-      w ("  Warn_Chr = '" & E.Warn_Chr & ''');
-      w ("  Style    = ", E.Style);
-      w ("  Serious  = ", E.Serious);
-      w ("  Uncond   = ", E.Uncond);
-      w ("  Msg_Cont = ", E.Msg_Cont);
-      w ("  Deleted  = ", E.Deleted);
-      w ("  Node     = ", Int (E.Node));
+      w ("  Line               = ", Int (E.Line));
+      w ("  Col                = ", Int (E.Col));
+      w ("  Warn               = ", E.Warn);
+      w ("  Warn_Err           = ", E.Warn_Err);
+      w ("  Warn_Runtime_Raise = ", E.Warn_Runtime_Raise);
+      w ("  Warn_Chr           = '" & E.Warn_Chr & ''');
+      w ("  Style              = ", E.Style);
+      w ("  Serious            = ", E.Serious);
+      w ("  Uncond             = ", E.Uncond);
+      w ("  Msg_Cont           = ", E.Msg_Cont);
+      w ("  Deleted            = ", E.Deleted);
+      w ("  Node               = ", Int (E.Node));
 
       Write_Eol;
    end dmsg;
@@ -359,6 +361,26 @@ package body Erroutc is
       return Cur_Msg;
    end Get_Msg_Id;
 
+   ------------------------
+   -- Get_Warning_Option --
+   ------------------------
+
+   function Get_Warning_Option (Id : Error_Msg_Id) return String is
+      Warn     : constant Boolean         := Errors.Table (Id).Warn;
+      Warn_Chr : constant String (1 .. 2) := Errors.Table (Id).Warn_Chr;
+   begin
+      if Warn and then Warn_Chr /= "  " and then Warn_Chr (1) /= '?' then
+         if Warn_Chr = "$ " then
+            return "-gnatel";
+         elsif Warn_Chr (2) = ' ' then
+            return "-gnatw" & Warn_Chr (1);
+         else
+            return "-gnatw" & Warn_Chr;
+         end if;
+      end if;
+      return "";
+   end Get_Warning_Option;
+
    ---------------------
    -- Get_Warning_Tag --
    ---------------------
@@ -366,22 +388,19 @@ package body Erroutc is
    function Get_Warning_Tag (Id : Error_Msg_Id) return String is
       Warn     : constant Boolean         := Errors.Table (Id).Warn;
       Warn_Chr : constant String (1 .. 2) := Errors.Table (Id).Warn_Chr;
+      Option   : constant String          := Get_Warning_Option (Id);
    begin
-      if Warn and then Warn_Chr /= "  " then
+      if Warn then
          if Warn_Chr = "? " then
             return "[enabled by default]";
          elsif Warn_Chr = "* " then
             return "[restriction warning]";
-         elsif Warn_Chr = "$ " then
-            return "[-gnatel]";
-         elsif Warn_Chr (2) = ' ' then
-            return "[-gnatw" & Warn_Chr (1) & ']';
-         else
-            return "[-gnatw" & Warn_Chr & ']';
+         elsif Option /= "" then
+            return "[" & Option & "]";
          end if;
-      else
-         return "";
       end if;
+
+      return "";
    end Get_Warning_Tag;
 
    -------------
@@ -1300,8 +1319,8 @@ package body Erroutc is
             Name_Len := Name_Len - 1;
          end if;
 
-         --  If operator name or character literal name, just print it as is
-         --  Also print as is if it ends in a right paren (case of x'val(nnn))
+         --  If operator name or character literal name, just print it as is.
+         --  Also print as is if it ends in a right paren (case of x'val(nnn)).
 
          if Name_Buffer (1) = '"'
            or else Name_Buffer (1) = '''
@@ -1319,12 +1338,15 @@ package body Erroutc is
          end if;
       end if;
 
-      --  The following assignments ensure that the second and third percent
-      --  insertion characters will correspond to the Error_Msg_Name_2 and
-      --  Error_Msg_Name_3 as required.
+      --  The following assignments ensure that other percent insertion
+      --  characters will correspond to their appropriate Error_Msg_Name_#
+      --  values as required.
 
       Error_Msg_Name_1 := Error_Msg_Name_2;
       Error_Msg_Name_2 := Error_Msg_Name_3;
+      Error_Msg_Name_3 := Error_Msg_Name_4;
+      Error_Msg_Name_4 := Error_Msg_Name_5;
+      Error_Msg_Name_5 := Error_Msg_Name_6;
    end Set_Msg_Insertion_Name;
 
    ------------------------------------
@@ -1348,12 +1370,15 @@ package body Erroutc is
          Set_Msg_Quote;
       end if;
 
-      --  The following assignments ensure that the second and third % or %%
-      --  insertion characters will correspond to the Error_Msg_Name_2 and
-      --  Error_Msg_Name_3 values.
+      --  The following assignments ensure that other percent insertion
+      --  characters will correspond to their appropriate Error_Msg_Name_#
+      --  values as required.
 
       Error_Msg_Name_1 := Error_Msg_Name_2;
       Error_Msg_Name_2 := Error_Msg_Name_3;
+      Error_Msg_Name_3 := Error_Msg_Name_4;
+      Error_Msg_Name_4 := Error_Msg_Name_5;
+      Error_Msg_Name_5 := Error_Msg_Name_6;
    end Set_Msg_Insertion_Name_Literal;
 
    -------------------------------------
@@ -1462,6 +1487,7 @@ package body Erroutc is
    procedure Set_Msg_Name_Buffer is
    begin
       Set_Msg_Str (Name_Buffer (1 .. Name_Len));
+      Destroy_Global_Name_Buffer;
    end Set_Msg_Name_Buffer;
 
    -------------------
@@ -1509,6 +1535,32 @@ package body Erroutc is
 
       elsif Text = "_TYPE_INVARIANT" then
          Set_Msg_Str ("TYPE_INVARIANT'CLASS");
+
+      --  Preserve casing for names that include acronyms
+
+      elsif Text = "Cpp_Class" then
+         Set_Msg_Str ("CPP_Class");
+
+      elsif Text = "Cpp_Constructor" then
+         Set_Msg_Str ("CPP_Constructor");
+
+      elsif Text = "Cpp_Virtual" then
+         Set_Msg_Str ("CPP_Virtual");
+
+      elsif Text = "Cpp_Vtable" then
+         Set_Msg_Str ("CPP_Vtable");
+
+      elsif Text = "Persistent_Bss" then
+         Set_Msg_Str ("Persistent_BSS");
+
+      elsif Text = "Spark_Mode" then
+         Set_Msg_Str ("SPARK_Mode");
+
+      elsif Text = "Use_Vads_Size" then
+         Set_Msg_Str ("Use_VADS_Size");
+
+      elsif Text = "Vads_Size" then
+         Set_Msg_Str ("VADS_size");
 
       --  Normal case with no replacement
 

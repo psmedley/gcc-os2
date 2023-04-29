@@ -1,5 +1,5 @@
 /* Control flow graph manipulation code for GNU compiler.
-   Copyright (C) 1987-2022 Free Software Foundation, Inc.
+   Copyright (C) 1987-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -483,7 +483,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual unsigned int execute (function *);
+  unsigned int execute (function *) final override;
 
 }; // class pass_free_cfg
 
@@ -1686,8 +1686,8 @@ force_nonfallthru_and_redirect (edge e, basic_block target, rtx jump_label)
 	 add also edge from asm goto bb to target.  */
       if (asm_goto_edge)
 	{
-	  new_edge->probability = new_edge->probability.apply_scale (1, 2);
-	  jump_block->count = jump_block->count.apply_scale (1, 2);
+	  new_edge->probability /= 2;
+	  jump_block->count /= 2;
 	  edge new_edge2 = make_edge (new_edge->src, target,
 				      e->flags & ~EDGE_FALLTHRU);
 	  new_edge2->probability = probability - new_edge->probability;
@@ -3698,7 +3698,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual unsigned int execute (function *)
+  unsigned int execute (function *) final override
     {
       cfg_layout_initialize (0);
       return 0;
@@ -3737,7 +3737,7 @@ public:
   {}
 
   /* opt_pass methods: */
-  virtual unsigned int execute (function *);
+  unsigned int execute (function *) final override;
 
 }; // class pass_outof_cfg_layout_mode
 
@@ -3901,6 +3901,7 @@ fixup_reorder_chain (void)
   /* Now add jumps and labels as needed to match the blocks new
      outgoing edges.  */
 
+  bool remove_unreachable_blocks = false;
   for (bb = ENTRY_BLOCK_PTR_FOR_FN (cfun)->next_bb; bb ; bb = (basic_block)
        bb->aux)
     {
@@ -3909,6 +3910,7 @@ fixup_reorder_chain (void)
       rtx ret_label = NULL_RTX;
       basic_block nb;
       edge_iterator ei;
+      bool asm_goto = false;
 
       if (EDGE_COUNT (bb->succs) == 0)
 	continue;
@@ -4015,7 +4017,9 @@ fixup_reorder_chain (void)
 		  || e_fall->dest == EXIT_BLOCK_PTR_FOR_FN (cfun))
 		continue;
 
-	      /* Otherwise we'll have to use the fallthru fixup below.  */
+	      /* Otherwise we'll have to use the fallthru fixup below.
+		 But avoid redirecting asm goto to EXIT.  */
+	      asm_goto = true;
 	    }
 	  else
 	    {
@@ -4043,10 +4047,33 @@ fixup_reorder_chain (void)
 	    continue;
 	}
 
+      /* If E_FALL->dest is just a return block, then we can emit a
+	 return rather than a jump to the return block.  */
+      rtx_insn *ret, *use;
+      basic_block dest;
+      if (!asm_goto
+	  && bb_is_just_return (e_fall->dest, &ret, &use)
+	  && ((PATTERN (ret) == simple_return_rtx && targetm.have_simple_return ())
+	      || (PATTERN (ret) == ret_rtx && targetm.have_return ())))
+	{
+	  ret_label = PATTERN (ret);
+	  dest = EXIT_BLOCK_PTR_FOR_FN (cfun);
+
+	  e_fall->flags &= ~EDGE_CROSSING;
+	  /* E_FALL->dest might become unreachable as a result of
+	     replacing the jump with a return.  So arrange to remove
+	     unreachable blocks.  */
+	  remove_unreachable_blocks = true;
+	}
+      else
+	{
+	  dest = e_fall->dest;
+	}
+
       /* We got here if we need to add a new jump insn. 
 	 Note force_nonfallthru can delete E_FALL and thus we have to
 	 save E_FALL->src prior to the call to force_nonfallthru.  */
-      nb = force_nonfallthru_and_redirect (e_fall, e_fall->dest, ret_label);
+      nb = force_nonfallthru_and_redirect (e_fall, dest, ret_label);
       if (nb)
 	{
 	  nb->aux = bb->aux;
@@ -4134,6 +4161,12 @@ fixup_reorder_chain (void)
 		  ei_next (&ei2);
 	    }
       }
+
+  /* Replacing a jump with a return may have exposed an unreachable
+     block.  Conditionally remove them if such transformations were
+     made.  */
+  if (remove_unreachable_blocks)
+    delete_unreachable_blocks ();
 }
 
 /* Perform sanity checks on the insn chain.

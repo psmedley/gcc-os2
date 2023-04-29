@@ -17,8 +17,6 @@ private enum isCopyingNothrow(T) = __traits(compiles, (ref T rhs) nothrow { T lh
 /// Implementation of `_d_arrayappendcTX` and `_d_arrayappendcTXTrace`
 template _d_arrayappendcTXImpl(Tarr : T[], T)
 {
-    import core.internal.array.utils : _d_HookTraceImpl;
-
     private enum errorMessage = "Cannot append to array if compiling without support for runtime type information!";
 
     /**
@@ -30,26 +28,14 @@ template _d_arrayappendcTXImpl(Tarr : T[], T)
      * Returns:
      *  The new value of `px`
      * Bugs:
-    *   This function template was ported from a much older runtime hook that bypassed safety,
-    *   purity, and throwabilty checks. To prevent breaking existing code, this function template
-    *   is temporarily declared `@trusted pure` until the implementation can be brought up to modern D expectations.
+     *  This function template was ported from a much older runtime hook that bypassed safety,
+     *  purity, and throwabilty checks. To prevent breaking existing code, this function template
+     *  is temporarily declared `@trusted pure` until the implementation can be brought up to modern D expectations.
      */
-    static if (isCopyingNothrow!T) // `nothrow` deduction doesn't work, so this is needed
-        ref Tarr _d_arrayappendcTX(return ref scope Tarr px, size_t n) @trusted pure nothrow
-        {
-            pragma(inline, false);
-
-            mixin(_d_arrayappendcTXBody);
-        }
-    else
-        ref Tarr _d_arrayappendcTX(return ref scope Tarr px, size_t n) @trusted pure nothrow
-        {
-            pragma(inline, false);
-
-            mixin(_d_arrayappendcTXBody);
-        }
-
-    private enum _d_arrayappendcTXBody = q{
+    ref Tarr _d_arrayappendcTX(return ref scope Tarr px, size_t n) @trusted pure nothrow
+    {
+        // needed for CTFE: https://github.com/dlang/druntime/pull/3870#issuecomment-1178800718
+        pragma(inline, false);
         version (D_TypeInfo)
         {
             auto ti = typeid(Tarr);
@@ -63,92 +49,92 @@ template _d_arrayappendcTXImpl(Tarr : T[], T)
             return px;
         }
         else
-            assert(0, "Cannot append arrays if compiling without support for runtime type information!");
-    };
+            assert(0, errorMessage);
+    }
 
-    /**
-     * TraceGC wrapper around $(REF _d_arrayappendcTX, rt,array,appending,_d_arrayappendcTXImpl).
-     * Bugs:
-     *  This function template was ported from a much older runtime hook that bypassed safety,
-     *  purity, and throwabilty checks. To prevent breaking existing code, this function template
-     *  is temporarily declared `@trusted pure` until the implementation can be brought up to modern D expectations.
-     */
-    alias _d_arrayappendcTXTrace = _d_HookTraceImpl!(Tarr, _d_arrayappendcTX, errorMessage);
+    version (D_ProfileGC)
+    {
+        import core.internal.array.utils : _d_HookTraceImpl;
+
+        /**
+         * TraceGC wrapper around $(REF _d_arrayappendcTX, rt,array,appending,_d_arrayappendcTXImpl).
+         * Bugs:
+         *  This function template was ported from a much older runtime hook that bypassed safety,
+         *  purity, and throwabilty checks. To prevent breaking existing code, this function template
+         *  is temporarily declared `@trusted pure` until the implementation can be brought up to modern D expectations.
+         */
+        alias _d_arrayappendcTXTrace = _d_HookTraceImpl!(Tarr, _d_arrayappendcTX, errorMessage);
+    }
 }
 
-/// Implementation of `_d_arrayappendT` and `_d_arrayappendTTrace`
-template _d_arrayappendTImpl(Tarr : T[], T)
+/// Implementation of `_d_arrayappendT`
+ref Tarr _d_arrayappendT(Tarr : T[], T)(return ref scope Tarr x, scope Tarr y) @trusted
 {
-    import core.internal.array.utils : _d_HookTraceImpl;
+    pragma(inline, false);
 
-    private enum errorMessage = "Cannot append to array if compiling without support for runtime type information!";
+    import core.stdc.string : memcpy;
+    import core.internal.traits : hasElaborateCopyConstructor, Unqual;
 
-    /**
-     * Append array `y` to array `x`.
-     * Params:
-     *  x = what array to append to, taken as a reference
-     *  y = what should be appended
-     * Returns:
-     *  The new value of `x`
-     * Bugs:
-    *   This function template was ported from a much older runtime hook that bypassed safety,
-    *   purity, and throwabilty checks. To prevent breaking existing code, this function template
-    *   is temporarily declared `@trusted pure` until the implementation can be brought up to modern D expectations.
-     */
-    static if (isCopyingNothrow!T)
-        ref Tarr _d_arrayappendT(return ref scope Tarr x, scope Tarr y) @trusted pure nothrow
-        {
-            pragma(inline, false);
+    enum hasPostblit = __traits(hasPostblit, T);
+    auto length = x.length;
 
-            mixin(_d_arrayappendTBody);
-        }
-    else
-        ref Tarr _d_arrayappendT(return ref scope Tarr x, scope Tarr y) @trusted pure
-        {
-            pragma(inline, false);
+    _d_arrayappendcTXImpl!Tarr._d_arrayappendcTX(x, y.length);
 
-            mixin(_d_arrayappendTBody);
-        }
-
-    private enum _d_arrayappendTBody = q{
-        import core.stdc.string : memcpy;
-        import core.internal.traits : hasElaborateCopyConstructor, Unqual;
+    // Only call `copyEmplace` if `T` has a copy ctor and no postblit.
+    static if (hasElaborateCopyConstructor!T && !hasPostblit)
+    {
         import core.lifetime : copyEmplace;
 
-        auto length = x.length;
-
-        _d_arrayappendcTXImpl!Tarr._d_arrayappendcTX(x, y.length);
-
-        static if (hasElaborateCopyConstructor!T)
-        {
-            foreach (i; 0 .. y.length)
-                copyEmplace(y[i], x[length + i]);
-        }
-        else
+        foreach (i, ref elem; y)
+            copyEmplace(elem, x[length + i]);
+    }
+    else
+    {
+        if (y.length)
         {
             // blit all elements at once
-            if (y.length)
-                memcpy(cast(Unqual!T *)&x[length], cast(Unqual!T *)&y[0], y.length * T.sizeof);
+            auto xptr = cast(Unqual!T *)&x[length];
+            immutable size = T.sizeof;
+
+            memcpy(xptr, cast(Unqual!T *)&y[0], y.length * size);
+
+            // call postblits if they exist
+            static if (hasPostblit)
+            {
+                auto eptr = xptr + y.length;
+                for (auto ptr = xptr; ptr < eptr; ptr++)
+                    ptr.__xpostblit();
+            }
         }
+    }
 
-        return x;
-    };
+    return x;
+}
 
+version (D_ProfileGC)
+{
     /**
-     * TraceGC wrapper around $(REF _d_arrayappendT, rt,array,appending,_d_arrayappendTImpl).
-     * Bugs:
-     *  This function template was ported from a much older runtime hook that bypassed safety,
-     *  purity, and throwabilty checks. To prevent breaking existing code, this function template
-     *  is temporarily declared `@trusted pure` until the implementation can be brought up to modern D expectations.
+     * TraceGC wrapper around $(REF _d_arrayappendT, core,internal,array,appending).
      */
-    alias _d_arrayappendTTrace = _d_HookTraceImpl!(Tarr, _d_arrayappendT, errorMessage);
+    ref Tarr _d_arrayappendTTrace(Tarr : T[], T)(string file, int line, string funcname, return ref scope Tarr x, scope Tarr y) @trusted
+    {
+        version (D_TypeInfo)
+        {
+            import core.internal.array.utils: TraceHook, gcStatsPure, accumulatePure;
+            mixin(TraceHook!(Tarr.stringof, "_d_arrayappendT"));
+
+            return _d_arrayappendT(x, y);
+        }
+        else
+            assert(0, "Cannot append to array if compiling without support for runtime type information!");
+    }
 }
 
 @safe unittest
 {
     double[] arr1;
     foreach (i; 0 .. 4)
-        _d_arrayappendTImpl!(typeof(arr1))._d_arrayappendT(arr1, [cast(double)i]);
+        _d_arrayappendT(arr1, [cast(double)i]);
     assert(arr1 == [0.0, 1.0, 2.0, 3.0]);
 }
 
@@ -167,7 +153,7 @@ template _d_arrayappendTImpl(Tarr : T[], T)
     Item[] arr2 = [Item(), Item()];
     Item[] arr1_org = [Item(), Item()];
     arr1_org ~= arr2;
-    _d_arrayappendTImpl!(typeof(arr1))._d_arrayappendT(arr1, arr2);
+    _d_arrayappendT(arr1, arr2);
 
     // postblit should have triggered on at least the items in arr2
     assert(blitted >= arr2.length);
@@ -187,7 +173,7 @@ template _d_arrayappendTImpl(Tarr : T[], T)
     Item[][] arr1 = [[Item()]];
     Item[][] arr2 = [[Item()]];
 
-    _d_arrayappendTImpl!(typeof(arr1))._d_arrayappendT(arr1, arr2);
+    _d_arrayappendT(arr1, arr2);
 
     // no postblit should have happened because arr{1,2} contain dynamic arrays
     assert(blitted == 0);
@@ -207,7 +193,7 @@ template _d_arrayappendTImpl(Tarr : T[], T)
     Item[1][] arr1 = [[Item()]];
     Item[1][] arr2 = [[Item()]];
 
-    _d_arrayappendTImpl!(typeof(arr1))._d_arrayappendT(arr1, arr2);
+    _d_arrayappendT(arr1, arr2);
     // copy constructor should have been invoked because arr{1,2} contain static arrays
     assert(copied >= arr2.length);
 }
@@ -215,8 +201,8 @@ template _d_arrayappendTImpl(Tarr : T[], T)
 @safe nothrow unittest
 {
     string str;
-    _d_arrayappendTImpl!(typeof(str))._d_arrayappendT(str, "a");
-    _d_arrayappendTImpl!(typeof(str))._d_arrayappendT(str, "b");
-    _d_arrayappendTImpl!(typeof(str))._d_arrayappendT(str, "c");
+    _d_arrayappendT(str, "a");
+    _d_arrayappendT(str, "b");
+    _d_arrayappendT(str, "c");
     assert(str == "abc");
 }

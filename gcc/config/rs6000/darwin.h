@@ -1,5 +1,5 @@
 /* Target definitions for PowerPC running Darwin (Mac OS X).
-   Copyright (C) 1997-2022 Free Software Foundation, Inc.
+   Copyright (C) 1997-2023 Free Software Foundation, Inc.
    Contributed by Apple Computer Inc.
 
    This file is part of GCC.
@@ -367,7 +367,7 @@
    default as well.  */
 
 #undef  TARGET_DEFAULT
-#define TARGET_DEFAULT (MASK_MULTIPLE | MASK_PPC_GFXOPT)
+#define TARGET_DEFAULT (OPTION_MASK_MULTIPLE | OPTION_MASK_PPC_GFXOPT)
 
 /* Darwin always uses IBM long double, never IEEE long double.  */
 #undef  TARGET_IEEEQUAD

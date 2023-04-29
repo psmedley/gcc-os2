@@ -1,5 +1,5 @@
 /* Natural loop discovery code for GNU compiler.
-   Copyright (C) 2000-2022 Free Software Foundation, Inc.
+   Copyright (C) 2000-2023 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -619,7 +619,7 @@ find_subloop_latch_edge_by_profile (vec<edge> latches)
     }
 
   if (!tcount.initialized_p () || !(tcount.ipa () > HEAVY_EDGE_MIN_SAMPLES)
-      || (tcount - mcount).apply_scale (HEAVY_EDGE_RATIO, 1) > tcount)
+      || (tcount - mcount) * HEAVY_EDGE_RATIO > tcount)
     return NULL;
 
   if (dump_file)

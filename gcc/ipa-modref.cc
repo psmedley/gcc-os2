@@ -1,5 +1,5 @@
 /* Search for references that a functions loads or stores.
-   Copyright (C) 2020-2022 Free Software Foundation, Inc.
+   Copyright (C) 2020-2023 Free Software Foundation, Inc.
    Contributed by David Cepelik and Jan Hubicka
 
 This file is part of GCC.
@@ -119,10 +119,10 @@ public:
   fnspec_summaries_t (symbol_table *symtab)
       : call_summary <fnspec_summary *> (symtab) {}
   /* Hook that is called by summary when an edge is duplicated.  */
-  virtual void duplicate (cgraph_edge *,
-			  cgraph_edge *,
-			  fnspec_summary *src,
-			  fnspec_summary *dst)
+  void duplicate (cgraph_edge *,
+		  cgraph_edge *,
+		  fnspec_summary *src,
+		  fnspec_summary *dst) final override
   {
     dst->fnspec = xstrdup (src->fnspec);
   }
@@ -194,10 +194,10 @@ public:
   escape_summaries_t (symbol_table *symtab)
       : call_summary <escape_summary *> (symtab) {}
   /* Hook that is called by summary when an edge is duplicated.  */
-  virtual void duplicate (cgraph_edge *,
-			  cgraph_edge *,
-			  escape_summary *src,
-			  escape_summary *dst)
+  void duplicate (cgraph_edge *,
+		  cgraph_edge *,
+		  escape_summary *src,
+		  escape_summary *dst) final override
   {
     dst->esc = src->esc.copy ();
   }
@@ -217,11 +217,11 @@ class GTY((user)) modref_summaries
 public:
   modref_summaries (symbol_table *symtab)
       : fast_function_summary <modref_summary *, va_gc> (symtab) {}
-  virtual void insert (cgraph_node *, modref_summary *state);
-  virtual void duplicate (cgraph_node *src_node,
-			  cgraph_node *dst_node,
-			  modref_summary *src_data,
-			  modref_summary *dst_data);
+  void insert (cgraph_node *, modref_summary *state) final override;
+  void duplicate (cgraph_node *src_node,
+		  cgraph_node *dst_node,
+		  modref_summary *src_data,
+		  modref_summary *dst_data) final override;
   static modref_summaries *create_ggc (symbol_table *symtab)
   {
     return new (ggc_alloc_no_dtor<modref_summaries> ())
@@ -241,11 +241,11 @@ public:
   modref_summaries_lto (symbol_table *symtab)
       : fast_function_summary <modref_summary_lto *, va_gc> (symtab),
 	propagated (false) {}
-  virtual void insert (cgraph_node *, modref_summary_lto *state);
-  virtual void duplicate (cgraph_node *src_node,
-			  cgraph_node *dst_node,
-			  modref_summary_lto *src_data,
-			  modref_summary_lto *dst_data);
+  void insert (cgraph_node *, modref_summary_lto *state) final override;
+  void duplicate (cgraph_node *src_node,
+		  cgraph_node *dst_node,
+		  modref_summary_lto *src_data,
+		  modref_summary_lto *dst_data) final override;
   static modref_summaries_lto *create_ggc (symbol_table *symtab)
   {
     return new (ggc_alloc_no_dtor<modref_summaries_lto> ())
@@ -1875,11 +1875,11 @@ modref_access_analysis::analyze ()
      statement cannot be analyzed (for any reason), the entire function cannot
      be analyzed by modref.  */
   basic_block bb;
+  bitmap always_executed_bbs = find_always_executed_bbs (cfun, true);
   FOR_EACH_BB_FN (bb, cfun)
     {
       gimple_stmt_iterator si;
-      bool always_executed
-	      = bb == single_succ_edge (ENTRY_BLOCK_PTR_FOR_FN (cfun))->dest;
+      bool always_executed = bitmap_bit_p (always_executed_bbs, bb->index);
 
       for (si = gsi_start_nondebug_after_labels_bb (bb);
 	   !gsi_end_p (si); gsi_next_nondebug (&si))
@@ -1926,6 +1926,7 @@ modref_access_analysis::analyze ()
 	  && !finite_function_p ())
 	m_summary_lto->side_effects = true;
     }
+  BITMAP_FREE (always_executed_bbs);
 }
 
 /* Return true if OP accesses memory pointed to by SSA_NAME.  */
@@ -3508,15 +3509,15 @@ class pass_modref : public gimple_opt_pass
 	: gimple_opt_pass (pass_data_modref, ctxt) {}
 
     /* opt_pass methods: */
-    opt_pass *clone ()
+    opt_pass *clone () final override
     {
       return new pass_modref (m_ctxt);
     }
-    virtual bool gate (function *)
+    bool gate (function *) final override
     {
       return flag_ipa_modref;
     }
-    virtual unsigned int execute (function *);
+    unsigned int execute (function *) final override;
 };
 
 /* Encode TT to the output block OB using the summary streaming API.  */
@@ -4170,12 +4171,12 @@ public:
   {}
 
   /* opt_pass methods: */
-  opt_pass *clone () { return new pass_ipa_modref (m_ctxt); }
-  virtual bool gate (function *)
+  opt_pass *clone () final override { return new pass_ipa_modref (m_ctxt); }
+  bool gate (function *) final override
   {
     return true;
   }
-  virtual unsigned int execute (function *);
+  unsigned int execute (function *) final override;
 
 };
 

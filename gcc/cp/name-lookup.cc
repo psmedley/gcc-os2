@@ -1,5 +1,5 @@
 /* Definitions for C++ name lookup routines.
-   Copyright (C) 2003-2022 Free Software Foundation, Inc.
+   Copyright (C) 2003-2023 Free Software Foundation, Inc.
    Contributed by Gabriel Dos Reis <gdr@integrable-solutions.net>
 
 This file is part of GCC.
@@ -190,25 +190,25 @@ search_imported_binding_slot (tree *slot, unsigned ix)
 static void
 init_global_partition (binding_cluster *cluster, tree decl)
 {
-  bool purview = true;
+  bool named = true;
 
   if (header_module_p ())
-    purview = false;
+    named = false;
   else if (TREE_PUBLIC (decl)
 	   && TREE_CODE (decl) == NAMESPACE_DECL
 	   && !DECL_NAMESPACE_ALIAS (decl))
-    purview = false;
+    named = false;
   else if (!get_originating_module (decl))
-    purview = false;
+    named = false;
 
   binding_slot *mslot;
-  if (!purview)
-    mslot = &cluster[0].slots[BINDING_SLOT_GLOBAL];
-  else
+  if (named)
     mslot = &cluster[BINDING_SLOT_PARTITION
 		     / BINDING_VECTOR_SLOTS_PER_CLUSTER]
       .slots[BINDING_SLOT_PARTITION
 	     % BINDING_VECTOR_SLOTS_PER_CLUSTER];
+  else
+    mslot = &cluster[0].slots[BINDING_SLOT_GLOBAL];
 
   if (*mslot)
     decl = ovl_make (decl, *mslot);
@@ -248,7 +248,7 @@ get_fixed_binding_slot (tree *slot, tree name, unsigned ix, int create)
       if (!create)
 	return NULL;
 
-      /* The partition slot is only needed when we know we're a named
+      /* The partition slot is only needed when we're a named
 	 module.  */
       bool partition_slot = named_module_p ();
       unsigned want = ((BINDING_SLOTS_FIXED + partition_slot + (create < 0)
@@ -402,7 +402,7 @@ add_decl_to_level (cp_binding_level *b, tree decl)
       && ((VAR_P (decl) && (TREE_STATIC (decl) || DECL_EXTERNAL (decl)))
 	  || (TREE_CODE (decl) == FUNCTION_DECL
 	      && (!TREE_PUBLIC (decl)
-		  || decl_anon_ns_mem_p (decl)
+		  || decl_internal_context_p (decl)
 		  || DECL_DECLARED_INLINE_P (decl)))))
     vec_safe_push (static_decls, decl);
 }
@@ -3472,9 +3472,9 @@ push_local_extern_decl_alias (tree decl)
   DECL_LOCAL_DECL_ALIAS (decl) = alias;
 }
 
-/* DECL is a global or module-purview entity.  If it has non-internal
-   linkage, and we have a module vector, record it in the appropriate
-   slot.  We have already checked for duplicates.  */
+/* If DECL has non-internal linkage, and we have a module vector,
+   record it in the appropriate slot.  We have already checked for
+   duplicates.  */
 
 static void
 maybe_record_mergeable_decl (tree *slot, tree name, tree decl)
@@ -3493,11 +3493,13 @@ maybe_record_mergeable_decl (tree *slot, tree name, tree decl)
     /* Internal linkage.  */
     return;
 
-  bool partition = named_module_p ();
+  bool is_attached = (DECL_LANG_SPECIFIC (not_tmpl)
+		      && DECL_MODULE_ATTACH_P (not_tmpl));
   tree *gslot = get_fixed_binding_slot
-    (slot, name, partition ? BINDING_SLOT_PARTITION : BINDING_SLOT_GLOBAL, true);
+    (slot, name, is_attached ? BINDING_SLOT_PARTITION : BINDING_SLOT_GLOBAL,
+     true);
 
-  if (!partition)
+  if (!is_attached)
     {
       binding_slot &orig
 	= BINDING_VECTOR_CLUSTER (*slot, 0).slots[BINDING_SLOT_CURRENT];
@@ -3826,7 +3828,7 @@ pushdecl (tree decl, bool hiding)
 
 	  if (level->kind == sk_namespace
 	      && TREE_PUBLIC (level->this_entity)
-	      && !not_module_p ())
+	      && module_p ())
 	    maybe_record_mergeable_decl (slot, name, decl);
 	}
     }
@@ -3841,11 +3843,12 @@ pushdecl (tree decl, bool hiding)
    GMF slot or a module-specific one.  */
 
 tree *
-mergeable_namespace_slots (tree ns, tree name, bool is_global, tree *vec)
+mergeable_namespace_slots (tree ns, tree name, bool is_attached, tree *vec)
 {
   tree *mslot = find_namespace_slot (ns, name, true);
   tree *vslot = get_fixed_binding_slot
-    (mslot, name, is_global ? BINDING_SLOT_GLOBAL : BINDING_SLOT_PARTITION, true);
+    (mslot, name, is_attached ? BINDING_SLOT_PARTITION : BINDING_SLOT_GLOBAL,
+     true);
 
   gcc_checking_assert (TREE_CODE (*mslot) == BINDING_VECTOR);
   *vec = *mslot;
@@ -4293,13 +4296,12 @@ begin_scope (scope_kind kind, tree entity)
     case sk_scoped_enum:
     case sk_transaction:
     case sk_omp:
+    case sk_stmt_expr:
       scope->keep = keep_next_level_flag;
       break;
 
     case sk_function_parms:
       scope->keep = keep_next_level_flag;
-      if (entity)
-	scope->immediate_fn_ctx_p = DECL_IMMEDIATE_FUNCTION_P (entity);
       break;
 
     case sk_namespace:
@@ -4832,10 +4834,10 @@ do_nonmember_using_decl (name_lookup &lookup, bool fn_scope_p,
 	  if (exporting)
 	    {
 	      /* If the using decl is exported, the things it refers
-		 to must also be exported (or not in module purview).  */
+		 to must also be exported (or not habve module attachment).  */
 	      if (!DECL_MODULE_EXPORT_P (new_fn)
 		  && (DECL_LANG_SPECIFIC (new_fn)
-		      && DECL_MODULE_PURVIEW_P (new_fn)))
+		      && DECL_MODULE_ATTACH_P (new_fn)))
 		{
 		  error ("%q#D does not have external linkage", new_fn);
 		  inform (DECL_SOURCE_LOCATION (new_fn),
@@ -6378,7 +6380,7 @@ class namespace_limit_reached : public deferred_diagnostic
 			   std::unique_ptr<deferred_diagnostic> wrapped)
   : deferred_diagnostic (loc),
     m_limit (limit), m_name (name),
-    m_wrapped (move (wrapped))
+    m_wrapped (std::move (wrapped))
   {
   }
 
@@ -6688,20 +6690,14 @@ suggest_alternatives_in_other_namespaces (location_t location, tree name)
 }
 
 /* A well-known name within the C++ standard library, returned by
-   get_std_name_hint.  */
+   get_std_name_hint.
 
-struct std_name_hint
-{
-  /* A name within "std::".  */
-  const char *name;
+   The gperf-generated file contains the definition of the class
+   "std_name_hint_lookup" with a static member function which
+   returns the pointer to a structure "std_name_hint" which
+   is also defined in that file.  */
 
-  /* The header name defining it within the C++ Standard Library
-     (with '<' and '>').  */
-  const char *header;
-
-  /* The dialect of C++ in which this was added.  */
-  enum cxx_dialect min_dialect;
-};
+#include "std-name-hint.h"
 
 /* Subroutine of maybe_suggest_missing_header for handling unrecognized names
    for some of the most common names within "std::".
@@ -6710,218 +6706,7 @@ struct std_name_hint
 static const std_name_hint *
 get_std_name_hint (const char *name)
 {
-  static const std_name_hint hints[] = {
-    /* <any>.  */
-    {"any", "<any>", cxx17},
-    {"any_cast", "<any>", cxx17},
-    {"make_any", "<any>", cxx17},
-    /* <array>.  */
-    {"array", "<array>", cxx11},
-    {"to_array", "<array>", cxx20},
-    /* <atomic>.  */
-    {"atomic", "<atomic>", cxx11},
-    {"atomic_flag", "<atomic>", cxx11},
-    {"atomic_ref", "<atomic>", cxx20},
-    /* <bitset>.  */
-    {"bitset", "<bitset>", cxx11},
-    /* <compare> */
-    {"weak_equality", "<compare>", cxx20},
-    {"strong_equality", "<compare>", cxx20},
-    {"partial_ordering", "<compare>", cxx20},
-    {"weak_ordering", "<compare>", cxx20},
-    {"strong_ordering", "<compare>", cxx20},
-    /* <complex>.  */
-    {"complex", "<complex>", cxx98},
-    {"complex_literals", "<complex>", cxx14},
-    /* <condition_variable>. */
-    {"condition_variable", "<condition_variable>", cxx11},
-    {"condition_variable_any", "<condition_variable>", cxx11},
-    /* <cstddef>.  */
-    {"byte", "<cstddef>", cxx17},
-    /* <deque>.  */
-    {"deque", "<deque>", cxx98},
-    /* <forward_list>.  */
-    {"forward_list", "<forward_list>", cxx11},
-    /* <fstream>.  */
-    {"basic_filebuf", "<fstream>", cxx98},
-    {"basic_ifstream", "<fstream>", cxx98},
-    {"basic_ofstream", "<fstream>", cxx98},
-    {"basic_fstream", "<fstream>", cxx98},
-    {"fstream", "<fstream>", cxx98},
-    {"ifstream", "<fstream>", cxx98},
-    {"ofstream", "<fstream>", cxx98},
-    /* <functional>.  */
-    {"bind", "<functional>", cxx11},
-    {"bind_front", "<functional>", cxx20},
-    {"function", "<functional>", cxx11},
-    {"hash", "<functional>", cxx11},
-    {"invoke", "<functional>", cxx17},
-    {"mem_fn", "<functional>", cxx11},
-    {"not_fn", "<functional>", cxx17},
-    {"reference_wrapper", "<functional>", cxx11},
-    {"unwrap_reference", "<functional>", cxx20},
-    {"unwrap_reference_t", "<functional>", cxx20},
-    {"unwrap_ref_decay", "<functional>", cxx20},
-    {"unwrap_ref_decay_t", "<functional>", cxx20},
-    /* <future>. */
-    {"async", "<future>", cxx11},
-    {"future", "<future>", cxx11},
-    {"packaged_task", "<future>", cxx11},
-    {"promise", "<future>", cxx11},
-    /* <iostream>.  */
-    {"cin", "<iostream>", cxx98},
-    {"cout", "<iostream>", cxx98},
-    {"cerr", "<iostream>", cxx98},
-    {"clog", "<iostream>", cxx98},
-    {"wcin", "<iostream>", cxx98},
-    {"wcout", "<iostream>", cxx98},
-    {"wclog", "<iostream>", cxx98},
-    /* <istream>.  */
-    {"istream", "<istream>", cxx98},
-    /* <iterator>.  */
-    {"advance", "<iterator>", cxx98},
-    {"back_inserter", "<iterator>", cxx98},
-    {"begin", "<iterator>", cxx11},
-    {"distance", "<iterator>", cxx98},
-    {"end", "<iterator>", cxx11},
-    {"front_inserter", "<iterator>", cxx98},
-    {"inserter", "<iterator>", cxx98},
-    {"istream_iterator", "<iterator>", cxx98},
-    {"istreambuf_iterator", "<iterator>", cxx98},
-    {"iterator_traits", "<iterator>", cxx98},
-    {"move_iterator", "<iterator>", cxx11},
-    {"next", "<iterator>", cxx11},
-    {"ostream_iterator", "<iterator>", cxx98},
-    {"ostreambuf_iterator", "<iterator>", cxx98},
-    {"prev", "<iterator>", cxx11},
-    {"reverse_iterator", "<iterator>", cxx98},
-    /* <ostream>.  */
-    {"ostream", "<ostream>", cxx98},
-    /* <list>.  */
-    {"list", "<list>", cxx98},
-    /* <map>.  */
-    {"map", "<map>", cxx98},
-    {"multimap", "<map>", cxx98},
-    /* <memory>.  */
-    {"allocate_shared", "<memory>", cxx11},
-    {"allocator", "<memory>", cxx98},
-    {"allocator_traits", "<memory>", cxx11},
-    {"make_shared", "<memory>", cxx11},
-    {"make_unique", "<memory>", cxx14},
-    {"shared_ptr", "<memory>", cxx11},
-    {"unique_ptr", "<memory>", cxx11},
-    {"weak_ptr", "<memory>", cxx11},
-    /* <memory_resource>.  */
-    {"pmr", "<memory_resource>", cxx17},
-    /* <mutex>.  */
-    {"mutex", "<mutex>", cxx11},
-    {"timed_mutex", "<mutex>", cxx11},
-    {"recursive_mutex", "<mutex>", cxx11},
-    {"recursive_timed_mutex", "<mutex>", cxx11},
-    {"once_flag", "<mutex>", cxx11},
-    {"call_once,", "<mutex>", cxx11},
-    {"lock", "<mutex>", cxx11},
-    {"scoped_lock", "<mutex>", cxx17},
-    {"try_lock", "<mutex>", cxx11},
-    {"lock_guard", "<mutex>", cxx11},
-    {"unique_lock", "<mutex>", cxx11},
-    /* <optional>. */
-    {"optional", "<optional>", cxx17},
-    {"make_optional", "<optional>", cxx17},
-    /* <ostream>.  */
-    {"ostream", "<ostream>", cxx98},
-    {"wostream", "<ostream>", cxx98},
-    {"ends", "<ostream>", cxx98},
-    {"flush", "<ostream>", cxx98},
-    {"endl", "<ostream>", cxx98},
-    /* <queue>.  */
-    {"queue", "<queue>", cxx98},
-    {"priority_queue", "<queue>", cxx98},
-    /* <set>.  */
-    {"set", "<set>", cxx98},
-    {"multiset", "<set>", cxx98},
-    /* <shared_mutex>.  */
-    {"shared_lock", "<shared_mutex>", cxx14},
-    {"shared_mutex", "<shared_mutex>", cxx17},
-    {"shared_timed_mutex", "<shared_mutex>", cxx14},
-    /* <source_location>.  */
-    {"source_location", "<source_location>", cxx20},
-    /* <sstream>.  */
-    {"basic_stringbuf", "<sstream>", cxx98},
-    {"basic_istringstream", "<sstream>", cxx98},
-    {"basic_ostringstream", "<sstream>", cxx98},
-    {"basic_stringstream", "<sstream>", cxx98},
-    {"istringstream", "<sstream>", cxx98},
-    {"ostringstream", "<sstream>", cxx98},
-    {"stringstream", "<sstream>", cxx98},
-    /* <stack>.  */
-    {"stack", "<stack>", cxx98},
-    /* <string>.  */
-    {"basic_string", "<string>", cxx98},
-    {"string", "<string>", cxx98},
-    {"wstring", "<string>", cxx98},
-    {"u8string", "<string>", cxx20},
-    {"u16string", "<string>", cxx11},
-    {"u32string", "<string>", cxx11},
-    /* <string_view>.  */
-    {"basic_string_view", "<string_view>", cxx17},
-    {"string_view", "<string_view>", cxx17},
-    /* <thread>.  */
-    {"thread", "<thread>", cxx11},
-    {"this_thread", "<thread>", cxx11},
-    /* <tuple>.  */
-    {"apply", "<tuple>", cxx17},
-    {"forward_as_tuple", "<tuple>", cxx11},
-    {"make_from_tuple", "<tuple>", cxx17},
-    {"make_tuple", "<tuple>", cxx11},
-    {"tie", "<tuple>", cxx11},
-    {"tuple", "<tuple>", cxx11},
-    {"tuple_cat", "<tuple>", cxx11},
-    {"tuple_element", "<tuple>", cxx11},
-    {"tuple_element_t", "<tuple>", cxx14},
-    {"tuple_size", "<tuple>", cxx11},
-    {"tuple_size_v", "<tuple>", cxx17},
-    /* <type_traits>.  */
-    {"enable_if", "<type_traits>", cxx11},
-    {"enable_if_t", "<type_traits>", cxx14},
-    {"invoke_result", "<type_traits>", cxx17},
-    {"invoke_result_t", "<type_traits>", cxx17},
-    {"remove_cvref", "<type_traits>", cxx20},
-    {"remove_cvref_t", "<type_traits>", cxx20},
-    {"type_identity", "<type_traits>", cxx20},
-    {"type_identity_t", "<type_traits>", cxx20},
-    {"void_t", "<type_traits>", cxx17},
-    {"conjunction", "<type_traits>", cxx17},
-    {"conjunction_v", "<type_traits>", cxx17},
-    {"disjunction", "<type_traits>", cxx17},
-    {"disjunction_v", "<type_traits>", cxx17},
-    {"negation", "<type_traits>", cxx17},
-    {"negation_v", "<type_traits>", cxx17},
-    /* <unordered_map>.  */
-    {"unordered_map", "<unordered_map>", cxx11},
-    {"unordered_multimap", "<unordered_map>", cxx11},
-    /* <unordered_set>.  */
-    {"unordered_set", "<unordered_set>", cxx11},
-    {"unordered_multiset", "<unordered_set>", cxx11},
-    /* <utility>.  */
-    {"declval", "<utility>", cxx11},
-    {"forward", "<utility>", cxx11},
-    {"make_pair", "<utility>", cxx98},
-    {"move", "<utility>", cxx11},
-    {"pair", "<utility>", cxx98},
-    /* <variant>.  */
-    {"variant", "<variant>", cxx17},
-    {"visit", "<variant>", cxx17},
-    /* <vector>.  */
-    {"vector", "<vector>", cxx98},
-  };
-  const size_t num_hints = sizeof (hints) / sizeof (hints[0]);
-  for (size_t i = 0; i < num_hints; i++)
-    {
-      if (strcmp (name, hints[i].name) == 0)
-	return &hints[i];
-    }
-  return NULL;
+  return std_name_hint_lookup::find(name, strlen(name));
 }
 
 /* Describe DIALECT.  */
@@ -8810,6 +8595,13 @@ push_namespace (tree name, bool make_inline)
 	      slot = find_namespace_slot (current_namespace, name);
 	      /* This should find the slot created by pushdecl.  */
 	      gcc_checking_assert (slot && *slot == ns);
+	    }
+	  else
+	    {
+	      /* pushdecl could have expanded the hash table, so
+		 slot might be invalid.  */
+	      slot = find_namespace_slot (current_namespace, name);
+	      gcc_checking_assert (slot);
 	    }
 	  make_namespace_finish (ns, slot);
 

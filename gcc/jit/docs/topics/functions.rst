@@ -1,4 +1,4 @@
-.. Copyright (C) 2014-2022 Free Software Foundation, Inc.
+.. Copyright (C) 2014-2023 Free Software Foundation, Inc.
    Originally contributed by David Malcolm <dmalcolm@redhat.com>
 
    This is free software: you can redistribute it and/or modify it
@@ -80,7 +80,7 @@ Functions
 
    Create a gcc_jit_function with the given name and parameters.
 
-   .. type:: enum gcc_jit_function_kind
+   .. enum:: gcc_jit_function_kind
 
    This enum controls the kind of function created, and has the following
    values:
