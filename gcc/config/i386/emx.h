@@ -44,7 +44,7 @@ Boston, MA 02111-1307, USA.  */
 #define DEFAULT_GDB_EXTENSIONS          1
 #define DBX_DEBUGGING_INFO              1
 #define DWARF2_DEBUGGING_INFO           1
-#define PREFERRED_DEBUGGING_TYPE    DBX_DEBUG
+#define PREFERRED_DEBUGGING_TYPE    DWARF2_DEBUG
 
 /* headers */
 #include <stdio.h>              /* for FILE* */
@@ -483,6 +483,8 @@ do {                                                                    \
 #undef GOMP_SELF_SPECS
 #define GOMP_SELF_SPECS ""
 
+/* Switch into a generic section.  */
+#define TARGET_ASM_NAMED_SECTION  i386_emx_asm_named_section
 
 #if 0
 /* Prefer symbols in %L (-lc) over %G (libcAB.dll includes gcc3XY.dll).
@@ -642,3 +644,8 @@ extern void __ctordtorTerm (void);
 
 #endif
 
+/* Function protypes for gcc/i386/emx.c */
+
+void
+i386_emx_asm_named_section(const char *name, unsigned int flags,
+			     tree decl);

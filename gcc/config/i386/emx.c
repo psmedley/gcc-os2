@@ -167,6 +167,20 @@ void birddump (tree node, const char *pszFunction)
 #endif
 
 void
+i386_emx_asm_named_section(const char *name, unsigned int flags,
+			     tree)
+{
+  char flagchars[8], *f = flagchars;
+
+  if (flags & SECTION_WRITE)
+    *f++ = 'w';
+  if (flags & SECTION_CODE)
+    *f++ = 'x';
+
+  fprintf (asm_out_file, "\t.text%s,\"%s\"\n", name, flagchars);
+}
+
+void
 emx_eh_frame_section (const char*)
 {
 /*

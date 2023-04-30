@@ -36,7 +36,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "optabs.h"
 #ifdef __EMX__
 #include "cp/cp-tree.h" /* we need SET_DECL_LANGUAGE */
-#include "dbxout.h"
 #endif
 #include "regs.h"
 #include "emit-rtl.h"
@@ -3102,6 +3101,7 @@ pass_in_reg:
     case E_V8QImode:
     case E_V4HImode:
     case E_V4HFmode:
+    case E_V4BFmode:
     case E_V2SImode:
     case E_V2SFmode:
     case E_V1TImode:
@@ -3427,7 +3427,6 @@ pass_in_reg:
     case E_V8QImode:
     case E_V4HImode:
     case E_V4HFmode:
-    case E_V4BFmode:
     case E_V4BFmode:
     case E_V2SImode:
     case E_V2SFmode:

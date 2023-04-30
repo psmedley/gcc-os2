@@ -43,7 +43,7 @@ along with GCC; see the file COPYING3.  If not see
 // Network
 /* Include network stuff first.  Excitingly OSX10.14 uses bcmp here, which
    we poison later!  */
-#if defined (HAVE_AF_UNIX) || defined (HAVE_AF_INET6)
+#if (defined (HAVE_AF_UNIX) || defined (HAVE_AF_INET6)) && !defined(__OS2__)
 /* socket, bind, listen, accept{4}  */
 # define NETWORKING 1
 # include <sys/socket.h>

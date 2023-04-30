@@ -35,7 +35,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "optabs.h"
 #ifdef __EMX__
 #include "cp/cp-tree.h" /* we need SET_DECL_LANGUAGE */
-#include "dbxout.h"
 #endif
 #include "regs.h"
 #include "emit-rtl.h"
