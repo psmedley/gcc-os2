@@ -121,6 +121,9 @@ along with GCC; see the file COPYING3.  If not see
 #define gcc_unreachable() (fancy_abort (__FILE__, __LINE__, __FUNCTION__))
 #endif
 
+#ifdef __OS2__
+#undef NETWORKING
+#endif
 
 #if NETWORKING
 struct netmask {

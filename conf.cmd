@@ -1,7 +1,6 @@
-set config_site=u:/moztools/config.site-gcc
-set path=u:\dev\gcc-11-os2\host-i386-pc-os2-emx\gcc;%path%
+set LDFLAGS=-Zomf -Zstack 8192 -Zhigh-mem
+set cc=gcc
+set path=u:\dev\gcc-os2\host-i386-pc-os2-emx\gcc;%path%
 set LIBS= -lpthread
 set grep=grep.exe
-ash ./configure --prefix=/usr/local1210 --enable-shared --enable-languages=c,c++,fortran --with-gnu-as --enable-frame-pointer --disable-bootstrap --disable-libstdcxx-pch  --enable-threads --enable-decimal-float=yes --build=i686-pc-os2-emx --target=i686-pc-os2-emx 2>&1 | tee configure.log
-
-# fix failed assertion in gcc\gcc.c
+dash ./configure --disable-bootstrap --enable-languages=c,c++ --build=i686-pc-os2-emx --with-sysroot=/@unixroot --prefix=/@unixroot/usr/local1230 --mandir=/@unixroot/usr/local1230/share/man --infodir=/@unixroot/usr/local1230/share/info --enable-shared --enable-threads --enable-checking=release --disable-multilib --with-system-zlib --with-gcc-major-version-only --without-isl --with-tune=generic --with-arch=i686 --with-gnu-as --disable-libstdcxx-pch
