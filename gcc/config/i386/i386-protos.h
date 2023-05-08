@@ -274,11 +274,6 @@ extern bool ix86_extract_perm_from_pool_constant (int*, rtx);
 extern void ix86_target_macros (void);
 extern void ix86_register_pragmas (void);
 
-/* In i386-d.cc  */
-extern void ix86_d_target_versions (void);
-extern void ix86_d_register_target_info (void);
-extern bool ix86_d_has_stdcall_convention (unsigned int *, unsigned int *);
-
 /* In emx.c  */
 extern bool i386_emx_binds_local_p (const_tree);
 extern void i386_emx_init_sections (void);
