@@ -129,7 +129,7 @@
 .\" ========================================================================
 .\"
 .IX Title "GCC 1"
-.TH GCC 1 "2022-08-19" "gcc-12.2.0" "GNU"
+.TH GCC 1 "2023-05-08" "gcc-12.3.0" "GNU"
 .\" For nroff, turn off justification.  Always turn off hyphenation; it makes
 .\" way too many mistakes in technical documents.
 .if n .ad l
@@ -9004,6 +9004,13 @@ code, and issues warnings for problems found on them.
 .Sp
 This analysis is much more expensive than other \s-1GCC\s0 warnings.
 .Sp
+In technical terms, it performs coverage-guided symbolic execution of
+the code being compiled.  It is neither sound nor complete: it can
+have false positives and false negatives.  It is a bug-finding tool,
+rather than a tool for proving program correctness.
+.Sp
+The analyzer is only suitable for use on C code in this release.
+.Sp
 Enabling this option effectively enables the following warnings:
 .Sp
 \&\fB\-Wanalyzer\-double\-fclose 
@@ -15556,9 +15563,10 @@ supported by the system's \f(CW\*(C`iconv\*(C'\fR library routine.
 .IP "\fB\-fwide\-exec\-charset=\fR\fIcharset\fR" 4
 .IX Item "-fwide-exec-charset=charset"
 Set the wide execution character set, used for wide string and
-character constants.  The default is \s-1UTF\-32\s0 or \s-1UTF\-16,\s0 whichever
-corresponds to the width of \f(CW\*(C`wchar_t\*(C'\fR.  As with
-\&\fB\-fexec\-charset\fR, \fIcharset\fR can be any encoding supported
+character constants.  The default is one of \s-1UTF\-32BE, UTF\-32LE, UTF\-16BE,\s0
+or \s-1UTF\-16LE,\s0 whichever corresponds to the width of \f(CW\*(C`wchar_t\*(C'\fR and the
+big-endian or little-endian byte order being used for code generation.  As
+with \fB\-fexec\-charset\fR, \fIcharset\fR can be any encoding supported
 by the system's \f(CW\*(C`iconv\*(C'\fR library routine; however, you will have
 problems with encodings that do not fit exactly in \f(CW\*(C`wchar_t\*(C'\fR.
 .IP "\fB\-finput\-charset=\fR\fIcharset\fR" 4
@@ -18439,7 +18447,7 @@ performance of the code.  Permissible values for this option are:
 \&\fBcortex\-a78\fR, \fBcortex\-a78ae\fR, \fBcortex\-a78c\fR,
 \&\fBares\fR, \fBexynos\-m1\fR, \fBemag\fR, \fBfalkor\fR,
 \&\fBneoverse\-512tvb\fR, \fBneoverse\-e1\fR, \fBneoverse\-n1\fR,
-\&\fBneoverse\-n2\fR, \fBneoverse\-v1\fR, \fBqdf24xx\fR,
+\&\fBneoverse\-n2\fR, \fBneoverse\-v1\fR, \fBneoverse\-v2\fR, \fBqdf24xx\fR,
 \&\fBsaphira\fR, \fBphecda\fR, \fBxgene1\fR, \fBvulcan\fR,
 \&\fBocteontx\fR, \fBocteontx81\fR,  \fBocteontx83\fR,
 \&\fBocteontx2\fR, \fBocteontx2t98\fR, \fBocteontx2t96\fR
@@ -18453,7 +18461,8 @@ performance of the code.  Permissible values for this option are:
 \&\fBcortex\-a73.cortex\-a35\fR, \fBcortex\-a73.cortex\-a53\fR,
 \&\fBcortex\-a75.cortex\-a55\fR, \fBcortex\-a76.cortex\-a55\fR,
 \&\fBcortex\-r82\fR, \fBcortex\-x1\fR, \fBcortex\-x2\fR,
-\&\fBcortex\-a510\fR, \fBcortex\-a710\fR, \fBampere1\fR, \fBnative\fR.
+\&\fBcortex\-a510\fR, \fBcortex\-a710\fR, \fBampere1\fR,
+\&\fBampere1a\fR, \fBnative\fR.
 .Sp
 The values \fBcortex\-a57.cortex\-a53\fR, \fBcortex\-a72.cortex\-a53\fR,
 \&\fBcortex\-a73.cortex\-a35\fR, \fBcortex\-a73.cortex\-a53\fR,
@@ -30454,11 +30463,11 @@ Intel sapphirerapids \s-1CPU\s0 with 64\-bit extensions, \s-1MOVBE, MMX, SSE, SS
 SSSE3, SSE4.1, SSE4.2, POPCNT, CX16, SAHF, FXSR, AVX, XSAVE, PCLMUL, FSGSBASE,
 RDRND, F16C, AVX2, BMI, BMI2, LZCNT, FMA, MOVBE, HLE, RDSEED, ADCX, PREFETCHW,
 AES, CLFLUSHOPT, XSAVEC, XSAVES, SGX, AVX512F, AVX512VL, AVX512BW, AVX512DQ,
-AVX512CD, PKU, AVX512VBMI, AVX512IFMA, SHA, AVX512VNNI, GFNI, VAES, AVX512VBMI2
+AVX512CD, PKU, AVX512VBMI, AVX512IFMA, SHA, AVX512VNNI, GFNI, VAES, AVX512VBMI2,
 VPCLMULQDQ, AVX512BITALG, RDPID, AVX512VPOPCNTDQ, PCONFIG, WBNOINVD, CLWB,
-MOVDIRI, MOVDIR64B, AVX512VP2INTERSECT, ENQCMD, CLDEMOTE, PTWRITE, WAITPKG,
-SERIALIZE, TSXLDTRK, UINTR, AMX\-BF16,\s0 AMX-TILE, \s-1AMX\-INT8,\s0 AVX-VNNI, \s-1AVX512FP16\s0
-and \s-1AVX512BF16\s0 instruction set support.
+MOVDIRI, MOVDIR64B, ENQCMD, CLDEMOTE, PTWRITE, WAITPKG, SERIALIZE, TSXLDTRK,
+UINTR, AMX\-BF16,\s0 AMX-TILE, \s-1AMX\-INT8,\s0 AVX-VNNI, \s-1AVX512\-FP16\s0 and \s-1AVX512BF16\s0
+instruction set support.
 .IP "\fBalderlake\fR" 4
 .IX Item "alderlake"
 Intel Alderlake \s-1CPU\s0 with 64\-bit extensions, \s-1MOVBE, MMX, SSE, SSE2, SSE3, SSSE3,
@@ -30579,6 +30588,15 @@ supersets \s-1BMI, BMI2, CLWB, F16C, FMA, FSGSBASE, AVX, AVX2, ADCX, RDSEED,
 MWAITX, SHA, CLZERO, AES, PCLMUL, CX16, MOVBE, MMX, SSE, SSE2, SSE3, SSE4A,
 SSSE3, SSE4.1, SSE4.2, ABM, XSAVEC, XSAVES, CLFLUSHOPT, POPCNT, RDPID,
 WBNOINVD, PKU, VPCLMULQDQ, VAES,\s0 and 64\-bit instruction set extensions.)
+.IP "\fBznver4\fR" 4
+.IX Item "znver4"
+\&\s-1AMD\s0 Family 19h core based CPUs with x86\-64 instruction set support. (This
+supersets \s-1BMI, BMI2, CLWB, F16C, FMA, FSGSBASE, AVX, AVX2, ADCX, RDSEED,
+MWAITX, SHA, CLZERO, AES, PCLMUL, CX16, MOVBE, MMX, SSE, SSE2, SSE3, SSE4A,
+SSSE3, SSE4.1, SSE4.2, ABM, XSAVEC, XSAVES, CLFLUSHOPT, POPCNT, RDPID,
+WBNOINVD, PKU, VPCLMULQDQ, VAES, AVX512F, AVX512DQ, AVX512IFMA, AVX512CD,
+AVX512BW, AVX512VL, AVX512BF16, AVX512VBMI, AVX512VBMI2, AVX512VNNI,
+AVX512BITALG, AVX512VPOPCNTDQ, GFNI\s0 and 64\-bit instruction set extensions.)
 .IP "\fBbtver1\fR" 4
 .IX Item "btver1"
 CPUs based on \s-1AMD\s0 Family 14h cores with x86\-64 instruction set support.  (This
@@ -31230,7 +31248,7 @@ WBNOINVD, FMA4, PREFETCHW, RDPID, PREFETCHWT1, RDSEED, SGX, XOP, LWP,\s0
 XSAVEOPT, XSAVEC, XSAVES, RTM, HLE, TBM, MWAITX, CLZERO, PKU, AVX512VBMI2,
 GFNI, VAES, WAITPKG, VPCLMULQDQ, AVX512BITALG, MOVDIRI, MOVDIR64B, AVX512BF16,
 ENQCMD, AVX512VPOPCNTDQ, AVX5124FMAPS, AVX512VNNI, AVX5124VNNIW, SERIALIZE,
-UINTR, HRESET, AMXTILE, AMXINT8, AMXBF16, KL, WIDEKL, AVXVNNI, AVX512FP16\s0
+UINTR, HRESET, AMXTILE, AMXINT8, AMXBF16, KL, WIDEKL, AVXVNNI, AVX512\-FP16\s0
 or \s-1CLDEMOTE\s0 extended instruction sets. Each has a corresponding
 \&\fB\-mno\-\fR option to disable use of these instructions.
 .Sp

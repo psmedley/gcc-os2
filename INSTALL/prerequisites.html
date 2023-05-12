@@ -89,7 +89,9 @@ described below.
 <h3 class="heading">Tools/packages necessary for building GCC</h3>
 <dl compact="compact">
 <dt>ISO C++11 compiler</dt>
-<dd><p>Necessary to bootstrap GCC.
+<dd><p>Necessary to bootstrap GCC.  GCC 4.8.3 or newer has sufficient
+support for used C++11 features, with earlier GCC versions you
+might run into implementation bugs.
 </p>
 <p>Versions of GCC prior to 11 also allow bootstrapping with an ISO C++98
 compiler, versions of GCC prior to 4.8 also allow bootstrapping with a
@@ -98,7 +100,7 @@ bootstrapping with a traditional (K&amp;R) C compiler.
 </p>
 <p>To build all languages in a cross-compiler or other configuration where
 3-stage bootstrap is not performed, you need to start with an existing
-GCC binary (version 4.8 or later) because source code for language
+GCC binary (version 4.8.3 or later) because source code for language
 frontends other than C might use GCC extensions.
 </p>
 </dd>
@@ -152,7 +154,7 @@ section.
 <dt><a name="GDC-prerequisite"></a>GDC</dt>
 <dd>
 <p>In order to build GDC, the D compiler, you need a working GDC
-compiler (GCC version 9.1 or later) and D runtime library,
+compiler (GCC version 9.4 or later) and D runtime library,
 &lsquo;<samp>libphobos</samp>&rsquo;, as the D front end is written in D.
 </p>
 <p>Versions of GDC prior to 12 can be built with an ISO C++11 compiler, which can

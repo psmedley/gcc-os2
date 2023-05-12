@@ -103,11 +103,17 @@ information have to.
 <ul>
 <li> <a href="#aarch64-x-x">aarch64*-*-*</a>
 </li><li> <a href="#alpha-x-x">alpha*-*-*</a>
+</li><li> <a href="#amdgcn-x-amdhsa">amdgcn-*-amdhsa</a>
 </li><li> <a href="#amd64-x-solaris2">amd64-*-solaris2*</a>
+</li><li> <a href="#arc-x-elf32">arc-*-elf32</a>
+</li><li> <a href="#arc-linux-uclibc">arc-linux-uclibc</a>
 </li><li> <a href="#arm-x-eabi">arm-*-eabi</a>
 </li><li> <a href="#avr">avr</a>
 </li><li> <a href="#bfin">Blackfin</a>
+</li><li> <a href="#cris">cris</a>
 </li><li> <a href="#dos">DOS</a>
+</li><li> <a href="#epiphany-x-elf">epiphany-*-elf</a>
+</li><li> <a href="#ft32-x-elf">ft32-*-elf</a>
 </li><li> <a href="#x-x-freebsd">*-*-freebsd*</a>
 </li><li> <a href="#h8300-hms">h8300-hms</a>
 </li><li> <a href="#hppa-hp-hpux">hppa*-hp-hpux*</a>
@@ -120,14 +126,17 @@ information have to.
 </li><li> <a href="#ia64-x-hpux">ia64-*-hpux*</a>
 </li><li> <a href="#x-ibm-aix">*-ibm-aix*</a>
 </li><li> <a href="#iq2000-x-elf">iq2000-*-elf</a>
+</li><li> <a href="#loongarch">loongarch</a>
 </li><li> <a href="#lm32-x-elf">lm32-*-elf</a>
 </li><li> <a href="#lm32-x-uclinux">lm32-*-uclinux</a>
 </li><li> <a href="#m32c-x-elf">m32c-*-elf</a>
 </li><li> <a href="#m32r-x-elf">m32r-*-elf</a>
 </li><li> <a href="#m68k-x-x">m68k-*-*</a>
-</li><li> <a href="#m68k-uclinux">m68k-uclinux</a>
+</li><li> <a href="#m68k-x-uclinux">m68k-*-uclinux</a>
 </li><li> <a href="#microblaze-x-elf">microblaze-*-elf</a>
 </li><li> <a href="#mips-x-x">mips-*-*</a>
+</li><li> <a href="#moxie-x-elf">moxie-*-elf</a>
+</li><li> <a href="#msp430-x-elf">msp430-*-elf</a>
 </li><li> <a href="#nds32le-x-elf">nds32le-*-elf</a>
 </li><li> <a href="#nds32be-x-elf">nds32be-*-elf</a>
 </li><li> <a href="#nvptx-x-none">nvptx-*-none</a>
@@ -147,6 +156,8 @@ information have to.
 </li><li> <a href="#riscv32-x-linux">riscv32-*-linux</a>
 </li><li> <a href="#riscv64-x-elf">riscv64-*-elf</a>
 </li><li> <a href="#riscv64-x-linux">riscv64-*-linux</a>
+</li><li> <a href="#rl78-x-elf">rl78-*-elf</a>
+</li><li> <a href="#rx-x-elf">rx-*-elf</a>
 </li><li> <a href="#s390-x-linux">s390-*-linux*</a>
 </li><li> <a href="#s390x-x-linux">s390x-*-linux*</a>
 </li><li> <a href="#s390x-ibm-tpf">s390x-ibm-tpf*</a>
@@ -234,14 +245,14 @@ section, please read all other sections that match your target.
 <h3 class="heading">amdgcn-*-amdhsa</h3>
 <p>AMD GCN GPU target.
 </p>
-<p>Instead of GNU Binutils, you will need to install LLVM 6, or later, and copy
+<p>Instead of GNU Binutils, you will need to install LLVM 13.0.1, or later, and copy
 <samp>bin/llvm-mc</samp> to <samp>amdgcn-amdhsa/bin/as</samp>,
 <samp>bin/lld</samp> to <samp>amdgcn-amdhsa/bin/ld</samp>,
 <samp>bin/llvm-nm</samp> to <samp>amdgcn-amdhsa/bin/nm</samp>, and
 <samp>bin/llvm-ar</samp> to both <samp>bin/amdgcn-amdhsa-ar</samp> and
 <samp>bin/amdgcn-amdhsa-ranlib</samp>.
 </p>
-<p>Use Newlib (2019-01-16, or newer).
+<p>Use Newlib (3.2.0, or newer).
 </p>
 <p>To run the binaries, install the HSA Runtime from the
 <a href="https://rocm.github.io">ROCm Platform</a>, and use
@@ -985,8 +996,7 @@ in a minimal run-time environment by default.
 Tell GCC where to find it:
 <samp>--with-build-time-tools=[install-nvptx-tools]/nvptx-none/bin</samp>.
 </p>
-<p>You will need newlib 3.0 git revision
-cd31fbb2aea25f94d7ecedc9db16dfc87ab0c316 or later.  It can be
+<p>You will need newlib 3.1.0 or later.  It can be
 automatically built together with GCC.  For this, add a symbolic link
 to nvptx-newlib&rsquo;s <samp>newlib</samp> directory to the directory containing
 the GCC sources.

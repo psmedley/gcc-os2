@@ -55,7 +55,7 @@ Introduction
 This manual documents the internals of the GNU compilers, including how
 to port them to new targets and some information about how to write
 front ends for new languages.  It corresponds to the compilers (GCC)
-version 12.2.0.  The use of the GNU compilers is documented in a
+version 12.3.0.  The use of the GNU compilers is documented in a
 separate manual.  *Note Introduction: (gcc)Top.
 
  This manual is mainly a reference manual rather than a tutorial.  It
@@ -47308,11 +47308,6 @@ e.g.
      than LTO. For example, SSA names are printed to the user in "raw"
      form, rather than printing the underlying variable name.
 
- Some ideas for other checkers
-   * File-descriptor-based APIs
-   * Linux kernel internal APIs
-   * Signal handling
-
 
 File: gccint.info,  Node: Debugging the Analyzer,  Prev: Analyzer Internals,  Up: Static Analyzer
 
@@ -58721,17 +58716,17 @@ Node: GIMPLE API2031817
 Node: The Language2034619
 Node: Static Analyzer2047246
 Node: Analyzer Internals2047511
-Node: Debugging the Analyzer2063398
-Node: User Experience Guidelines2066966
-Node: Guidelines for Diagnostics2067902
-Ref: input_location_example2076077
-Node: Guidelines for Options2085762
-Node: Funding2085939
-Node: GNU Project2088446
-Node: Copying2089097
-Node: GNU Free Documentation License2126611
-Node: Contributors2151734
-Node: Option Index2192711
-Node: Concept Index2193588
+Node: Debugging the Analyzer2063281
+Node: User Experience Guidelines2066849
+Node: Guidelines for Diagnostics2067785
+Ref: input_location_example2075960
+Node: Guidelines for Options2085645
+Node: Funding2085822
+Node: GNU Project2088329
+Node: Copying2088980
+Node: GNU Free Documentation License2126494
+Node: Contributors2151617
+Node: Option Index2192594
+Node: Concept Index2193471
 
 End Tag Table
