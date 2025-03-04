@@ -1,3 +1,86 @@
+2025-02-28  Marek Polacek  <polacek@redhat.com>
+
+	PR c++/114913
+	PR c++/110822
+	* constexpr.cc (replace_decl_r): If we've replaced something
+	inside of an ADDR_EXPR, call cxx_mark_addressable and
+	recompute_tree_invariant_for_addr_expr on the resulting ADDR_EXPR.
+
+2025-02-28  Marek Polacek  <polacek@redhat.com>
+
+	PR c++/118986
+	* constexpr.cc (cxx_eval_call_expression): Check that the types match
+	before calling replace_decl, if not, set *non_constant_p.
+	(maybe_constant_init_1): Don't strip INIT_EXPR if it would change the
+	type of the expression.
+
+2025-02-28  Patrick Palka  <ppalka@redhat.com>
+
+	PR c++/119038
+	* lambda.cc (maybe_generic_this_capture): Consider xobj
+	member functions as well, not just iobj.  Update function
+	comment.
+
+2025-02-28  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/119045
+	* constexpr.cc (cxx_eval_store_expression) <case REALPART_EXPR>:
+	Assert that refs->is_empty () rather than probe == target.
+	(cxx_eval_store_expression) <case IMAGPART_EXPR>: Likewise.
+
+2025-02-27  Marek Polacek  <polacek@redhat.com>
+
+	PR c++/118928
+	* constexpr.cc (cxx_eval_constant_expression) <case GOTO_EXPR>: Remove
+	an assert.
+
+2025-02-27  Marek Polacek  <polacek@redhat.com>
+
+	PR c++/118516
+	* parser.cc (cp_parser_template_argument): Don't call
+	require_potential_constant_expression.
+
+2025-02-25  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/118876
+	* cp-tree.h (register_dtor_fn): Add a bool argument defaulted to false.
+	* decl.cc (start_cleanup_fn): Add OMP_TARGET argument, use
+	"__omp_tcf" prefix rather than "__tcf" in that case.  Add
+	"omp declare target" and "omp declare target nohost" attributes
+	to the fndecl.
+	(register_dtor_fn): Add OMP_TARGET argument, pass it down to
+	start_cleanup_fn.
+	* decl2.cc (one_static_initialization_or_destruction): Add OMP_TARGET
+	argument, pass it down to register_dtor_fn.
+	(emit_partial_init_fini_fn): Pass omp_target to
+	one_static_initialization_or_destruction.
+	(handle_tls_init): Pass false to
+	one_static_initialization_or_destruction.
+
+2025-02-25  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/118923
+	* tree.cc (get_internal_target_expr): Use force_target_expr
+	instead of build_target_expr_with_type.
+	* typeck.cc (get_member_function_from_ptrfunc): Use
+	get_internal_target_expr instead of force_target_expr.
+	* decl.cc (cp_finish_decl): Likewise.
+	* method.cc (build_comparison_op): Likewise.
+
+2025-02-22  Sandra Loosemore  <sloosemore@baylibre.com>
+
+	* parser.cc (cp_finish_omp_declare_variant): Initialize
+	append_args_last.
+
+2025-02-17  Jason Merrill  <jason@redhat.com>
+
+	PR c++/118856
+	PR c++/118763
+	* cp-tree.h (TARGET_EXPR_INTERNAL_P): New.
+	* call.cc (extend_temps_r): Check it instead of CLEANUP_EH_ONLY.
+	* tree.cc (get_internal_target_expr): Set it instead.
+	* typeck2.cc (maybe_push_temp_cleanup): Don't set CLEANUP_EH_ONLY.
+
 2025-02-15  Nathaniel Shead  <nathanieloshead@gmail.com>
 
 	PR c++/118846

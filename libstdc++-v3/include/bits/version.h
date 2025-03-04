@@ -1251,7 +1251,12 @@
 #undef __glibcxx_want_constexpr_functional
 
 #if !defined(__cpp_lib_constexpr_algorithms)
-# if (__cplusplus >= 202002L)
+# if (__cplusplus >  202302L)
+#  define __glibcxx_constexpr_algorithms 202306L
+#  if defined(__glibcxx_want_all) || defined(__glibcxx_want_constexpr_algorithms)
+#   define __cpp_lib_constexpr_algorithms 202306L
+#  endif
+# elif (__cplusplus >= 202002L)
 #  define __glibcxx_constexpr_algorithms 201806L
 #  if defined(__glibcxx_want_all) || defined(__glibcxx_want_constexpr_algorithms)
 #   define __cpp_lib_constexpr_algorithms 201806L
@@ -2036,7 +2041,7 @@
 #undef __glibcxx_want_is_virtual_base_of
 
 #if !defined(__cpp_lib_ranges_concat)
-# if (__cplusplus >  202302L)
+# if (__cplusplus >  202302L) && (__cpp_pack_indexing)
 #  define __glibcxx_ranges_concat 202403L
 #  if defined(__glibcxx_want_all) || defined(__glibcxx_want_ranges_concat)
 #   define __cpp_lib_ranges_concat 202403L

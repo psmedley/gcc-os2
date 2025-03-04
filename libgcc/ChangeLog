@@ -1,3 +1,20 @@
+2025-03-01  Jan Dubiec  <jdx@o2.pl>
+
+	PR target/114222
+	* config/h8300/t-h8300: Add __ffshi2().
+	* config/h8300/ffshi2.c: New file.
+
+2025-02-18  Roman Kagan  <rkagan@amazon.de>
+
+	* config/i386/linux-unwind.h: Remove preprocessor
+	condition to enable fallback path for all libc-s.
+
+2025-02-17  Lulu Cheng  <chenglulu@loongson.cn>
+
+	PR target/118844
+	* config/loongarch/t-crtstuff: Add '-mcmodel=extreme'
+	to CRTSTUFF_T_CFLAGS_S.
+
 2025-02-12  Yangyu Chen  <cyy@cyyself.name>
 
 	* config/riscv/feature_bits.c (RISCV_VENDOR_FEATURE_BITS_LENGTH): Drop.

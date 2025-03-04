@@ -96,7 +96,7 @@ static void record_key_method_defined (tree);
 static tree create_array_type_for_decl (tree, tree, tree, location_t);
 static tree get_atexit_node (void);
 static tree get_dso_handle_node (void);
-static tree start_cleanup_fn (tree, bool);
+static tree start_cleanup_fn (tree, bool, bool);
 static void end_cleanup_fn (void);
 static tree cp_make_fname_decl (location_t, tree, int);
 static void initialize_predefined_identifiers (void);
@@ -9377,8 +9377,7 @@ cp_finish_decl (tree decl, tree init, bool init_const_expr_p,
 	      tree guard = NULL_TREE;
 	      if (cleanups || cleanup)
 		{
-		  guard = force_target_expr (boolean_type_node,
-					     boolean_false_node, tf_none);
+		  guard = get_internal_target_expr (boolean_false_node);
 		  add_stmt (guard);
 		  guard = TARGET_EXPR_SLOT (guard);
 		}
@@ -9407,8 +9406,7 @@ cp_finish_decl (tree decl, tree init, bool init_const_expr_p,
 		     popped that all, so push those extra cleanups around
 		     the whole sequence with a guard variable.  */
 		  gcc_assert (TREE_CODE (sl) == STATEMENT_LIST);
-		  guard = force_target_expr (integer_type_node,
-					     integer_zero_node, tf_none);
+		  guard = get_internal_target_expr (integer_zero_node);
 		  add_stmt (guard);
 		  guard = TARGET_EXPR_SLOT (guard);
 		  for (unsigned i = 0; i < n_extra_cleanups; ++i)
@@ -10373,7 +10371,7 @@ get_dso_handle_node (void)
    is passed to the cleanup function, otherwise no argument is passed.  */
 
 static tree
-start_cleanup_fn (tree decl, bool ob_parm)
+start_cleanup_fn (tree decl, bool ob_parm, bool omp_target)
 {
   push_to_top_level ();
 
@@ -10384,7 +10382,7 @@ start_cleanup_fn (tree decl, bool ob_parm)
   gcc_checking_assert (HAS_DECL_ASSEMBLER_NAME_P (decl));
   const char *dname = IDENTIFIER_POINTER (DECL_ASSEMBLER_NAME (decl));
   dname = targetm.strip_name_encoding (dname);
-  char *name = ACONCAT (("__tcf", dname, NULL));
+  char *name = ACONCAT ((omp_target ? "__omp_tcf" : "__tcf", dname, NULL));
 
   tree fntype = TREE_TYPE (ob_parm ? get_cxa_atexit_fn_ptr_type ()
 				   : get_atexit_fn_ptr_type ());
@@ -10411,6 +10409,15 @@ start_cleanup_fn (tree decl, bool ob_parm)
     }
 
   fndecl = pushdecl (fndecl, /*hidden=*/true);
+  if (omp_target)
+    {
+      DECL_ATTRIBUTES (fndecl)
+	= tree_cons (get_identifier ("omp declare target"), NULL_TREE,
+		     DECL_ATTRIBUTES (fndecl));
+      DECL_ATTRIBUTES (fndecl)
+	= tree_cons (get_identifier ("omp declare target nohost"), NULL_TREE,
+		     DECL_ATTRIBUTES (fndecl));
+    }
   start_preparsed_function (fndecl, NULL_TREE, SF_PRE_PARSED);
 
   pop_lang_context ();
@@ -10432,7 +10439,7 @@ end_cleanup_fn (void)
    static storage duration.  */
 
 tree
-register_dtor_fn (tree decl)
+register_dtor_fn (tree decl, bool omp_target)
 {
   tree cleanup;
   tree addr;
@@ -10478,7 +10485,7 @@ register_dtor_fn (tree decl)
       build_cleanup (decl);
 
       /* Now start the function.  */
-      cleanup = start_cleanup_fn (decl, ob_parm);
+      cleanup = start_cleanup_fn (decl, ob_parm, omp_target);
 
       /* Now, recompute the cleanup.  It may contain SAVE_EXPRs that refer
 	 to the original function, rather than the anonymous one.  That

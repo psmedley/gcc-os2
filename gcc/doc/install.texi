@@ -227,7 +227,7 @@ Necessary to bootstrap GCC.  GCC 5.4 or newer has sufficient support
 for used C++14 features.
 
 Versions of GCC prior to 15 allow bootstrapping with an ISO C++11
-compiler, versions prior to 11 allow bootstrapping with an ISO C++98
+compiler, versions prior to 10.5 allow bootstrapping with an ISO C++98
 compiler, and versions prior to 4.8 allow bootstrapping with an ISO
 C89 compiler.
 
@@ -3942,10 +3942,6 @@ information have to.
 @end html
 @anchor{aarch64-x-x}
 @heading aarch64*-*-*
-Binutils pre 2.24 does not have support for selecting @option{-mabi} and
-does not support ILP32.  If it is used to build GCC 4.9 or later, GCC will
-not support option @option{-mabi=ilp32}.
-
 To enable a workaround for the Cortex-A53 erratum number 835769 by default
 (for all CPUs regardless of -mcpu option given) at configure time use the
 @option{--enable-fix-cortex-a53-835769} option.  This will enable the fix by
@@ -4149,8 +4145,7 @@ This configuration is intended for embedded systems.
 @end html
 @anchor{x-x-freebsd}
 @heading *-*-freebsd*
-We support FreeBSD using the ELF file format with DWARF 2 debugging
-for all CPU architectures.
+FreeBSD using the ELF file format with DWARF 2 debugging.
 
 We recommend bootstrapping against the latest GNU binutils or the
 version found in the @file{devel/binutils} port. This also has been

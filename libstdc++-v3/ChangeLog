@@ -1,3 +1,212 @@
+2025-02-28  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/106612
+	* include/bits/iterator_concepts.h (_IterMove::__iter_ref_t):
+	New alias template.
+	(_IterMove::__result): Use __iter_ref_t instead of
+	std::iter_reference_t.
+	(_IterMove::__type): Remove incorrect __dereferenceable
+	constraint.
+	(_IterMove::operator()): Likewise. Add correct constraints. Use
+	__iter_ref_t instead of std::iter_reference_t. Forward parameter
+	as correct value category.
+	(iter_swap): Add comments.
+	* testsuite/24_iterators/customization_points/iter_move.cc: Test
+	that iter_move is found by ADL and that rvalue arguments are
+	handled correctly.
+
+2025-02-28  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/105609
+	* include/bits/ranges_algobase.h (__detail::__assign_one): New
+	helper function.
+	(__copy_or_move, __copy_or_move_backward): Use new function
+	instead of std::__assign_one.
+	* testsuite/25_algorithms/move/constrained.cc: Check that
+	ADL iter_move is used in preference to std::move.
+	* testsuite/25_algorithms/move_backward/constrained.cc:
+	Likewise.
+
+2025-02-28  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/112803
+	* include/std/ranges (ranges::to): Add static assertions to
+	enforce Mandates conditions.
+	* testsuite/std/ranges/conv/112803.cc: New test.
+
+2025-02-28  Patrick Palka  <ppalka@redhat.com>
+
+	PR libstdc++/104606
+	* include/std/optional (operator<=>): Revert r14-9771 change.
+	Add constraint checking the validity of the return type
+	compare_three_way_result_t before the three_way_comparable_with
+	constraint.
+
+2025-02-28  Patrick Palka  <ppalka@redhat.com>
+
+	PR libstdc++/112490
+	* include/bits/stl_iterator.h (basic_const_iterator::operator<):
+	Replace non-dependent basic_const_iterator function parameter with
+	a dependent one of type basic_const_iterator<_It3> where _It3
+	matches _It.
+	(basic_const_iterator::operator>): Likewise.
+	(basic_const_iterator::operator<=): Likewise.
+	(basic_const_iterator::operator>=): Likewise.
+	* testsuite/24_iterators/const_iterator/112490.cc: New test.
+
+2025-02-27  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/std/stacktrace (_Impl::_M_allocate): Fix outdated
+	comment.
+
+2025-02-26  Patrick Palka  <ppalka@redhat.com>
+
+	PR libstdc++/118083
+	* include/bits/ranges_base.h
+	(ranges::__access::__possibly_const_range): Mention LWG 4027.
+
+2025-02-25  Giuseppe D'Angelo  <giuseppe.dangelo@kdab.com>
+
+	* include/bits/algorithmfwd.h (stable_sort): Add constexpr.
+	* include/bits/ranges_algo.h (__stable_sort_fn): Add constexpr
+	to the function call operators.
+	* include/bits/stl_algo.h (__stable_sort): Add constexpr.
+	During constant evaluation, always use the non-allocating path.
+	(stable_sort): Add constexpr.
+	(__inplace_stable_sort): Likewise.
+	(__merge_without_buffer): Likewise.
+	* include/bits/version.def (constexpr_algorithms): Bump value
+	for C++26.
+	* include/bits/version.h: Regnerate.
+	* testsuite/25_algorithms/cpp_lib_constexpr.cc: Test the bumped
+	feature-testing macro.
+	* testsuite/25_algorithms/headers/algorithm/synopsis.cc: Adapt
+	the test to constexpr stable_sort.
+	* testsuite/25_algorithms/stable_sort/constexpr.cc: New test.
+
+2025-02-25  Giuseppe D'Angelo  <giuseppe.dangelo@kdab.com>
+
+	* include/bits/c++config (_GLIBCXX26_CONSTEXPR): New macro.
+
+2025-02-25  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/93059
+	* include/bits/stl_algobase.h (__fill_a1): Fix typo in SFINAE
+	constraint.
+
+2025-02-25  François Dumont  <frs.dumont@gmail.com>
+
+	* include/bits/hashtable_policy.h
+	(_Hash_code_base::_M_copy_code, _Hash_code_base::_M_store_code): Remove.
+	* include/bits/hashtable.h (_M_hash_code_ext): New.
+	(_M_merge_multi(_Hashtable&)): Use latter.
+	(_M_copy_code): New.
+	(_M_assign): Use latter.
+	(_M_bucket_index_ex): New.
+	(_M_equals): Use latter.
+	(_M_store_code): New.
+	(_M_src_hash_code): Remove key_type parameter.
+	* testsuite/23_containers/unordered_map/modifiers/merge.cc (test10): New
+	test case.
+
+2025-02-25  Patrick Palka  <ppalka@redhat.com>
+
+	PR libstdc++/118083
+	* include/bits/ranges_base.h
+	(ranges::__access::__possibly_const_range): Adjust logic as per
+	LWG 4027.  Add missing input_range constraint.
+	* testsuite/std/ranges/access/cbegin.cc (test05): Verify LWG
+	4027 testcases.
+	* testsuite/std/ranges/access/cdata.cc: Adjust, simplify and
+	consolidate some tests after the above.
+	* testsuite/std/ranges/access/cend.cc: Likewise.
+	* testsuite/std/ranges/access/crbegin.cc: Likewise.
+	* testsuite/std/ranges/access/crend.cc: Likewise.
+	* testsuite/std/ranges/adaptors/join.cc: Likewise.
+	* testsuite/std/ranges/adaptors/take_while.cc: Likewise.
+	* testsuite/std/ranges/adaptors/transform.cc: Likewise.
+
+2025-02-22  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR c++/118981
+	* src/c++20/tzdb.cc: Use init_priority(98) instead of
+	init_priority(99).
+
+2025-02-22  Thomas Schwinge  <tschwinge@baylibre.com>
+
+	* testsuite/lib/prune.exp (proc libstdc++-dg-prune): Turn
+	'sorry, unimplemented: dynamic stack allocation not supported' into
+	UNSUPPORTED.
+
+2025-02-22  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/atomic_base.h (__atomic_base<_ITp>): Remove
+	misleading comment.
+
+2025-02-22  Jonathan Wakely  <jwakely@redhat.com>
+
+	* src/c++17/floating_from_chars.cc (__floating_from_chars_hex):
+	Remove redundant cast.
+
+2025-02-20  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/118559
+	* include/std/type_traits (rank, rank_v): Do not use
+	__array_rank for Clang 19 and older.
+
+2025-02-20  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/c++config (_GLIBCXX_HAS_BUILTIN): Add parentheses.
+
+2025-02-20  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/118855
+	* include/std/bit (__count_lzero, __count_rzero, __popcount):
+	Use type-generic built-ins when available.
+
+2025-02-20  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/experimental/bits/simd.h (__find_next_valid_abi): Cast
+	__bit_ceil argument to unsigned.
+	* src/c++17/floating_from_chars.cc (__floating_from_chars_hex):
+	Cast __bit_ceil argument to unsigned.
+	* src/c++17/memory_resource.cc (big_block): Cast __bit_width
+	argument to unsigned.
+
+2025-02-20  Jonathan Wakely  <jwakely@redhat.com>
+
+	* src/c++17/memory_resource.cc (default_res): Define here
+	instead of including default_resource.h.
+	* src/c++98/globals_io.cc (__ioinit): Define here instead of
+	including ios_base_init.h.
+	* src/c++17/default_resource.h: Removed.
+	* src/c++98/ios_base_init.h: Removed.
+
+2025-02-20  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/118811
+	* src/c++20/tzdb.cc (tzdb_list::_Node): Use init_priority
+	attribute on static data members.
+	* testsuite/std/time/tzdb_list/pr118811.cc: New test.
+
+2025-02-20  Patrick Palka  <ppalka@redhat.com>
+
+	* include/std/ranges (concat_view::iterator): Rename to ...
+	(concat_view::_Iterator): ... this throughout.
+
+2025-02-20  Patrick Palka  <ppalka@redhat.com>
+
+	PR libstdc++/115209
+	* include/bits/version.def (ranges_concat): Depend on
+	__cpp_pack_indexing.
+	* include/bits/version.h: Regenerate.
+	* include/std/ranges (__detail::__last_is_common): Remove.
+	(__detail::__all_but_first_sized): New.
+	(concat_view::end): Use C++26 pack indexing instead of
+	__last_is_common as per R8 of P2542.
+	(concat_view::iterator::operator-): Update constraints on
+	iter/sent overloads as per R8 of P2542.
+
 2025-02-15  Jonathan Wakely  <jwakely@redhat.com>
 
 	* include/bits/shared_ptr_base.h: Do not include <bit>.
