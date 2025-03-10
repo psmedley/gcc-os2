@@ -1,3 +1,234 @@
+2025-03-08  Giuseppe D'Angelo  <giuseppe.dangelo@kdab.com>
+
+	* include/bits/version.def (atomic_value_initialization):
+	Guard the FTM with the language concepts FTM.
+	* include/bits/version.h: Regenerate.
+	* include/std/atomic (atomic): When atomic value init is
+	defined, change the defaulted default constructor to
+	a non-defaulted one, constraining it as per LWG4169.
+	Otherwise, keep the existing constructor.
+	Remove the NSDMI for the _M_i member.
+	(_GLIBCXX20_INIT): Drop the macro, as it is not needed any more.
+	* testsuite/29_atomics/atomic/69301.cc: Test that
+	an atomic wrapping a non-default-constructible type is
+	always itself non-default-constructible (in all language
+	modes).
+	* testsuite/29_atomics/atomic/cons/trivial.cc: New test.
+
+2025-03-08  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/stl_algobase.h (__nothrow_contiguous_iterator):
+	Remove.
+	(__memcpyable_iterators): Simplify.
+	(__copy_move_a2, __copy_n_a, __copy_move_backward_a2): Call
+	std::to_address on the iterators after advancing them.
+	* testsuite/25_algorithms/copy/contiguous.cc: New test.
+	* testsuite/25_algorithms/copy_backward/contiguous.cc: New test.
+	* testsuite/25_algorithms/copy_n/contiguous.cc: New test.
+
+2025-03-07  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/std/forward_list (erase): Change lambda to have
+	explicit return type and const parameter type.
+	* include/std/list (erase): Likewise.
+	* testsuite/23_containers/forward_list/erasure.cc: Check lambda
+	is correct.
+	* testsuite/23_containers/list/erasure.cc: Likewise.
+
+2025-03-07  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/chrono_io.h (chrono::__detail::from_stream): Add
+	deleted function as poison pill for unqualified lookup.
+
+2025-03-07  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/std/expected (expected<cv void,E>::value()&&):
+	Add missing static_assert for LWG 3940.
+	* testsuite/20_util/expected/lwg3843.cc: New test.
+
+2025-03-06  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/unique_lock.h (unique_lock::operator=): Fix for
+	self-move-assignment.
+	* include/std/shared_mutex (shared_lock::operator=): Add
+	comment.
+	* testsuite/30_threads/shared_lock/cons/lwg4172.cc: New test.
+	* testsuite/30_threads/unique_lock/cons/lwg4172.cc: New test.
+
+2025-03-06  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/stl_list.h (list::pop_front, list::pop_back):
+	Add non-empty assertions.
+
+2025-03-06  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/ranges_util.h: Include <bits/stl_pair.h>.
+
+2025-03-06  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/std/span (span::~span): Remove, as per LWG 3903.
+
+2025-03-06  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/119144
+	* testsuite/26_numerics/complex/tuple_like.cc: Include
+	<algorithm>, replace std::string with std::string_view,
+	instantiate tests for long instead of size_t.
+
+2025-03-06  Jonathan Wakely  <jwakely@redhat.com>
+	    Thomas Schwinge  <tschwinge@baylibre.com>
+
+	* src/c++20/tzdb.cc [__GTHREADS && !__GTHREADS_CXX0X]: Use
+	'__gnu_cxx::__mutex'.
+
+2025-03-06  Thomas Schwinge  <tschwinge@baylibre.com>
+
+	* src/c++20/format.cc (conv): Tag 'out' as '[[maybe_unused]]'.
+
+2025-03-06  Thomas Schwinge  <tschwinge@baylibre.com>
+
+	* src/c++17/fs_dir.cc (do_unlink): Tag 'is_directory' as
+	'[[maybe_unused]]'.
+
+2025-03-06  Thomas Schwinge  <tschwinge@baylibre.com>
+
+	* src/filesystem/dir-common.h (openat): Tag 'nofollow' as
+	'[[maybe_unused]]'.
+
+2025-03-06  Thomas Schwinge  <tschwinge@baylibre.com>
+	    Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/bits/c++config [!__cpp_exceptions]
+	(_GLIBCXX_THROW_OR_ABORT): Reference '_EXC'.
+
+2025-03-06  Jonathan Wakely  <jwakely@redhat.com>
+
+	* testsuite/20_util/specialized_algorithms/uninitialized_copy/constexpr.cc:
+	Do not test COW std::string in constexpr contexts.
+	* testsuite/20_util/specialized_algorithms/uninitialized_default_construct/constexpr.cc:
+	Likewise.
+	* testsuite/20_util/specialized_algorithms/uninitialized_fill/constexpr.cc:
+	Likewise.
+	* testsuite/20_util/specialized_algorithms/uninitialized_move/constexpr.cc:
+	Likewise.
+	* testsuite/20_util/specialized_algorithms/uninitialized_value_construct/constexpr.cc:
+	Likewise.
+
+2025-03-06  Giuseppe D'Angelo  <giuseppe.dangelo@kdab.com>
+
+	PR libstdc++/113310
+	* include/bits/stl_pair.h (get): Forward-declare std::get for
+	std::complex.
+	* include/bits/version.def (tuple_like): Bump the value of
+	the feature-testing macro in C++26.
+	* include/bits/version.h: Regenerate.
+	* include/std/complex: Implement the tuple protocol for
+	std::complex.
+	(tuple_size): Specialize for std::complex.
+	(tuple_element): Ditto.
+	(__is_tuple_like_v): Ditto.
+	(complex): Add a private getter to obtain references to the real
+	and the imaginary part, on the primary class template and on its
+	specializations.
+	(get): Add overloads of std::get for std::complex.
+	* testsuite/20_util/tuple/tuple_like_ftm.cc: New test.
+	* testsuite/26_numerics/complex/tuple_like.cc: New test.
+
+2025-03-05  Jonathan Wakely  <jwakely@redhat.com>
+
+	* include/std/ranges (enumerate_view::_Iterator::operator-):
+	Add noexcept, as per LWG 3912.
+	* testsuite/std/ranges/adaptors/enumerate/1.cc: Check iterator
+	difference is noexcept.
+
+2025-03-05  yxj-github-437  <2457369732@qq.com>
+
+	* src/c++23/std-clib.cc.in (timespec): Move within preprocessor
+	group guarded by _GLIBCXX_HAVE_TIMESPEC_GET.
+
+2025-03-05  Jonathan Wakely  <jwakely@redhat.com>
+
+	PR libstdc++/119110
+	* testsuite/25_algorithms/move/constrained.cc: Move test06
+	function to ...
+	* testsuite/25_algorithms/move/105609.cc: New test.
+	* testsuite/25_algorithms/move_backward/constrained.cc: Move
+	test04 function to ...
+	* testsuite/25_algorithms/move_backward/105609.cc: New test.
+
+2025-03-05  Patrick Palka  <ppalka@redhat.com>
+
+	* include/bits/version.def (ranges_cache_latest): Define.
+	* include/bits/version.h: Regenerate.
+	* include/std/ranges (__detail::__non_propagating_cache::_M_reset):
+	Export from base class _Optional_base.
+	(cache_latest_view): Define for C++26.
+	(cache_latest_view::_Iterator): Likewise.
+	(cache_latest_view::_Sentinel): Likewise.
+	(views::__detail::__can_cache_latest): Likewise.
+	(views::_CacheLatest, views::cache_latest): Likewise.
+	* testsuite/std/ranges/adaptors/cache_latest/1.cc: New test.
+
+2025-03-05  Giuseppe D'Angelo  <giuseppe.dangelo@kdab.com>
+
+	* include/bits/stl_algo.h (__stable_sort): Use if consteval
+	instead of is_constant_evaluated.
+
+2025-03-05  Patrick Palka  <ppalka@redhat.com>
+
+	PR libstdc++/115215
+	PR libstdc++/115218
+	* include/std/ranges
+	(concat_view::iterator::_S_invoke_with_runtime_index): Use
+	__builtin_unreachable in recursive lambda to certify it always
+	exits via 'return'.
+	(concat_view::iterator::iterator): In the const-converting
+	constructor, direct initialize _M_it.
+	(views::_Concat::operator()): Adjust constraints in the
+	single-argument case as per LWG 4082.
+	* testsuite/std/ranges/concat/1.cc (test01): Call it at runtime
+	too.
+	(test04): New test.
+
+2025-03-05  Tomasz Kamiński  <tkaminsk@redhat.com>
+
+	PR libstdc++/119121
+	* include/bits/ranges_util.h (__detail::__pair_like_convertible_from):
+	Use `_Tp` in `is_reference_v` check
+	* testsuite/std/ranges/subrange/tuple_like.cc: New tests for
+	pair-like conversion
+
+2025-03-05  Giuseppe D'Angelo  <giuseppe.dangelo@kdab.com>
+
+	* include/bits/ranges_uninitialized.h: Mark the specialized
+	memory algorithms as constexpr in C++26. Also mark the members
+	of the _DestroyGuard helper class.
+	* include/bits/stl_uninitialized.h: Ditto.
+	* include/bits/stl_construct.h: (_Construct_novalue) Mark it
+	as constexpr in C++26.
+	* include/bits/version.def (raw_memory_algorithms): Bump the
+	feature-testing macro for C++26.
+	* include/bits/version.h: Regenerate.
+	* testsuite/20_util/headers/memory/synopsis.cc: Add constexpr to
+	the uninitialized_* algorithms (when in C++26) in the test.
+	* testsuite/20_util/specialized_algorithms/feature_test_macro.cc:
+	New test.
+	* testsuite/20_util/specialized_algorithms/uninitialized_copy/constexpr.cc:
+	New test.
+	* testsuite/20_util/specialized_algorithms/uninitialized_default_construct/constexpr.cc:
+	New test.
+	* testsuite/20_util/specialized_algorithms/uninitialized_fill/constexpr.cc:
+	New test.
+	* testsuite/20_util/specialized_algorithms/uninitialized_move/constexpr.cc:
+	New test.
+	* testsuite/20_util/specialized_algorithms/uninitialized_value_construct/constexpr.cc:
+	New test.
+
+2025-03-04  Jonathan Wakely  <jwakely@redhat.com>
+
+	* doc/xml/manual/test.xml: Remove stray comma.
+	* doc/html/manual/test.html: Regenerate.
+
 2025-02-28  Jonathan Wakely  <jwakely@redhat.com>
 
 	PR libstdc++/106612

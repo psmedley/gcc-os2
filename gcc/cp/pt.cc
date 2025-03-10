@@ -9935,61 +9935,6 @@ complain_about_tu_local_entity (tree e)
   inform (TU_LOCAL_ENTITY_LOCATION (e), "declared here");
 }
 
-/* Checks if T contains a TU-local entity.  */
-
-static bool
-expr_contains_tu_local_entity (tree t)
-{
-  if (!modules_p ())
-    return false;
-
-  auto walker = [](tree *tp, int *walk_subtrees, void *) -> tree
-    {
-      if (TREE_CODE (*tp) == TU_LOCAL_ENTITY)
-	return *tp;
-      if (!EXPR_P (*tp))
-	*walk_subtrees = false;
-      return NULL_TREE;
-    };
-  return cp_walk_tree (&t, walker, nullptr, nullptr);
-}
-
-/* Errors and returns TRUE if X is a function that contains a TU-local
-   entity in its overload set.  */
-
-static bool
-function_contains_tu_local_entity (tree x)
-{
-  if (!modules_p ())
-    return false;
-
-  if (!x || x == error_mark_node)
-    return false;
-
-  if (TREE_CODE (x) == OFFSET_REF
-      || TREE_CODE (x) == COMPONENT_REF)
-    x = TREE_OPERAND (x, 1);
-  x = MAYBE_BASELINK_FUNCTIONS (x);
-  if (TREE_CODE (x) == TEMPLATE_ID_EXPR)
-    x = TREE_OPERAND (x, 0);
-
-  if (OVL_P (x))
-    for (tree ovl : lkp_range (x))
-      if (TREE_CODE (ovl) == TU_LOCAL_ENTITY)
-	{
-	  x = ovl;
-	  break;
-	}
-
-  if (TREE_CODE (x) == TU_LOCAL_ENTITY)
-    {
-      complain_about_tu_local_entity (x);
-      return true;
-    }
-
-  return false;
-}
-
 /* Return a TEMPLATE_ID_EXPR corresponding to the indicated FNS and
    ARGLIST.  Valid choices for FNS are given in the cp-tree.def
    documentation for TEMPLATE_ID_EXPR.  */
@@ -11531,7 +11476,19 @@ reopen_tinst_level (struct tinst_level *level)
   pop_tinst_level ();
   if (current_tinst_level)
     current_tinst_level->errors = errorcount+sorrycount;
-  return level->maybe_get_node ();
+
+  tree decl = level->maybe_get_node ();
+  if (decl && modules_p ())
+    {
+      /* An instantiation is in module purview only if it had an explicit
+	 instantiation definition in module purview; mark_decl_instantiated uses
+	 set_instantiating_module to set the flag in that case.  */
+      if (DECL_MODULE_PURVIEW_P (decl))
+	module_kind |= MK_PURVIEW;
+      else
+	module_kind &= ~MK_PURVIEW;
+    }
+  return decl;
 }
 
 /* Returns the TINST_LEVEL which gives the original instantiation
@@ -12393,7 +12350,8 @@ apply_late_template_attributes (tree *decl_p, tree attributes, int attr_flags,
          to our attributes parameter.  */
       gcc_assert (*p == attributes);
     }
-  else if (FUNC_OR_METHOD_TYPE_P (*decl_p))
+  else if (FUNC_OR_METHOD_TYPE_P (*decl_p)
+	   || (attr_flags & ATTR_FLAG_TYPE_IN_PLACE) == 0)
     p = NULL;
   else
     {
@@ -16865,7 +16823,10 @@ tsubst (tree t, tree args, tsubst_flags_t complain, tree in_decl)
     case POINTER_TYPE:
     case REFERENCE_TYPE:
       {
-	if (type == TREE_TYPE (t) && TREE_CODE (type) != METHOD_TYPE)
+	if (type == TREE_TYPE (t)
+	    && TREE_CODE (type) != METHOD_TYPE
+	    && (TYPE_ATTRIBUTES (t) == NULL_TREE
+		|| !ATTR_IS_DEPENDENT (TYPE_ATTRIBUTES (t))))
 	  return t;
 
 	/* [temp.deduct]
@@ -16935,9 +16896,9 @@ tsubst (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 	     A,' while an attempt to create the type type rvalue reference to
 	     cv T' creates the type T"
 	  */
-	  r = cp_build_reference_type
-	      (TREE_TYPE (type),
-	       TYPE_REF_IS_RVALUE (t) && TYPE_REF_IS_RVALUE (type));
+	  r = cp_build_reference_type (TREE_TYPE (type),
+				       TYPE_REF_IS_RVALUE (t)
+				       && TYPE_REF_IS_RVALUE (type));
 	else
 	  r = cp_build_reference_type (type, TYPE_REF_IS_RVALUE (t));
 	r = cp_build_qualified_type (r, cp_type_quals (t), complain);
@@ -16945,6 +16906,11 @@ tsubst (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 	if (r != error_mark_node)
 	  /* Will this ever be needed for TYPE_..._TO values?  */
 	  layout_type (r);
+
+	if (!apply_late_template_attributes (&r, TYPE_ATTRIBUTES (t),
+					     /*flags=*/0,
+					     args, complain, in_decl))
+	  return error_mark_node;
 
 	return r;
       }
@@ -17020,7 +16986,10 @@ tsubst (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 
 	/* As an optimization, we avoid regenerating the array type if
 	   it will obviously be the same as T.  */
-	if (type == TREE_TYPE (t) && domain == TYPE_DOMAIN (t))
+	if (type == TREE_TYPE (t)
+	    && domain == TYPE_DOMAIN (t)
+	    && (TYPE_ATTRIBUTES (t) == NULL_TREE
+		|| !ATTR_IS_DEPENDENT (TYPE_ATTRIBUTES (t))))
 	  return t;
 
 	/* These checks should match the ones in create_array_type_for_decl.
@@ -17058,6 +17027,11 @@ tsubst (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 	    SET_TYPE_ALIGN (r, TYPE_ALIGN (t));
 	    TYPE_USER_ALIGN (r) = 1;
 	  }
+
+	if (!apply_late_template_attributes (&r, TYPE_ATTRIBUTES (t),
+					     /*flags=*/0,
+					     args, complain, in_decl))
+	  return error_mark_node;
 
 	return r;
       }
@@ -18796,11 +18770,6 @@ dependent_operand_p (tree t)
 {
   while (TREE_CODE (t) == IMPLICIT_CONV_EXPR)
     t = TREE_OPERAND (t, 0);
-
-  /* If we contain a TU_LOCAL_ENTITY assume we're non-dependent; we'll error
-     later when instantiating.  */
-  if (expr_contains_tu_local_entity (t))
-    return false;
 
   ++processing_template_decl;
   bool r = (potential_constant_expression (t)
@@ -20607,9 +20576,6 @@ tsubst_expr (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 	else
 	  object = NULL_TREE;
 
-	if (function_contains_tu_local_entity (templ))
-	  RETURN (error_mark_node);
-
 	tree tid = lookup_template_function (templ, targs);
 	protected_set_expr_location (tid, EXPR_LOCATION (t));
 
@@ -21301,9 +21267,6 @@ tsubst_expr (tree t, tree args, tsubst_flags_t complain, tree in_decl)
 	    if (BASELINK_P (function))
 	      qualified_p = true;
 	  }
-
-	if (function_contains_tu_local_entity (function))
-	  RETURN (error_mark_node);
 
 	nargs = call_expr_nargs (t);
 	releasing_vec call_args;
@@ -22100,7 +22063,16 @@ tsubst_expr (tree t, tree args, tsubst_flags_t complain, tree in_decl)
       RETURN (t);
 
     case NAMESPACE_DECL:
+      RETURN (t);
+
     case OVERLOAD:
+      if (modules_p ())
+	for (tree ovl : lkp_range (t))
+	  if (TREE_CODE (ovl) == TU_LOCAL_ENTITY)
+	    {
+	      complain_about_tu_local_entity (ovl);
+	      RETURN (error_mark_node);
+	    }
       RETURN (t);
 
     case TEMPLATE_DECL:
@@ -26009,6 +25981,7 @@ mark_decl_instantiated (tree result, int extern_p)
     {
       mark_definable (result);
       mark_needed (result);
+      set_instantiating_module (result);
       /* Always make artificials weak.  */
       if (DECL_ARTIFICIAL (result) && flag_weak)
 	comdat_linkage (result);
@@ -27970,6 +27943,7 @@ instantiate_pending_templates (int retries)
 {
   int reconsider;
   location_t saved_loc = input_location;
+  unsigned saved_module_kind = module_kind;
 
   /* Instantiating templates may trigger vtable generation.  This in turn
      may require further template instantiations.  We place a limit here
@@ -28060,6 +28034,7 @@ instantiate_pending_templates (int retries)
   while (reconsider);
 
   input_location = saved_loc;
+  module_kind = saved_module_kind;
 }
 
 /* Substitute ARGVEC into T, which is a list of initializers for
@@ -28967,6 +28942,11 @@ type_dependent_expression_p (tree expression)
   gcc_checking_assert (!TYPE_P (expression));
 
   STRIP_ANY_LOCATION_WRAPPER (expression);
+
+  /* Assume a TU-local entity is not dependent, we'll error later when
+     instantiating anyway.  */
+  if (TREE_CODE (expression) == TU_LOCAL_ENTITY)
+    return false;
 
   /* An unresolved name is always dependent.  */
   if (identifier_p (expression)

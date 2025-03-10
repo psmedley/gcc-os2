@@ -1,3 +1,539 @@
+2025-03-08  Sandra Loosemore  <sloosemore@baylibre.com>
+
+	* doc/extend.texi (Basic Asm): Document that AssemblerInstructions
+	can be an asm constexpr.
+	(Extended Asm): Move the notes about asm constexprs for
+	AssemblerTemplate and Clobbers to the corresponding subsections.
+	Remove the notes for OutputOperands and InputOperands and reword
+	misleading descriptions of the list item syntax.  Note that
+	constraint strings can be asm constexprs.
+	(Asm constexprs): Use "title case" for subsection name.  Be
+	explicit about what parts of the asm syntax this applies to and
+	that the parentheses are required.  Correct markup and terminology.
+
+2025-03-08  Sandra Loosemore  <sloosemore@baylibre.com>
+
+	PR c/67301
+	* doc/extend.texi (Extended Asm): Clarify that the square brackets
+	around the asmSymbolicName of operands are a required part of
+	the syntax.
+
+2025-03-07  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c/117178
+	* tree.cc (get_attr_nonstring_decl): Look through all ARRAY_REFs, not
+	just one and handle COMPONENT_REF and MEM_REF after skipping those
+	rather than only when there wasn't ARRAY_REF.  Formatting fix.
+
+2025-03-07  Kees Cook  <kees@kernel.org>
+	    Jakub Jelinek  <jakub@redhat.com>
+
+	PR c/117178
+	* doc/invoke.texi (Wunterminated-string-initialization): Document
+	the new interaction between this warning and -Wc++-compat and that
+	initialization of decls with nonstring attribute aren't warned about.
+
+2025-03-07  Sandra Loosemore  <sloosemore@baylibre.com>
+
+	PR sanitizer/56682
+	* doc/invoke.texi (Instrumentation Options): Document that -g
+	is useful with -fsanitize=thread and -fsanitize=address.
+	Also mention -fno-omit-frame-pointer per the asan wiki.
+
+2025-03-07  Richard Sandiford  <richard.sandiford@arm.com>
+	    Jan Hubicka  <hubicka@ucw.cz>
+	    H.J. Lu  <hjl.tools@gmail.com>
+
+	PR rtl-optimization/117477
+	* config/aarch64/aarch64.cc (aarch64_count_saves): New function.
+	(aarch64_count_above_hard_fp_saves, aarch64_callee_save_cost)
+	(aarch64_frame_allocation_cost): Likewise.
+	(TARGET_CALLEE_SAVE_COST): Define.
+	(TARGET_FRAME_ALLOCATION_COST): Likewise.
+	* config/i386/i386.cc (ix86_ira_callee_saved_register_cost_scale):
+	Replace with...
+	(ix86_callee_save_cost): ...this new hook.
+	(TARGET_IRA_CALLEE_SAVED_REGISTER_COST_SCALE): Delete.
+	(TARGET_CALLEE_SAVE_COST): Define.
+	* target.h (spill_cost_type, frame_cost_type): New enums.
+	* target.def (callee_save_cost, frame_allocation_cost): New hooks.
+	(ira_callee_saved_register_cost_scale): Delete.
+	* doc/tm.texi.in (TARGET_IRA_CALLEE_SAVED_REGISTER_COST_SCALE): Delete.
+	(TARGET_CALLEE_SAVE_COST, TARGET_FRAME_ALLOCATION_COST): New hooks.
+	* doc/tm.texi: Regenerate.
+	* hard-reg-set.h (hard_reg_set_popcount): New function.
+	* ira-color.cc (allocated_memory_p): New variable.
+	(allocated_callee_save_regs): Likewise.
+	(record_allocation): New function.
+	(assign_hard_reg): Use targetm.frame_allocation_cost to model
+	the cost of the first spill or first caller save.  Use
+	targetm.callee_save_cost to model the cost of using new callee-saved
+	registers.  Apply the exit rather than entry frequency to the cost
+	of restoring a register or deallocating the frame.  Update the
+	new variables above.
+	(improve_allocation): Use record_allocation.
+	(color): Initialize allocated_callee_save_regs.
+	(ira_color): Initialize allocated_memory_p.
+	* targhooks.h (default_callee_save_cost): Declare.
+	(default_frame_allocation_cost): Likewise.
+	* targhooks.cc (default_callee_save_cost): New function.
+	(default_frame_allocation_cost): Likewise.
+
+2025-03-07  Sandra Loosemore  <sloosemore@baylibre.com>
+
+	PR target/116708
+	* doc/invoke.texi (x86 Options): Clarify how -msse4 and -mno-sse4
+	interact with other SSE options.
+
+2025-03-07  Martin Jambor  <mjambor@suse.cz>
+
+	PR ipa/118318
+	* ipa-cp.cc (adjust_clone_incoming_counts): Add a compatible_p check.
+
+2025-03-07  Richard Earnshaw  <rearnsha@arm.com>
+
+	* config/arm/arm_neon.h: Try harder to detect if we have
+	the softfp ABI enabled.
+
+2025-03-07  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c/112960
+	PR c/117029
+	* doc/extend.texi (Complex): Add I and J suffixes to the list of
+	complex suffixes, adjust for all of those being part of ISO C2Y,
+	clarify that for -fno-ext-numeric-literals none of those are
+	recognized as GNU extensions and for C++14 i is considered UDL
+	even for -fext-numeric-literals when <complex> is included.
+
+2025-03-07  Simon Martin  <simon@nasilyan.com>
+
+	* tree-vect-data-refs.cc: Define INCLUDE_ALGORITHM.
+
+2025-03-07  Tamar Christina  <tamar.christina@arm.com>
+
+	PR tree-optimization/118464
+	PR tree-optimization/116855
+	* doc/invoke.texi (min-pagesize): Update docs with vectorizer use.
+	* tree-vect-data-refs.cc (vect_analyze_early_break_dependences): Delay
+	checks.
+	(vect_compute_data_ref_alignment): Remove alignment checks and move to
+	get_load_store_type, increase group access alignment.
+	(vect_enhance_data_refs_alignment): Add note to comment needing
+	investigating.
+	(vect_analyze_data_refs_alignment): Likewise.
+	(vect_supportable_dr_alignment): For group loads look at first DR.
+	* tree-vect-stmts.cc (get_load_store_type):
+	Perform safety checks for early break pfa.
+	* tree-vectorizer.h (dr_set_safe_speculative_read_required,
+	dr_safe_speculative_read_required, DR_SCALAR_KNOWN_BOUNDS): New.
+	(need_peeling_for_alignment): Renamed to...
+	(safe_speculative_read_required): .. This
+	(class dr_vec_info): Add scalar_access_known_in_bounds.
+
+2025-03-07  Tamar Christina  <tamar.christina@arm.com>
+
+	PR tree-optimization/118464
+	PR tree-optimization/116855
+	* config/aarch64/aarch64-sve.md (@extract_<last_op>_<mode>,
+	@fold_extract_<last_op>_<mode>,
+	@aarch64_fold_extract_vector_<last_op>_<mode>): Change SVE_FULL to
+	SVE_ALL.
+	* config/aarch64/iterators.md (vccore): Add more partial types.
+
+2025-03-07  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/119145
+	* tree-vectorizer.cc (try_vectorize_loop_1): Avoid BB
+	vectorizing an if-converted loop body when there's a .MASK_CALL
+	in the loop body.
+
+2025-03-07  Christophe Lyon  <christophe.lyon@linaro.org>
+
+	PR target/115485
+	* config/arm/arm.cc (require_pic_register): Fix typos in
+	comment. Handle fixed arm_pic_register.
+
+2025-03-07  Richard Sandiford  <richard.sandiford@arm.com>
+
+	PR tree-optimization/116125
+	* tree-vect-data-refs.cc (vect_prune_runtime_alias_test_list): Make
+	the dr_with_seg_len alignment fields describe tha access sizes as
+	well as the pointer alignment.
+	* tree-data-ref.cc (create_intersect_range_checks): Don't compensate
+	for invalid alignment fields here.
+
+2025-03-07  Richard Sandiford  <richard.sandiford@arm.com>
+
+	PR target/119133
+	* config/aarch64/aarch64.md
+	(*aarch64_bfi<GPI:mode><ALLX:mode>_<SUBDI_BITS>): Use
+	force_lowpart_subreg.
+
+2025-03-07  Richard Biener  <rguenther@suse.de>
+
+	PR middle-end/118801
+	* tree-ssa-dce.cc (eliminate_unnecessary_stmts): Prune
+	sequences of uninterrupted DEBUG BEGIN_STMTs, keeping only
+	the last of a set with unique location.
+
+2025-03-07  Sandra Loosemore  <sloosemore@baylibre.com>
+
+	PR c/113515
+	* doc/invoke.texi (Warning Options): Improve -Wstringop-overflow
+	documentation.
+
+2025-03-07  Haochen Jiang  <haochen.jiang@intel.com>
+
+	* config/i386/avx10_2-512convertintrin.h
+	(_mm512_mask_cvtbf8_ph): Correct mask width.
+	(_mm512_maskz_cvtbf8_ph): Ditto.
+	* config/i386/avx10_2convertintrin.h
+	(_mm256_mask_cvtbf8_ph): Ditto.
+	(_mm256_maskz_cvtbf8_ph): Ditto.
+
+2025-03-06  Alexey Merzlyakov  <alexey.merzlyakov@samsung.com>
+
+	PR rtl-optimization/119099
+	* ext-dce.cc (ext_dce_rd_transfer_n): Do not allow the livein
+	set to shrink.
+
+2025-03-06  Simon Martin  <simon@nasilyan.com>
+
+	* config/i386/x86-tune-sched.cc (ix86_fuse_mov_alu_p): Fix
+	comment typo, paramter -> parameter.
+	* config/lm32/lm32.cc (lm32_std_gimplify_va_arg_expr): Likewise.
+
+2025-03-06  Wilco Dijkstra  <wilco.dijkstra@arm.com>
+
+	PR target/118351
+	PR other/38768
+	* common/config/aarch64/aarch64-common.cc: Enable early scheduling with
+	-O3 and higher.
+	* doc/invoke.texi (-fschedule-insns): Update comment.
+
+2025-03-06  Richard Sandiford  <richard.sandiford@arm.com>
+
+	Revert:
+	2025-03-06  Richard Sandiford  <richard.sandiford@arm.com>
+		    Jan Hubicka  <hubicka@ucw.cz>
+
+	PR rtl-optimization/117477
+	* config/aarch64/aarch64.cc (aarch64_count_saves): New function.
+	(aarch64_count_above_hard_fp_saves, aarch64_callee_save_cost)
+	(aarch64_frame_allocation_cost): Likewise.
+	(TARGET_CALLEE_SAVE_COST): Define.
+	(TARGET_FRAME_ALLOCATION_COST): Likewise.
+	* config/i386/i386.cc (ix86_ira_callee_saved_register_cost_scale):
+	Replace with...
+	(ix86_callee_save_cost): ...this new hook.
+	(TARGET_IRA_CALLEE_SAVED_REGISTER_COST_SCALE): Delete.
+	(TARGET_CALLEE_SAVE_COST): Define.
+	* target.h (spill_cost_type, frame_cost_type): New enums.
+	* target.def (callee_save_cost, frame_allocation_cost): New hooks.
+	(ira_callee_saved_register_cost_scale): Delete.
+	* doc/tm.texi.in (TARGET_IRA_CALLEE_SAVED_REGISTER_COST_SCALE): Delete.
+	(TARGET_CALLEE_SAVE_COST, TARGET_FRAME_ALLOCATION_COST): New hooks.
+	* doc/tm.texi: Regenerate.
+	* hard-reg-set.h (hard_reg_set_popcount): New function.
+	* ira-color.cc (allocated_memory_p): New variable.
+	(allocated_callee_save_regs): Likewise.
+	(record_allocation): New function.
+	(assign_hard_reg): Use targetm.frame_allocation_cost to model
+	the cost of the first spill or first caller save.  Use
+	targetm.callee_save_cost to model the cost of using new callee-saved
+	registers.  Apply the exit rather than entry frequency to the cost
+	of restoring a register or deallocating the frame.  Update the
+	new variables above.
+	(improve_allocation): Use record_allocation.
+	(color): Initialize allocated_callee_save_regs.
+	(ira_color): Initialize allocated_memory_p.
+	* targhooks.h (default_callee_save_cost): Declare.
+	(default_frame_allocation_cost): Likewise.
+	* targhooks.cc (default_callee_save_cost): New function.
+	(default_frame_allocation_cost): Likewise.
+
+2025-03-06  Richard Biener  <rguenther@suse.de>
+
+	PR lto/114501
+	* ipa-free-lang-data.cc (find_decls_types_r): Explicitly
+	handle CONSTRUCTORs as walk_tree handling of those is
+	incomplete.
+
+2025-03-06  Alex Coplan  <alex.coplan@arm.com>
+
+	PR rtl-optimization/114492
+	* pair-fusion.cc (pair_fusion_bb_info::fuse_pair): Check for singleton
+	move range before calling restrict_movement.
+	(pair_fusion::try_promote_writeback): Likewise.
+
+2025-03-06  Richard Sandiford  <richard.sandiford@arm.com>
+	    Jan Hubicka  <hubicka@ucw.cz>
+
+	PR rtl-optimization/117477
+	* config/aarch64/aarch64.cc (aarch64_count_saves): New function.
+	(aarch64_count_above_hard_fp_saves, aarch64_callee_save_cost)
+	(aarch64_frame_allocation_cost): Likewise.
+	(TARGET_CALLEE_SAVE_COST): Define.
+	(TARGET_FRAME_ALLOCATION_COST): Likewise.
+	* config/i386/i386.cc (ix86_ira_callee_saved_register_cost_scale):
+	Replace with...
+	(ix86_callee_save_cost): ...this new hook.
+	(TARGET_IRA_CALLEE_SAVED_REGISTER_COST_SCALE): Delete.
+	(TARGET_CALLEE_SAVE_COST): Define.
+	* target.h (spill_cost_type, frame_cost_type): New enums.
+	* target.def (callee_save_cost, frame_allocation_cost): New hooks.
+	(ira_callee_saved_register_cost_scale): Delete.
+	* doc/tm.texi.in (TARGET_IRA_CALLEE_SAVED_REGISTER_COST_SCALE): Delete.
+	(TARGET_CALLEE_SAVE_COST, TARGET_FRAME_ALLOCATION_COST): New hooks.
+	* doc/tm.texi: Regenerate.
+	* hard-reg-set.h (hard_reg_set_popcount): New function.
+	* ira-color.cc (allocated_memory_p): New variable.
+	(allocated_callee_save_regs): Likewise.
+	(record_allocation): New function.
+	(assign_hard_reg): Use targetm.frame_allocation_cost to model
+	the cost of the first spill or first caller save.  Use
+	targetm.callee_save_cost to model the cost of using new callee-saved
+	registers.  Apply the exit rather than entry frequency to the cost
+	of restoring a register or deallocating the frame.  Update the
+	new variables above.
+	(improve_allocation): Use record_allocation.
+	(color): Initialize allocated_callee_save_regs.
+	(ira_color): Initialize allocated_memory_p.
+	* targhooks.h (default_callee_save_cost): Declare.
+	(default_frame_allocation_cost): Likewise.
+	* targhooks.cc (default_callee_save_cost): New function.
+	(default_frame_allocation_cost): Likewise.
+
+2025-03-06  Richard Biener  <rguenther@suse.de>
+
+	PR middle-end/119119
+	* gimplify.cc (is_gimple_mem_rhs_or_call): All empty CTORs
+	are OK when not a register type.
+
+2025-03-05  Hannes Braun  <hannes@hannesbraun.net>
+
+	PR target/118942
+	* config/arm/arm_neon.h (vld1q_s8_x3): Use int8_t instead of
+	uint16_t.
+	(vld1q_s16_x3): Use int16_t instead of uint16_t.
+	(vld1q_s8_x4): Likewise.
+	(vld1q_s16_x4): Likewise.
+
+2025-03-05  Kyrylo Tkachov  <ktkachov@nvidia.com>
+
+	PR rtl-optimization/119046
+	* config/aarch64/aarch64.cc (aarch64_evpc_dup): Use VOIDmode for
+	PARALLEL.
+
+2025-03-05  Kyrylo Tkachov  <ktkachov@nvidia.com>
+
+	PR rtl-optimization/119046
+	* rtlanal.cc (may_trap_p_1): Don't mark FP-mode PARALLELs as trapping.
+
+2025-03-05  Jakub Jelinek  <jakub@redhat.com>
+
+	PR tree-optimization/118953
+	* value-range.cc (irange::union_bitmask): Update m_bitmask if
+	get_bitmask () is unknown_p and m_bitmask is not even when the
+	semantic bitmask didn't change and returning false.
+
+2025-03-05  Richard Biener  <rguenther@suse.de>
+
+	PR middle-end/97323
+	* tree.cc (gimple_canonical_types_compatible_p): Ignore
+	TYPE_MODE also for ARRAY_TYPE.
+	(verify_type): Likewise.
+
+2025-03-05  Xi Ruoyao  <xry111@xry111.site>
+
+	PR target/119084
+	* config/loongarch/lasx.md (UNSPEC_LASX_XVLDX): Remove.
+	(lasx_xvldx): Remove.
+	* config/loongarch/lsx.md (UNSPEC_LSX_VLDX): Remove.
+	(lsx_vldx): Remove.
+	* config/loongarch/simd.md (QIVEC): New define_mode_iterator.
+	(<simd_isa>_<x>vldx): New define_expand.
+	* config/loongarch/loongarch.cc (loongarch_address_insns_1): New
+	static function with most logic factored out from ...
+	(loongarch_address_insns): ... here.  Call
+	loongarch_address_insns_1 with reg_reg_cost = 1.
+	(loongarch_address_cost): Call loongarch_address_insns_1 with
+	reg_reg_cost = la_addr_reg_reg_cost.
+
+2025-03-04  Georg-Johann Lay  <avr@gjlay.de>
+
+	* doc/invoke.texi (AVR Optimization Options): New @subsubsection
+	for pure optimization options.
+
+2025-03-04  Oscar Gustafsson  <oscar.gustafsson@gmail.com>
+
+	* doc/extend.texi: Improve example for __builtin_bswap16.
+
+2025-03-04  Jan Hubicka  <hubicka@ucw.cz>
+
+	* config/i386/i386.h (TARGET_AVOID_FALSE_DEP_FOR_TZCNT): New macro.
+	(TARGET_AVOID_FALSE_DEP_FOR_BLS): New macro.
+	* config/i386/i386.md (*bmi_blsi_<mode>): Add splitter for false
+	dependency.
+	(*bmi_blsi_<mode>_ccno): Add splitter for false dependency.
+	(*bmi_blsi_<mode>_falsedep): New pattern.
+	(*bmi_blsmsk_<mode>): Add splitter for false dependency.
+	(*bmi_blsmsk_<mode>_falsedep): New pattern.
+	(*bmi_blsr_<mode>): Add splitter for false dependency.
+	(*bmi_blsr_<mode>_cmp): Add splitter for false dependency
+	(*bmi_blsr_<mode>_cmp_falsedep): New pattern.
+	* config/i386/x86-tune.def (X86_TUNE_AVOID_FALSE_DEP_FOR_TZCNT): New tune.
+	(X86_TUNE_AVOID_FALSE_DEP_FOR_BLS): New tune.
+
+2025-03-04  Jan Hubicka  <hubicka@ucw.cz>
+
+	* config/i386/i386.h (TARGET_FUSE_ALU_AND_BRANCH_MEM): New macro.
+	(TARGET_FUSE_ALU_AND_BRANCH_MEM_IMM): New macro.
+	(TARGET_FUSE_ALU_AND_BRANCH_RIP_RELATIVE): New macro.
+	* config/i386/x86-tune-sched.cc (ix86_fuse_mov_alu_p): Support
+	non-single-set.
+	(ix86_macro_fusion_pair_p): Allow ALU which only clobbers;
+	be more careful about immediates; check TARGET_FUSE_ALU_AND_BRANCH_MEM,
+	TARGET_FUSE_ALU_AND_BRANCH_MEM_IMM, TARGET_FUSE_ALU_AND_BRANCH_RIP_RELATIVE;
+	verify that we never use unsigned checks with inc/dec.
+	* config/i386/x86-tune.def (X86_TUNE_FUSE_ALU_AND_BRANCH): New tune.
+	(X86_TUNE_FUSE_ALU_AND_BRANCH_MEM): New tune.
+	(X86_TUNE_FUSE_ALU_AND_BRANCH_MEM_IMM): New tune.
+	(X86_TUNE_FUSE_ALU_AND_BRANCH_RIP_RELATIVE): New tune.
+
+2025-03-04  Tamar Christina  <tamar.christina@arm.com>
+
+	PR target/118892
+	* config/aarch64/aarch64.md (copysign<GPF:mode>3): Use
+	force_lowpart_subreg instead of lowpart_subreg.
+
+2025-03-04  Richard Sandiford  <richard.sandiford@arm.com>
+
+	PR tree-optimization/118976
+	* fold-const.cc (const_unop): Use ~ rather than - for BIT_NOT_EXPR.
+	* config/aarch64/aarch64.cc (aarch64_test_sve_folding): New function.
+	(aarch64_run_selftests): Run it.
+
+2025-03-04  Richard Sandiford  <richard.sandiford@arm.com>
+	    Jakub Jelinek  <jakub@redhat.com>
+
+	PR rtl-optimization/119002
+	* simplify-rtx.cc
+	(simplify_context::simplify_logical_relational_operation): Handle
+	comparisons between CC values.  If there is no evidence that the
+	CC values are unsigned, restrict the fold to always-true or
+	always-false results.
+
+2025-03-04  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/119096
+	* tree-vect-loop.cc (vect_transform_reduction): Use the
+	correct else value for .COND_fn.
+
+2025-03-03  Andrew Carlotti  <andrew.carlotti@arm.com>
+
+	* common/config/aarch64/aarch64-common.cc
+	(struct aarch64_extension_info): Add field.
+	(aarch64_get_required_features): New.
+	* config/aarch64/aarch64-builtins.cc
+	(aarch64_simd_switcher::aarch64_simd_switcher): Rename to...
+	(aarch64_target_switcher::aarch64_target_switcher): ...this,
+	and extend to handle sve, nosimd and target pragmas.
+	(aarch64_simd_switcher::~aarch64_simd_switcher): Rename to...
+	(aarch64_target_switcher::~aarch64_target_switcher): ...this,
+	and extend to handle sve, nosimd and target pragmas.
+	(handle_arm_acle_h): Use aarch64_target_switcher.
+	(handle_arm_neon_h): Rename switcher and pass explicit flags.
+	(aarch64_general_init_builtins): Ditto.
+	* config/aarch64/aarch64-protos.h
+	(class aarch64_simd_switcher): Rename to...
+	(class aarch64_target_switcher): ...this, and add new members.
+	(aarch64_get_required_features): New prototype.
+	* config/aarch64/aarch64-sve-builtins.cc
+	(sve_switcher::sve_switcher): Delete
+	(sve_switcher::~sve_switcher): Delete
+	(sve_alignment_switcher::sve_alignment_switcher): New
+	(sve_alignment_switcher::~sve_alignment_switcher): New
+	(register_builtin_types): Use alignment switcher
+	(init_builtins): Rename switcher.
+	(handle_arm_neon_sve_bridge_h): Ditto.
+	(handle_arm_sme_h): Ditto.
+	(handle_arm_sve_h): Ditto, and use alignment switcher.
+	* config/aarch64/aarch64-sve-builtins.h
+	(class sve_switcher): Delete.
+	(class sme_switcher): Delete.
+	(class sve_alignment_switcher): New.
+	* config/aarch64/t-aarch64 (aarch64-builtins.o): Add $(REGS_H).
+	(aarch64-sve-builtins.o): Remove $(REG_H).
+
+2025-03-03  Richard Earnshaw  <rearnsha@arm.com>
+
+	* config/arm/thumb1.md (split patterns for GEU and LEU): New.
+
+2025-03-03  Uros Bizjak  <ubizjak@gmail.com>
+
+	Revert:
+	2025-03-03  Uros Bizjak  <ubizjak@gmail.com>
+
+	* combine.cc (distribute_notes):
+	Reverse negative logic in ternary operators.
+
+2025-03-03  Uros Bizjak  <ubizjak@gmail.com>
+
+	* combine.cc (distribute_notes):
+	Reverse negative logic in ternary operators.
+
+2025-03-03  Uros Bizjak  <ubizjak@gmail.com>
+
+	PR rtl-optimization/118739
+	* combine.cc (distribute_notes) <case REG_UNUSED>: Correct the
+	logic when the register is used by I3.
+
+2025-03-03  Martin Jambor  <mjambor@suse.cz>
+
+	PR ipa/118785
+	* ipa-cp.cc (ipa_vr_intersect_with_arith_jfunc): Handle non-conversion
+	unary operations separately before doing any conversions.  Check
+	expr_type_first_operand_type_p for non-unary operations too.  Fix type
+	of op_res.
+
+2025-03-03  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/119057
+	* tree-vect-loop.cc (check_reduction_path): Add argument
+	specifying whether we're analyzing the inner loop of a
+	double reduction.  Do not allow extra uses outside of the
+	double reduction cycle in this case.
+	(vect_is_simple_reduction): Adjust.
+
+2025-03-03  Richard Biener  <rguenther@suse.de>
+
+	PR ipa/119067
+	* ipa-devirt.cc (odr_types_equivalent_p): Check
+	TYPE_VECTOR_SUBPARTS for vectors.
+
+2025-03-02  Jeff Law  <jlaw@ventanamicro.com>
+
+	PR target/118934
+	* config/riscv/corev.md (cv_branch): Adjust output template.
+	(branch): Likewise.
+	* config/riscv/riscv.md (branch): Likewise.
+	* config/riscv/riscv.cc (riscv_asm_output_opcode): Handle 'r' rather
+	than 'n'.
+
+2025-03-02  Jakub Jelinek  <jakub@redhat.com>
+
+	PR translation/118991
+	* config/avr/avr.cc (avr_print_operand): Print ival into
+	a temporary buffer and use %s in output_operand_lossage to make
+	the diagnostics translatable.
+
+2025-03-02  Filip Kastl  <fkastl@suse.cz>
+
+	PR tree-optimization/117919
+	* gimple-ssa-sccopy.cc (scc_copy_prop::propagate): Prune
+	statements that 'replace_uses_by ()' removed.
+
 2025-03-01  Gerald Pfeifer  <gerald@pfeifer.com>
 
 	PR target/69374

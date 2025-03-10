@@ -2025,7 +2025,7 @@ extern GTY(()) struct saved_scope *scope_chain;
 #define processing_omp_trait_property_expr scope_chain->x_processing_omp_trait_property_expr
 
 /* Nonzero if we are parsing the conditional expression of a contract
-   condition. These expressions appear outside the paramter list (like a
+   condition. These expressions appear outside the parameter list (like a
    trailing return type), but are potentially evaluated.  */
 
 #define processing_contract_condition scope_chain->x_processing_contract_condition
@@ -8625,6 +8625,7 @@ extern tree mangle_decomp			(tree, vec<tree> &);
 extern void mangle_module_substitution		(int);
 extern int mangle_module_component		(tree id, bool partition);
 extern tree mangle_module_global_init		(int);
+extern unsigned HOST_WIDE_INT range_expr_nelts	(tree);
 
 /* in dump.cc */
 extern bool cp_dump_tree			(void *, tree);

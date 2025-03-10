@@ -2002,13 +2002,10 @@ gfc_trans_array_ctor_element (stmtblock_t * pblock, tree desc,
 
   if (expr->expr_type == EXPR_FUNCTION && expr->ts.type == BT_DERIVED
       && expr->ts.u.derived->attr.alloc_comp)
-    {
-      if (!VAR_P (se->expr))
-	se->expr = gfc_evaluate_now (se->expr, &se->pre);
-      gfc_add_expr_to_block (&se->finalblock,
-			     gfc_deallocate_alloc_comp_no_caf (
-			       expr->ts.u.derived, se->expr, expr->rank, true));
-    }
+    gfc_add_expr_to_block (&se->finalblock,
+			   gfc_deallocate_alloc_comp_no_caf (expr->ts.u.derived,
+							     tmp, expr->rank,
+							     true));
 
   if (expr->ts.type == BT_CHARACTER)
     {
@@ -8189,8 +8186,16 @@ gfc_conv_expr_descriptor (gfc_se *se, gfc_expr *expr)
 	{
 	  if (se->direct_byref && !se->byref_noassign)
 	    {
+	      struct lang_type *lhs_ls
+		= TYPE_LANG_SPECIFIC (TREE_TYPE (se->expr)),
+		*rhs_ls = TYPE_LANG_SPECIFIC (TREE_TYPE (desc));
+	      /* When only the array_kind differs, do a view_convert.  */
+	      tmp = lhs_ls && rhs_ls && lhs_ls->rank == rhs_ls->rank
+			&& lhs_ls->akind != rhs_ls->akind
+		      ? build1 (VIEW_CONVERT_EXPR, TREE_TYPE (se->expr), desc)
+		      : desc;
 	      /* Copy the descriptor for pointer assignments.  */
-	      gfc_add_modify (&se->pre, se->expr, desc);
+	      gfc_add_modify (&se->pre, se->expr, tmp);
 
 	      /* Add any offsets from subreferences.  */
 	      gfc_get_dataptr_offset (&se->pre, se->expr, desc, NULL_TREE,

@@ -1,3 +1,128 @@
+2025-03-08  Thomas Koenig  <tkoenig@gcc.gnu.org>
+
+	PR fortran/119157
+	* gfortran.h (gfc_symbol): Make ext_dummy_arglist_mismatch a
+	one-bit bitfield
+	(gfc_pop_undo_symbol): Declare prototype.
+	* symbol.cc (gfc_pop_undo_symbol): New function.
+	* interface.cc (gfc_get_formal_from_actual_arglist): Call it
+	for artificially introduced formal variables.
+
+2025-03-08  Jerry DeLisle  <jvdelisle@gcc.gnu.org>
+
+	PR fortran/119054
+	* resolve.cc (resolve_elemental_actual): When checking other
+	actual arguments to elemental procedures, don't check
+	attributes of literals and function calls.
+
+2025-03-06  Harald Anlauf  <anlauf@gmx.de>
+
+	PR fortran/119118
+	* dependency.cc (gfc_contains_implied_index_p): Helper function to
+	determine if an expression has a dependence on an implied-do index.
+	* dependency.h (gfc_contains_implied_index_p): Add prototype.
+	* trans-expr.cc (gfc_conv_substring): Adjust logic to not generate
+	substring bounds checks before implied-do indices have been
+	substituted.
+
+2025-03-05  Mark Wielaard  <mark@klomp.org>
+
+	* lang.opt.urls: Regenerated.
+
+2025-03-05  Andre Vehreschild  <vehre@gcc.gnu.org>
+
+	PR fortran/104684
+	* trans-array.cc (gfc_conv_expr_descriptor): Look at the
+	lang-specific akind and do a view convert when only the akind
+	attribute differs between pointer and allocatable array.
+
+2025-03-04  Thomas Koenig  <tkoenig@gcc.gnu.org>
+
+	PR fortran/119049
+	PR fortran/119074
+	* dump-parse-tree.cc (seen_conflict): New static varaible.
+	(gfc_dump_external_c_prototypes): Initialize it. If it was
+	set, write out a warning that -std=c23 will not work.
+	(write_proc): Move the work of actually writing out the
+	formal arglist to...
+	(write_formal_arglist): New function. Handle external dummy
+	parameters and their argument lists. If there were mismatched
+	arguments, output an empty argument list in pre-C23 style.
+	* gfortran.h (struct gfc_symbol): Add ext_dummy_arglist_mismatch
+	flag and formal_at.
+	* invoke.texi: Document -Wexternal-argument-mismatch.
+	* lang.opt: Put it in.
+	* resolve.cc (resolve_function): If warning about external
+	argument mismatches, build a formal from actual arglist the
+	first time around, and later compare and warn.
+	(resolve_call): Likewise
+
+2025-03-04  Andre Vehreschild  <vehre@gcc.gnu.org>
+
+	PR fortran/103391
+	* trans-expr.cc (gfc_trans_assignment_1): Do not use poly assign
+	for pointer arrays on lhs (as it is done for allocatables
+	already).
+
+2025-03-04  Andre Vehreschild  <vehre@gcc.gnu.org>
+
+	PR fortran/77872
+	* trans-expr.cc (gfc_get_tree_for_caf_expr): Pick up token from
+	decl when it is present there for class types.
+
+2025-03-04  Andre Vehreschild  <vehre@gcc.gnu.org>
+
+	PR fortran/77872
+	* trans-expr.cc (gfc_conv_procedure_call): Use attr instead of
+	doing type check and branching for BT_CLASS.
+
+2025-03-03  Harald Anlauf  <anlauf@gmx.de>
+
+	PR fortran/101577
+	* symbol.cc (verify_bind_c_derived_type): Generate error message
+	for derived type with no components in standard conformance mode,
+	indicating that this is a GNU extension.
+
+2025-03-03  Andre Vehreschild  <vehre@gcc.gnu.org>
+
+	PR fortran/118747
+	* trans-array.cc (gfc_trans_array_ctor_element): Remove copy to
+	temporary variable.
+	* trans-expr.cc (gfc_conv_procedure_call): Use references to
+	array members instead of copies when freeing after use.
+	Formatting fix.
+
+2025-03-02  Sandra Loosemore  <sloosemore@baylibre.com>
+
+	* intrinsic.texi: Fix inconsistent capitalization of argument
+	names and other minor copy-editing.
+
+2025-03-02  Sandra Loosemore  <sloosemore@baylibre.com>
+
+	PR fortran/47928
+	* intrinsic.texi: Move the "Standard" subheading farther down.
+
+2025-03-02  Sandra Loosemore  <sloosemore@baylibre.com>
+
+	PR fortran/47928
+	* gfortran.texi: Move all the "Syntax" subheadings ahead of
+	"Description", and rename to "Synopsis".
+	* intrinsic.texi: Likewise.
+
+2025-03-02  Sandra Loosemore  <sloosemore@baylibre.com>
+
+	PR fortran/47928
+	* intrinsic.texi: Put a blank line between "@item @emph{}"
+	subheadings, but not more than one.
+
+2025-03-02  Sandra Loosemore  <sloosemore@baylibre.com>
+
+	PR fortran/47928
+	* gfortran.texi: Consistently use "@emph{Notes}:" instead of
+	other spellings.
+	* intrinsic.texi: Likewise.  Also fix an inconsistent capitalization
+	and remove a redundant "Standard" entry.
+
 2025-03-01  Harald Anlauf  <anlauf@gmx.de>
 
 	* match.cc (gfc_match_nullify): Free matched expression when

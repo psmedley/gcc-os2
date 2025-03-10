@@ -5,7 +5,9 @@
 
 /* { dg-additional-options "-Ofast" } */
 
-/* { dg-final { scan-tree-dump "LOOP VECTORIZED" "vect" } } */
+/* This will fail because we cannot SLP the load groups yet.  */
+/* { dg-final { scan-tree-dump "LOOP VECTORIZED" "vect" { target vect_partial_vectors } } } */
+/* { dg-final { scan-tree-dump-not "LOOP VECTORIZED" "vect" { target { ! vect_partial_vectors } } } } */
 
 #define N 1024
 unsigned vect_a[N];

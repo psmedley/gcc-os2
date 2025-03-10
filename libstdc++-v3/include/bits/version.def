@@ -522,6 +522,11 @@ ftms = {
 ftms = {
   name = raw_memory_algorithms;
   values = {
+    v = 202411;
+    cxxmin = 26;
+    extra_cond = "__cpp_constexpr >= 202406L";
+  };
+  values = {
     v = 201606;
     cxxmin = 17;
   };
@@ -765,6 +770,7 @@ ftms = {
   values = {
     v = 201911;
     cxxmin = 20;
+    extra_cond = "__cpp_concepts >= 201907L";
   };
 };
 
@@ -1793,6 +1799,11 @@ ftms = {
 ftms = {
   name = tuple_like;
   values = {
+    v = 202311;
+    cxxmin = 26;
+    extra_cond = "__cpp_explicit_this_parameter >= 202110L";
+  };
+  values = {
     v = 202207;
     cxxmin = 23;
   };
@@ -1838,6 +1849,14 @@ ftms = {
     v = 202406;
     cxxmin = 26;
     extra_cond = "__has_builtin(__builtin_is_virtual_base_of)";
+  };
+};
+
+ftms = {
+  name = ranges_cache_latest;
+  values = {
+    v = 202411;
+    cxxmin = 26;
   };
 };
 

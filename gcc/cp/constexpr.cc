@@ -2928,6 +2928,17 @@ cxx_eval_call_expression (const constexpr_ctx *ctx, tree t,
 	  gcc_assert (arg0);
 	  if (new_op_p)
 	    {
+	      /* FIXME: We should not get here; the VERIFY_CONSTANT above
+		 should have already caught it.  But currently a conversion
+		 from pointer type to arithmetic type is only considered
+		 non-constant for CONVERT_EXPRs, not NOP_EXPRs.  */
+	      if (!tree_fits_uhwi_p (arg0))
+		{
+		  if (!ctx->quiet)
+		    error_at (loc, "cannot allocate array: size not constant");
+		  *non_constant_p = true;
+		  return t;
+		}
 	      tree type = build_array_type_nelts (char_type_node,
 						  tree_to_uhwi (arg0));
 	      tree var = build_decl (loc, VAR_DECL,
@@ -10936,6 +10947,11 @@ potential_constant_expression_1 (tree t, bool want_rval, bool strict, bool now,
     case CO_AWAIT_EXPR:
     case CO_YIELD_EXPR:
     case CO_RETURN_EXPR:
+      return false;
+
+    /* Assume a TU-local entity is not constant, we'll error later when
+       instantiating.  */
+    case TU_LOCAL_ENTITY:
       return false;
 
     case NONTYPE_ARGUMENT_PACK:

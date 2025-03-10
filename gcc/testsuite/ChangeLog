@@ -1,3 +1,424 @@
+2025-03-08  Thomas Koenig  <tkoenig@gcc.gnu.org>
+
+	PR fortran/119157
+	* gfortran.dg/interface_57.f90: New test.
+
+2025-03-08  Jason Merrill  <jason@redhat.com>
+	    Nathaniel Shead  <nathanieloshead@gmail.com>
+
+	PR c++/114630
+	PR c++/114795
+	* g++.dg/modules/modules.exp: Run xtreme tests once.
+	* g++.dg/modules/gmf-3.C: New test.
+	* g++.dg/modules/gmf-4.C: New test.
+	* g++.dg/modules/gmf-xtreme.C: New test.
+
+2025-03-08  Jerry DeLisle  <jvdelisle@gcc.gnu.org>
+
+	PR fortran/119054
+	* gfortran.dg/pr95446.f90: Expand test case to literals and
+	function calls.
+	Signed-off-by: Peter Hill <peter.hill@york.ac.uk>
+
+2025-03-07  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c/117178
+	* c-c++-common/attr-nonstring-7.c: Remove one xfail.
+	* c-c++-common/attr-nonstring-9.c: New test.
+	* c-c++-common/attr-nonstring-10.c: New test.
+	* c-c++-common/attr-nonstring-11.c: New test.
+	* c-c++-common/attr-nonstring-12.c: New test.
+	* c-c++-common/attr-nonstring-13.c: New test.
+	* c-c++-common/attr-nonstring-14.c: New test.
+	* c-c++-common/attr-nonstring-15.c: New test.
+	* c-c++-common/attr-nonstring-16.c: New test.
+
+2025-03-07  Kees Cook  <kees@kernel.org>
+	    Jakub Jelinek  <jakub@redhat.com>
+
+	PR c/117178
+	* gcc.dg/Wunterminated-string-initialization.c: Add additional test
+	coverage.
+	* gcc.dg/Wcxx-compat-14.c: Check in dg-warning for "for C++" part of
+	the diagnostics.
+	* gcc.dg/Wcxx-compat-23.c: New test.
+	* gcc.dg/Wcxx-compat-24.c: New test.
+
+2025-03-07  Andrew Pinski  <quic_apinski@quicinc.com>
+
+	* gcc.dg/Wreturn-mismatch-2a.c: Change dg-warning
+	for the last -Wreturn-type to dg-bogus.
+	* gcc.dg/Wreturn-mismatch-6.c: Likewise.
+
+2025-03-07  Richard Sandiford  <richard.sandiford@arm.com>
+	    Jan Hubicka  <hubicka@ucw.cz>
+	    H.J. Lu  <hjl.tools@gmail.com>
+
+	PR rtl-optimization/117477
+	* gcc.target/aarch64/callee_save_1.c: New test.
+	* gcc.target/aarch64/callee_save_2.c: Likewise.
+	* gcc.target/aarch64/callee_save_3.c: Likewise.
+	* gcc.target/aarch64/pr103350-1.c: Add -fno-caller-saves.
+
+2025-03-07  Andrew Pinski  <quic_apinski@quicinc.com>
+
+	PR c/60440
+	* gcc.dg/Wreturn-mismatch-2.c: Change dg-warning
+	for the last -Wreturn-type to dg-bogus.
+	* gcc.dg/pr60440-1.c: New test.
+
+2025-03-07  Marek Polacek  <polacek@redhat.com>
+
+	PR c++/118775
+	* g++.dg/cpp2a/constexpr-new24.C: New test.
+	* g++.dg/cpp2a/constexpr-new25.C: New test.
+
+2025-03-07  Richard Earnshaw  <rearnsha@arm.com>
+
+	* lib/target-supports.exp
+	(check_effective_target_arm_neon_h_ok_nocache): New function.
+	(check_effective_target_arm_neon_h_ok): Likewise.
+	(add_options_for_arm_neon_h): Likewise.
+	(check_effective_target_arm_libc_fp_abi_ok_nocache): Allow any
+	Arm target, not just arm32.
+	* gcc.target/arm/attr-neon-builtin-fail.c: Use it.
+	* gcc.target/arm/attr-neon-builtin-fail2.c: Likewise.
+	* gcc.target/arm/attr-neon-fp16.c: Likewise.
+	* gcc.target/arm/attr-neon2.c: Likewise.
+
+2025-03-07  Tamar Christina  <tamar.christina@arm.com>
+
+	PR tree-optimization/118464
+	PR tree-optimization/116855
+	* gcc.dg/vect/bb-slp-pr65935.c: Update, it now vectorizes because the
+	load type is relaxed later.
+	* gcc.dg/vect/vect-early-break_121-pr114081.c: Update.
+	* gcc.dg/vect/vect-early-break_22.c: Require partial vectors.
+	* gcc.dg/vect/vect-early-break_128.c: Likewise.
+	* gcc.dg/vect/vect-early-break_26.c: Likewise.
+	* gcc.dg/vect/vect-early-break_43.c: Likewise.
+	* gcc.dg/vect/vect-early-break_44.c: Likewise.
+	* gcc.dg/vect/vect-early-break_2.c: Require load_lanes.
+	* gcc.dg/vect/vect-early-break_7.c: Likewise.
+	* gcc.dg/vect/vect-early-break_132-pr118464.c: New test.
+	* gcc.dg/vect/vect-early-break_133_pfa1.c: New test.
+	* gcc.dg/vect/vect-early-break_133_pfa11.c: New test.
+	* gcc.dg/vect/vect-early-break_133_pfa10.c: New test.
+	* gcc.dg/vect/vect-early-break_133_pfa2.c: New test.
+	* gcc.dg/vect/vect-early-break_133_pfa3.c: New test.
+	* gcc.dg/vect/vect-early-break_133_pfa4.c: New test.
+	* gcc.dg/vect/vect-early-break_133_pfa5.c: New test.
+	* gcc.dg/vect/vect-early-break_133_pfa6.c: New test.
+	* gcc.dg/vect/vect-early-break_133_pfa7.c: New test.
+	* gcc.dg/vect/vect-early-break_133_pfa8.c: New test.
+	* gcc.dg/vect/vect-early-break_133_pfa9.c: New test.
+	* gcc.dg/vect/vect-early-break_39.c: Update testcase for misalignment.
+	* gcc.dg/vect/vect-early-break_18.c: Likewise.
+	* gcc.dg/vect/vect-early-break_20.c: Likewise.
+	* gcc.dg/vect/vect-early-break_21.c: Likewise.
+	* gcc.dg/vect/vect-early-break_38.c: Likewise.
+	* gcc.dg/vect/vect-early-break_6.c: Likewise.
+	* gcc.dg/vect/vect-early-break_53.c: Likewise.
+	* gcc.dg/vect/vect-early-break_56.c: Likewise.
+	* gcc.dg/vect/vect-early-break_57.c: Likewise.
+	* gcc.dg/vect/vect-early-break_81.c: Likewise.
+
+2025-03-07  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/119145
+	* gcc.dg/vect/pr119145.c: New testcase.
+
+2025-03-07  Christophe Lyon  <christophe.lyon@linaro.org>
+
+	PR target/115485
+	* g++.target/arm/pr115485.C: New test.
+
+2025-03-07  Richard Sandiford  <richard.sandiford@arm.com>
+
+	PR tree-optimization/116125
+	* gcc.dg/vect/pr116125.c: New test.
+
+2025-03-07  Richard Sandiford  <richard.sandiford@arm.com>
+
+	PR target/119133
+	* gcc.dg/torture/pr119133.c: New test.
+
+2025-03-07  Haochen Jiang  <haochen.jiang@intel.com>
+
+	* gcc.target/i386/avx10_2-512-convert-1.c: Change function call.
+	* gcc.target/i386/avx10_2-convert-1.c: Ditto.
+
+2025-03-06  Co-authored-by: Jeff Law  <jlaw@ventanamicro.com>
+
+	PR rtl-optimization/119099
+	* gcc.dg/torture/pr119099.c: New test.
+
+2025-03-06  Harald Anlauf  <anlauf@gmx.de>
+
+	PR fortran/119118
+	* gfortran.dg/bounds_check_23.f90: Generalize test.
+	* gfortran.dg/bounds_check_26.f90: New test.
+
+2025-03-06  Simon Martin  <simon@nasilyan.com>
+
+	* gcc.target/powerpc/ppc64-abi-1.c: Fix comment typos, paramter
+	-> parameter.
+	* gcc.target/powerpc/ppc64-abi-2.c: Likewise.
+
+2025-03-06  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/98533
+	PR c++/119123
+	* g++.dg/cpp0x/pr98533.C: New test.
+	* g++.dg/cpp0x/pr119123.C: New test.
+
+2025-03-06  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/119138
+	* g++.dg/template/pr119138.C: New test.
+
+2025-03-06  Jakub Jelinek  <jakub@redhat.com>
+
+	PR fortran/104826
+	* gfortran.dg/gomp/pr104826.f90: New test.
+
+2025-03-06  Richard Sandiford  <richard.sandiford@arm.com>
+
+	Revert:
+	2025-03-06  Richard Sandiford  <richard.sandiford@arm.com>
+		    Jan Hubicka  <hubicka@ucw.cz>
+
+	PR rtl-optimization/117477
+	* gcc.target/aarch64/callee_save_1.c: New test.
+	* gcc.target/aarch64/callee_save_2.c: Likewise.
+	* gcc.target/aarch64/callee_save_3.c: Likewise.
+	* gcc.target/aarch64/pr103350-1.c: Add -fno-caller-saves.
+
+2025-03-06  Richard Biener  <rguenther@suse.de>
+
+	PR lto/114501
+	* g++.dg/pr114501_0.C: New testcase.
+
+2025-03-06  Richard Sandiford  <richard.sandiford@arm.com>
+	    Jan Hubicka  <hubicka@ucw.cz>
+
+	PR rtl-optimization/117477
+	* gcc.target/aarch64/callee_save_1.c: New test.
+	* gcc.target/aarch64/callee_save_2.c: Likewise.
+	* gcc.target/aarch64/callee_save_3.c: Likewise.
+	* gcc.target/aarch64/pr103350-1.c: Add -fno-caller-saves.
+
+2025-03-06  Richard Biener  <rguenther@suse.de>
+
+	PR middle-end/119119
+	* g++.dg/torture/pr11911.C: New testcase.
+
+2025-03-06  Simon Martin  <simon@nasilyan.com>
+
+	PR c++/117504
+	* g++.dg/cpp2a/constexpr-117504.C: New test.
+	* g++.dg/cpp2a/constexpr-117504a.C: New test.
+
+2025-03-06  Pan Li  <pan2.li@intel.com>
+
+	* gcc.target/riscv/rvv/autovec/partial/multiple_rgroup_zbb.c: Tweak
+	the asm check for vsetvl.
+
+2025-03-06  Jeff Law  <jlaw@ventanamicro.com>
+
+	* gcc.target/riscv/core_list_init.c: Use -fext-dce rather than
+	-O1.  Skip for -O0.
+	* gcc.target/riscv/pr111384.c: Ditto.
+
+2025-03-05  Gaius Mulley  <gaiusmod2@gmail.com>
+
+	PR modula2/118998
+	* gm2/iso/pass/testrotate.mod: New test.
+	* gm2/pim/fail/tinyconst.mod: New test.
+	* gm2/sets/run/pass/simplepacked.mod: New test.
+
+2025-03-05  Marek Polacek  <polacek@redhat.com>
+
+	PR c++/115580
+	* g++.dg/warn/Wnonnull16.C: New test.
+
+2025-03-05  Jason Merrill  <jason@redhat.com>
+	    Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/117364
+	PR c++/118874
+	* g++.dg/coroutines/torture/pr118874.C: New test.
+
+2025-03-05  Hannes Braun  <hannes@hannesbraun.net>
+
+	PR target/118942
+	* gcc.target/arm/simd/vld1q_base_xN_1.c: Add -Wpointer-sign.
+
+2025-03-05  Da Xie  <xxie_xd@163.com>
+
+	PR c++/100589
+	* g++.dg/cpp2a/concepts-pr100589.C: New test.
+
+2025-03-05  Kyrylo Tkachov  <ktkachov@nvidia.com>
+
+	PR rtl-optimization/119046
+	* gcc.target/aarch64/pr119046.c: New test.
+
+2025-03-05  Jakub Jelinek  <jakub@redhat.com>
+
+	PR tree-optimization/118953
+	* gcc.dg/torture/pr118953.c: New test.
+
+2025-03-05  Richard Biener  <rguenther@suse.de>
+
+	PR middle-end/97323
+	* gcc.dg/pr97323.c: New testcase.
+
+2025-03-05  Andre Vehreschild  <vehre@gcc.gnu.org>
+
+	PR fortran/104684
+	* gfortran.dg/coarray/ptr_comp_6.f08: New test.
+
+2025-03-05  Simon Martin  <simon@nasilyan.com>
+
+	PR c++/116740
+	* g++.dg/parse/crash80.C: New test.
+
+2025-03-05  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/119102
+	* g++.dg/modules/pr119102_a.H: New test.
+	* g++.dg/modules/pr119102_b.C: New test.
+	* g++.dg/modules/omp-3_a.C: New test.
+	* g++.dg/modules/omp-3_b.C: New test.
+	* g++.dg/modules/omp-3_c.C: New test.
+	* g++.dg/modules/omp-3_d.C: New test.
+	* g++.dg/modules/oacc-1_a.C: New test.
+	* g++.dg/modules/oacc-1_b.C: New test.
+	* g++.dg/modules/oacc-1_c.C: New test.
+
+2025-03-05  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c++/118787
+	* g++.dg/cpp0x/alignas22.C: New test.
+
+2025-03-05  Xi Ruoyao  <xry111@xry111.site>
+
+	PR target/119084
+	* gcc.target/loongarch/pr119084.c: New test.
+
+2025-03-04  Jason Merrill  <jason@redhat.com>
+
+	PR c++/119073
+	* g++.dg/cpp0x/range-for39.C: New test.
+
+2025-03-04  Thomas Koenig  <tkoenig@gcc.gnu.org>
+
+	PR fortran/119049
+	PR fortran/119074
+	* gfortran.dg/interface_55.f90: New test.
+	* gfortran.dg/interface_56.f90: New test.
+
+2025-03-04  Torbjörn SVENSSON  <torbjorn.svensson@foss.st.com>
+
+	* gcc.target/arm/pr68674.c: Use effective-target arm_arch_v7a
+	and arm_libc_fp_abi.
+
+2025-03-04  Jan Hubicka  <hubicka@ucw.cz>
+
+	* gcc.target/i386/blsi.c: New test.
+	* gcc.target/i386/blsmsk.c: New test.
+	* gcc.target/i386/blsr.c: New test.
+
+2025-03-04  Andre Vehreschild  <vehre@gcc.gnu.org>
+
+	PR fortran/103391
+	* gfortran.dg/assign_12.f90: New test.
+
+2025-03-04  Marek Polacek  <polacek@redhat.com>
+
+	PR c++/109431
+	* g++.dg/init/array67.C: New test.
+
+2025-03-04  Tamar Christina  <tamar.christina@arm.com>
+
+	PR target/118892
+	* gcc.target/aarch64/copysign-pr118892.c: New test.
+
+2025-03-04  Richard Sandiford  <richard.sandiford@arm.com>
+	    Jakub Jelinek  <jakub@redhat.com>
+
+	* gcc.c-torture/execute/ieee/pr119002.c: New test.
+	* gcc.target/aarch64/pr117186.c: Run at -O2 rather than -O.
+
+2025-03-04  Jakub Jelinek  <jakub@redhat.com>
+
+	PR rtl-optimization/119071
+	* gcc.dg/pr119071.c: New test.
+	* gcc.c-torture/execute/pr119071.c: New test.
+
+2025-03-04  Andre Vehreschild  <vehre@gcc.gnu.org>
+
+	PR fortran/77872
+	* gfortran.dg/coarray/class_1.f90: New test.
+
+2025-03-04  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/119096
+	* gcc.dg/vect/pr119096.c: New testcase.
+
+2025-03-04  Pan Li  <pan2.li@intel.com>
+
+	* gcc.target/riscv/rvv/autovec/bug-3.c: Update asm check to
+	function body check.
+
+2025-03-03  Harald Anlauf  <anlauf@gmx.de>
+
+	PR fortran/101577
+	* gfortran.dg/empty_derived_type.f90: Adjust dg-options.
+	* gfortran.dg/empty_derived_type_2.f90: New test.
+
+2025-03-03  Richard Earnshaw  <rearnsha@arm.com>
+
+	* gcc.target/arm/unsigned-extend-1.c: Expand check for any
+	insn suggesting a zero-extend.  XFAIL for thumb1 code.
+
+2025-03-03  Uros Bizjak  <ubizjak@gmail.com>
+
+	PR rtl-optimization/118739
+	* gcc.target/i386/pr118739.c: New test.
+
+2025-03-03  Martin Jambor  <mjambor@suse.cz>
+
+	PR ipa/118785
+	* g++.dg/lto/pr118785_0.C: New test.
+
+2025-03-03  Richard Biener  <rguenther@suse.de>
+
+	PR tree-optimization/119057
+	* gcc.dg/vect/pr119057.c: New testcase.
+
+2025-03-03  Richard Biener  <rguenther@suse.de>
+
+	PR ipa/119067
+	* g++.dg/lto/pr119067_0.C: New testcase.
+	* g++.dg/lto/pr119067_1.C: Likewise.
+
+2025-03-03  Andre Vehreschild  <vehre@gcc.gnu.org>
+
+	PR fortran/118747
+	* gfortran.dg/alloc_comp_auto_array_4.f90: New test.
+
+2025-03-02  Gaius Mulley  <gaiusmod2@gmail.com>
+
+	PR modula2/119088
+	* gm2/pim/fail/tinyfor4.mod: New test.
+
+2025-03-02  Filip Kastl  <fkastl@suse.cz>
+
+	PR tree-optimization/117919
+	* g++.dg/pr117919.C: New test.
+
 2025-03-01  Yuriy Kolerov  <Yuriy.Kolerov@synopsys.com>
 
 	PR target/118906

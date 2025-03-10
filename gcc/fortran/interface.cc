@@ -5876,12 +5876,14 @@ gfc_get_formal_from_actual_arglist (gfc_symbol *sym,
 	  s->declared_at = a->expr->where;
 	  s->attr.intent = INTENT_UNKNOWN;
 	  (*f)->sym = s;
+	  gfc_commit_symbol (s);
 	}
       else  /* If a->expr is NULL, this is an alternate rerturn.  */
 	(*f)->sym = NULL;
 
       f = &((*f)->next);
     }
+
 }
 
 

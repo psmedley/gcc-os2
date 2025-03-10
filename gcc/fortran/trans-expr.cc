@@ -2394,6 +2394,11 @@ gfc_get_tree_for_caf_expr (gfc_expr *expr)
 	  if (CLASS_DATA (expr->symtree->n.sym)->attr.codimension)
 	    return caf_decl;
 	}
+      else if (DECL_P (caf_decl) && DECL_LANG_SPECIFIC (caf_decl)
+	       && GFC_DECL_TOKEN (caf_decl)
+	       && CLASS_DATA (expr->symtree->n.sym)->attr.codimension)
+	return caf_decl;
+
       for (ref = expr->ref; ref; ref = ref->next)
 	{
 	  if (ref->type == REF_COMPONENT
@@ -2809,8 +2814,8 @@ gfc_conv_substring (gfc_se * se, gfc_ref * ref, int kind,
     end.expr = gfc_evaluate_now (end.expr, &se->pre);
 
   if ((gfc_option.rtcheck & GFC_RTCHECK_BOUNDS)
-      && (ref->u.ss.start->symtree
-	  && !ref->u.ss.start->symtree->n.sym->attr.implied_index))
+      && !gfc_contains_implied_index_p (ref->u.ss.start)
+      && !gfc_contains_implied_index_p (ref->u.ss.end))
     {
       tree nonempty = fold_build2_loc (input_location, LE_EXPR,
 				       logical_type_node, start.expr,
@@ -6999,6 +7004,12 @@ gfc_conv_procedure_call (gfc_se * se, gfc_symbol * sym,
 	  if ((fsym && fsym->attr.value)
 	      || (ulim_copy && (argc == 2 || argc == 3)))
 	    gfc_conv_expr (&parmse, e);
+	  else if (e->expr_type == EXPR_ARRAY)
+	    {
+	      gfc_conv_expr (&parmse, e);
+	      if (e->ts.type != BT_CHARACTER)
+		parmse.expr = gfc_build_addr_expr (NULL_TREE, parmse.expr);
+	    }
 	  else
 	    gfc_conv_expr_reference (&parmse, e);
 
@@ -7930,11 +7941,11 @@ gfc_conv_procedure_call (gfc_se * se, gfc_symbol * sym,
 	  /* It is known the e returns a structure type with at least one
 	     allocatable component.  When e is a function, ensure that the
 	     function is called once only by using a temporary variable.  */
-	  if (!DECL_P (parmse.expr))
+	  if (!DECL_P (parmse.expr) && e->expr_type == EXPR_FUNCTION)
 	    parmse.expr = gfc_evaluate_now_loc (input_location,
 						parmse.expr, &se->pre);
 
-	  if (fsym && fsym->attr.value)
+	  if ((fsym && fsym->attr.value) || e->expr_type == EXPR_ARRAY)
 	    tmp = parmse.expr;
 	  else
 	    tmp = build_fold_indirect_ref_loc (input_location,
@@ -7993,7 +8004,8 @@ gfc_conv_procedure_call (gfc_se * se, gfc_symbol * sym,
 	      /* Scalars passed to an assumed rank argument are converted to
 		 a descriptor. Obtain the data field before deallocating any
 		 allocatable components.  */
-	      if (parm_rank == 0 && GFC_DESCRIPTOR_TYPE_P (TREE_TYPE (tmp)))
+	      if (parm_rank == 0 && e->expr_type != EXPR_ARRAY
+		  && GFC_DESCRIPTOR_TYPE_P (TREE_TYPE (tmp)))
 		tmp = gfc_conv_descriptor_data_get (tmp);
 
 	      if (scalar_res_outside_loop)
@@ -8209,23 +8221,15 @@ gfc_conv_procedure_call (gfc_se * se, gfc_symbol * sym,
       /* For descriptorless coarrays and assumed-shape coarray dummies, we
 	 pass the token and the offset as additional arguments.  */
       if (fsym && e == NULL && flag_coarray == GFC_FCOARRAY_LIB
-	  && ((fsym->ts.type != BT_CLASS && fsym->attr.codimension
-	       && !fsym->attr.allocatable)
-	      || (fsym->ts.type == BT_CLASS
-		  && CLASS_DATA (fsym)->attr.codimension
-		  && !CLASS_DATA (fsym)->attr.allocatable)))
+	  && attr->codimension && !attr->allocatable)
 	{
 	  /* Token and offset.  */
 	  vec_safe_push (stringargs, null_pointer_node);
 	  vec_safe_push (stringargs, build_int_cst (gfc_array_index_type, 0));
 	  gcc_assert (fsym->attr.optional);
 	}
-      else if (fsym && flag_coarray == GFC_FCOARRAY_LIB
-	       && ((fsym->ts.type != BT_CLASS && fsym->attr.codimension
-		    && !fsym->attr.allocatable)
-		   || (fsym->ts.type == BT_CLASS
-		       && CLASS_DATA (fsym)->attr.codimension
-		       && !CLASS_DATA (fsym)->attr.allocatable)))
+      else if (fsym && flag_coarray == GFC_FCOARRAY_LIB && attr->codimension
+	       && !attr->allocatable)
 	{
 	  tree caf_decl, caf_type, caf_desc = NULL_TREE;
 	  tree offset, tmp2;
@@ -12872,14 +12876,14 @@ gfc_trans_assignment_1 (gfc_expr * expr1, gfc_expr * expr2, bool init_flag,
      needed.  */
   lhs_attr = gfc_expr_attr (expr1);
 
-  is_poly_assign = (use_vptr_copy || lhs_attr.pointer
-		    || (lhs_attr.allocatable && !lhs_attr.dimension))
-		   && (expr1->ts.type == BT_CLASS
-		       || gfc_is_class_array_ref (expr1, NULL)
-		       || gfc_is_class_scalar_expr (expr1)
-		       || gfc_is_class_array_ref (expr2, NULL)
-		       || gfc_is_class_scalar_expr (expr2))
-		   && lhs_attr.flavor != FL_PROCEDURE;
+  is_poly_assign
+    = (use_vptr_copy
+       || ((lhs_attr.pointer || lhs_attr.allocatable) && !lhs_attr.dimension))
+      && (expr1->ts.type == BT_CLASS || gfc_is_class_array_ref (expr1, NULL)
+	  || gfc_is_class_scalar_expr (expr1)
+	  || gfc_is_class_array_ref (expr2, NULL)
+	  || gfc_is_class_scalar_expr (expr2))
+      && lhs_attr.flavor != FL_PROCEDURE;
 
   assoc_assign = is_assoc_assign (expr1, expr2);
 
