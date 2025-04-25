@@ -1,3 +1,127 @@
+2025-04-25  Release Manager
+
+	* GCC 15.1.0 released.
+
+2025-04-11  Gaius Mulley  <gaiusmod2@gmail.com>
+
+	PR modula2/119735
+	* gm2-compiler/M2MetaError.def: Hide %n from comment.
+	* gm2-compiler/SymbolTable.def (PutIncludedByDefinition): Remove '
+	from comment.
+	* gm2-gcc/m2expr.def (init): Ditto.
+	* gm2-libiberty/pexecute.def: Ditto.
+	* gm2-libs-coroutines/Executive.def (InitSemaphore): Ditto.
+	(Wait): Ditto.
+	* gm2-libs-iso/ClientSocket.def: Ditto.
+	* gm2-libs-log/BlockOps.def (BlockMoveBackward): Ditto.
+	* gm2-libs-log/InOut.def: Ditto.
+	* mc/mcFileName.def: Ditto.
+
+2025-04-09  Jakub Jelinek  <jakub@redhat.com>
+
+	* gm2-compiler/M2MetaError.def: Fix comment typo, range" -> "range2".
+
+2025-03-30  Sandra Loosemore  <sloosemore@baylibre.com>
+
+	* lang.opt.urls: Regenerate.
+
+2025-03-28  Gaius Mulley  <gaiusmod2@gmail.com>
+
+	PR modula2/119504
+	* gm2-compiler/M2Quads.mod (BuildHighFunction): Defend against
+	Type = NulSym and fall into BuildConstHighFromSym.
+	(BuildDesignatorArray): Rewrite to detect an array access to
+	a constant string.
+	(BuildDesignatorArrayStaticDynamic): New procedure.
+
+2025-03-25  Gaius Mulley  <gaiusmod2@gmail.com>
+
+	PR modula2/119449
+	* gm2-compiler/M2GCCDeclare.def (TryDeclareType): Remove tokenno
+	parameter.
+	* gm2-compiler/M2GCCDeclare.mod (TryDeclareType): Ditto.
+	* gm2-compiler/M2GenGCC.mod (FoldTBitsize): Remove op2 and
+	rename op1 as res and op3 as type.
+	(FoldStandardFunction): Call FoldTBitsize omitting op2.
+	* gm2-compiler/M2Quads.mod (GetTypeMin): Rewrite.
+	(GetTypeMinLower): New procedure function.
+	(GetTypeMax): Rewrite.
+	(GetTypeMaxLower): New procedure function.
+	* gm2-compiler/M2Range.mod (CheckCancelled): Comment out.
+	* gm2-compiler/M2System.mod (CreateMinMaxFor): Add realtype
+	parameter.
+	(MapType): Rewrite to use realtype.
+	(CreateType): Ditto.
+	(AttemptToCreateType): Ditto.
+	(MakeFixedSizedTypes): Add realtype boolean.
+	(InitPIMTypes): Ditto.
+	(InitISOTypes): Ditto.
+	(MakeExtraSystemTypes): Ditto.
+	* gm2-gcc/m2pp.cc (m2pp_nop_expr): Remove code.
+	* gm2-gcc/m2type.cc (IsGccRealType): New function.
+	(m2type_GetMinFrom): Rewrite.
+	(m2type_GetMaxFrom): Ditto.
+	(do_min_real): Declare static.
+	(do_max_real): Declare static.
+
+2025-03-20  Gaius Mulley  <gaiusmod2@gmail.com>
+
+	PR modula2/118600
+	* gm2-compiler/M2GenGCC.mod (PerformCodeBecomes): New procedure.
+	(CodeBecomes): Refactor and call PerformCodeBecomes.
+	* gm2-gcc/m2builtins.cc (gm2_strncpy_node): New global variable.
+	(DoBuiltinStrNCopy): New function.
+	(m2builtins_BuiltinStrNCopy): New function.
+	(m2builtins_init): Initialize gm2_strncpy_node.
+	* gm2-gcc/m2builtins.def (BuiltinStrNCopy): New procedure
+	function.
+	* gm2-gcc/m2builtins.h (m2builtins_BuiltinStrNCopy): New
+	function.
+	* gm2-gcc/m2statement.cc (copy_record_fields): New function.
+	(copy_array): Ditto.
+	(copy_strncpy): Ditto.
+	(copy_memcpy): Ditto.
+	(CopyByField_Lower): Ditto.
+	(m2statement_CopyByField): Ditto.
+	* gm2-gcc/m2statement.def (CopyByField): New procedure function.
+	* gm2-gcc/m2statement.h (m2statement_CopyByField): New function.
+	* gm2-gcc/m2type.cc (check_record_fields): Ditto.
+	(check_array_types): Ditto.
+	(m2type_IsGccStrictTypeEquivalent): Ditto.
+	* gm2-gcc/m2type.def (IsGccStrictTypeEquivalent): New procedure
+	function.
+	* gm2-gcc/m2type.h (m2type_IsAddress): Replace return type int
+	with bool.
+
+2025-03-16  Gaius Mulley  <gaiusmod2@gmail.com>
+
+	PR modula2/115111
+	* gm2-compiler/M2GenGCC.mod (CodeStatementNote): Add debugging.
+	* gm2-compiler/M2Quads.def (BuildEndWhile): New parameter reltokpos.
+	* gm2-compiler/M2Quads.mod (BuildEndWhile): Reimplement using new parameter.
+	* gm2-compiler/P3Build.bnf (WhileStatement): Call BuildEndWhile
+	with -1 relative position.
+	* gm2-gcc/m2block.cc (do_add_stmt): Tidy comment.
+	(GetGlobals): Ditto.
+	(flush_pending_note): Remove #if 0 code.
+	* gm2-gcc/m2pp.cc (m2pp_nop_expr): New function.
+	(m2pp_statement): New case clause call m2pp_nop_expr.
+
+2025-03-10  Gaius Mulley  <gaiusmod2@gmail.com>
+
+	PR modula2/119192
+	* gm2-compiler/M2GCCDeclare.def (TryDeclareType): New procedure.
+	* gm2-compiler/M2GCCDeclare.mod (IsAnyType): New procedure.
+	(TryDeclareType): Ditto.
+	* gm2-compiler/M2GenGCC.mod (FoldTBitsize): New procedure.
+	(FoldStandardFunction): Call FoldTBitsize.
+	* gm2-gcc/m2expr.cc (BuildTBitSize): Improve comment.
+	(m2expr_BuildSystemTBitSize): New function.
+	* gm2-gcc/m2expr.def (BuildSystemTBitSize): New procedure
+	function.
+	* gm2-gcc/m2expr.h (m2expr_BuildSystemTBitSize): New function
+	prototype.
+
 2025-03-05  Gaius Mulley  <gaiusmod2@gmail.com>
 
 	PR modula2/118998

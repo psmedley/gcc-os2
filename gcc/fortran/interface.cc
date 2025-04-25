@@ -2494,7 +2494,7 @@ compare_parameter (gfc_symbol *formal, gfc_expr *actual,
 	    {
 	      if (formal->attr.artificial)
 		gfc_error_opt (0, "Interface mismatch in dummy procedure "
-			       "at %L conflichts with %L: %s", &actual->where,
+			       "at %L conflicts with %L: %s", &actual->where,
 			       &formal->declared_at, err);
 	      else
 		gfc_error_opt (0, "Interface mismatch in dummy procedure %qs at "
@@ -2534,15 +2534,32 @@ compare_parameter (gfc_symbol *formal, gfc_expr *actual,
 		  gfc_find_symbol (actual_name, gsym->ns, 0, &global_asym);
 		  if (global_asym != NULL)
 		    {
-		      gcc_assert (formal->attr.function);
-		      if (!gfc_compare_types (&global_asym->ts, &formal->ts))
+		      if (formal->attr.subroutine)
 			{
-			  gfc_error ("Type mismatch at %L passing global "
-				     "function %qs declared at %L (%s/%s)",
-				     &actual->where, actual_name, &gsym->where,
-				     gfc_typename (&global_asym->ts),
-				     gfc_dummy_typename (&formal->ts));
+			  gfc_error ("Mismatch between subroutine and "
+				     "function at %L", &actual->where);
 			  return false;
+			}
+		      else if (formal->attr.function)
+			{
+			  if (!gfc_compare_types (&global_asym->ts,
+						  &formal->ts))
+			    {
+			      gfc_error ("Type mismatch at %L passing global "
+					 "function %qs declared at %L (%s/%s)",
+					 &actual->where, actual_name,
+					 &gsym->where,
+					 gfc_typename (&global_asym->ts),
+					 gfc_dummy_typename (&formal->ts));
+			      return false;
+			    }
+			}
+		      else
+			{
+			  /* The global symbol is a function.  Set the formal
+			     argument acordingly.  */
+			  formal->attr.function = 1;
+			  formal->ts = global_asym->ts;
 			}
 		    }
 		}
@@ -3382,7 +3399,11 @@ gfc_compare_actual_formal (gfc_actual_arglist **ap, gfc_formal_arglist *formal,
 	  return false;
 	}
       else
-	a->associated_dummy = get_nonintrinsic_dummy_arg (f);
+	{
+	  if (a->associated_dummy)
+	    free (a->associated_dummy);
+	  a->associated_dummy = get_nonintrinsic_dummy_arg (f);
+	}
 
       if (a->expr == NULL)
 	{

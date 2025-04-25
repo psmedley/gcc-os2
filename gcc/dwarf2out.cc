@@ -13926,7 +13926,7 @@ modified_type_die (tree type, int cv_quals, bool reverse,
 	   || (lang_hooks.types.get_array_descr_info
 	       && lang_hooks.types.get_array_descr_info (type, &info)))
     {
-      gen_type_die (type, context_die);
+      gen_type_die (type, mod_scope);
       return lookup_type_die (type);
     }
   else if (code == INTEGER_TYPE
@@ -13936,7 +13936,7 @@ modified_type_die (tree type, int cv_quals, bool reverse,
       tree bias = NULL_TREE;
       if (lang_hooks.types.get_type_bias)
 	bias = lang_hooks.types.get_type_bias (type);
-      mod_type_die = subrange_type_die (type, low, high, bias, context_die);
+      mod_type_die = subrange_type_die (type, low, high, bias, mod_scope);
       item_type = TREE_TYPE (type);
     }
   else if (is_base_type (type))
@@ -13973,10 +13973,10 @@ modified_type_die (tree type, int cv_quals, bool reverse,
 	{
 	  dw_die_ref after_die
 	    = modified_type_die (type, cv_quals, false, context_die);
-	  add_child_die_after (comp_unit_die (), mod_type_die, after_die);
+	  add_child_die_after (mod_scope, mod_type_die, after_die);
 	}
       else
-	add_child_die (comp_unit_die (), mod_type_die);
+	add_child_die (mod_scope, mod_type_die);
 
       add_pubtype (type, mod_type_die);
     }
@@ -25448,6 +25448,8 @@ gen_compile_unit_die (const char *filename)
     }
   else if (strcmp (language_string, "GNU F77") == 0)
     language = DW_LANG_Fortran77;
+  else if (strcmp (language_string, "GCC COBOL") == 0)
+    language = DW_LANG_Cobol85;
   else if (strcmp (language_string, "GNU Modula-2") == 0)
     language = DW_LANG_Modula2;
   else if (dwarf_version >= 3 || !dwarf_strict)
@@ -25503,6 +25505,9 @@ gen_compile_unit_die (const char *filename)
       /* Fortran has case insensitive identifiers and the front-end
 	 lowercases everything.  */
       add_AT_unsigned (die, DW_AT_identifier_case, DW_ID_down_case);
+      break;
+    case DW_LANG_Cobol85:
+      add_AT_unsigned (die, DW_AT_identifier_case, DW_ID_case_insensitive);
       break;
     default:
       /* The default DW_ID_case_sensitive doesn't need to be specified.  */
@@ -26419,10 +26424,10 @@ gen_type_die_with_usage (tree type, dw_die_ref context_die,
      for the parent typedef which TYPE is a type of.  */
   if (typedef_variant_p (type))
     {
-      if (TREE_ASM_WRITTEN (type))
+      tree name = TYPE_NAME (type);
+      if (TREE_ASM_WRITTEN (name))
 	return;
 
-      tree name = TYPE_NAME (type);
       tree origin = decl_ultimate_origin (name);
       if (origin != NULL && origin != name)
 	{
@@ -26435,8 +26440,6 @@ gen_type_die_with_usage (tree type, dw_die_ref context_die,
 
       /* Give typedefs the right scope.  */
       context_die = scope_die_for (type, context_die);
-
-      TREE_ASM_WRITTEN (type) = 1;
 
       gen_decl_die (name, NULL, NULL, context_die);
       return;

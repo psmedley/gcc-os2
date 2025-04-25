@@ -2539,8 +2539,10 @@ duplicate_decls (tree newdecl, tree olddecl, bool hiding, bool was_hidden)
 	}
 
       /* Propagate purviewness and importingness as with
-	 set_instantiating_module.  */
-      if (modules_p () && DECL_LANG_SPECIFIC (new_result))
+	 set_instantiating_module, unless newdecl is a friend injection.  */
+      if (modules_p () && DECL_LANG_SPECIFIC (new_result)
+	  && !(TREE_CODE (new_result) == FUNCTION_DECL
+	       && DECL_UNIQUE_FRIEND_P (new_result)))
 	{
 	  if (DECL_MODULE_PURVIEW_P (new_result))
 	    DECL_MODULE_PURVIEW_P (old_result) = true;
@@ -8652,6 +8654,9 @@ omp_declare_variant_finalize_one (tree decl, tree attr)
 		    = build_int_cst (TREE_TYPE (nargs),
 				     tree_to_uhwi (TREE_PURPOSE (nargs)) + 1);
 		}
+	      for (tree t = append_args_list; t; t = TREE_CHAIN (t))
+		TREE_VALUE (t)
+		  = cp_finish_omp_init_prefer_type (TREE_VALUE (t));
 	      DECL_ATTRIBUTES (variant) = tree_cons (
 		get_identifier ("omp declare variant variant args"),
 		TREE_VALUE (adjust_args_list), DECL_ATTRIBUTES (variant));
@@ -19449,7 +19454,8 @@ finish_function (bool inline_p)
       && !cp_function_chain->can_throw
       && !flag_non_call_exceptions
       && !decl_replaceable_p (fndecl,
-			      opt_for_fn (fndecl, flag_semantic_interposition)))
+			      opt_for_fn (fndecl, flag_semantic_interposition))
+      && !lookup_attribute ("noipa", DECL_ATTRIBUTES (fndecl)))
     TREE_NOTHROW (fndecl) = 1;
 
  cleanup:
@@ -19828,14 +19834,14 @@ cp_tree_node_structure (union lang_tree_node * t)
 {
   switch (TREE_CODE (&t->generic))
     {
-    case ARGUMENT_PACK_SELECT:  return TS_CP_ARGUMENT_PACK_SELECT;
+    case ARGUMENT_PACK_SELECT:	return TS_CP_ARGUMENT_PACK_SELECT;
     case BASELINK:		return TS_CP_BASELINK;
-    case CONSTRAINT_INFO:       return TS_CP_CONSTRAINT_INFO;
+    case CONSTRAINT_INFO:	return TS_CP_CONSTRAINT_INFO;
     case DEFERRED_NOEXCEPT:	return TS_CP_DEFERRED_NOEXCEPT;
     case DEFERRED_PARSE:	return TS_CP_DEFERRED_PARSE;
     case IDENTIFIER_NODE:	return TS_CP_IDENTIFIER;
     case LAMBDA_EXPR:		return TS_CP_LAMBDA_EXPR;
-    case BINDING_VECTOR:		return TS_CP_BINDING_VECTOR;
+    case BINDING_VECTOR:	return TS_CP_BINDING_VECTOR;
     case OVERLOAD:		return TS_CP_OVERLOAD;
     case PTRMEM_CST:		return TS_CP_PTRMEM;
     case STATIC_ASSERT:		return TS_CP_STATIC_ASSERT;
@@ -19843,6 +19849,7 @@ cp_tree_node_structure (union lang_tree_node * t)
     case TEMPLATE_INFO:		return TS_CP_TEMPLATE_INFO;
     case TEMPLATE_PARM_INDEX:	return TS_CP_TPI;
     case TRAIT_EXPR:		return TS_CP_TRAIT_EXPR;
+    case TU_LOCAL_ENTITY:	return TS_CP_TU_LOCAL_ENTITY;
     case USERDEF_LITERAL:	return TS_CP_USERDEF_LITERAL;
     default:			return TS_CP_GENERIC;
     }

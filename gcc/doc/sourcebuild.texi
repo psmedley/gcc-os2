@@ -94,6 +94,9 @@ The @code{libffi} library, used as part of the Go runtime library.
 @item libgcc
 The GCC runtime library.
 
+@item libgcobol
+The COBOL runtime library.
+
 @item libgfortran
 The Fortran runtime library.
 
@@ -1312,6 +1315,10 @@ Prune messages matching @var{regexp} from the test output.
 @item @{ dg-output @var{regexp} [@{ target/xfail @var{selector} @}] @}
 This DejaGnu directive compares @var{regexp} to the combined output
 that the test executable writes to @file{stdout} and @file{stderr}.
+
+@item @{ dg-output-file @var{file} [@{ target/xfail @var{selector} @}] @}
+Compares the content of @var{file} against the combined output that the
+test executable writes to @file{stdout} and @file{stderr}.
 @end table
 
 @subsubsection Specify environment variables for a test
@@ -2619,17 +2626,14 @@ Target supports the execution of @code{avx} instructions.
 @item avx10.1-256
 Target supports the execution of @code{avx10.1-256} instructions.
 
+@item avx10.1
+Target supports the execution of @code{avx10.1} instructions.
+
 @item avx10.1-512
 Target supports the execution of @code{avx10.1-512} instructions.
 
 @item avx10.2
-Target supports the execution of @code{avx10.2-512} instructions.
-
-@item avx10.2-256
-Target supports the execution of @code{avx10.2-256} instructions.
-
-@item avx10.2-512
-Target supports the execution of @code{avx10.2-512} instructions.
+Target supports the execution of @code{avx10.2} instructions.
 
 @item avx2
 Target supports compiling @code{avx2} instructions.

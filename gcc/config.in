@@ -951,8 +951,8 @@
 #endif
 
 
-/* Define to 1 if you have the declaration of `basename(const char*)', and to
-   0 if you don't. */
+/* Define to 1 if you have the declaration of `basename(char*)', and to 0 if
+   you don't. */
 #ifndef USED_FOR_TARGET
 #undef HAVE_DECL_BASENAME
 #endif
@@ -1634,6 +1634,12 @@
 #endif
 
 
+/* Define to 1 if you have the `get_current_dir_name' function. */
+#ifndef USED_FOR_TARGET
+#undef HAVE_GET_CURRENT_DIR_NAME
+#endif
+
+
 /* Define to 1 if using GNU as. */
 #ifndef USED_FOR_TARGET
 #undef HAVE_GNU_AS
@@ -1892,6 +1898,12 @@
 #endif
 
 
+/* Define to 1 if you have the <libgen.h> header file. */
+#ifndef USED_FOR_TARGET
+#undef HAVE_LIBGEN_H
+#endif
+
+
 /* Define to 1 if you have the <limits.h> header file. */
 #ifndef USED_FOR_TARGET
 #undef HAVE_LIMITS_H
@@ -1955,6 +1967,12 @@
 /* Define to 1 if you have the <memory.h> header file. */
 #ifndef USED_FOR_TARGET
 #undef HAVE_MEMORY_H
+#endif
+
+
+/* Define to 1 if you have the `memrchr' function. */
+#ifndef USED_FOR_TARGET
+#undef HAVE_MEMRCHR
 #endif
 
 
@@ -2312,6 +2330,13 @@
 #endif
 
 
+/* Define if personality and ADDR_NO_RANDOMIZE are declared in
+   sys/personality.h. */
+#ifndef USED_FOR_TARGET
+#undef HOST_HAS_PERSONALITY_ADDR_NO_RANDOMIZE
+#endif
+
+
 /* Define which stat syscall is able to handle 64bit indodes. */
 #ifndef USED_FOR_TARGET
 #undef HOST_STAT_FOR_64BIT_INODES
@@ -2339,6 +2364,12 @@
 /* Define to 1 if ld64 supports '-export_dynamic'. */
 #ifndef USED_FOR_TARGET
 #undef LD64_HAS_EXPORT_DYNAMIC
+#endif
+
+
+/* Define to 1 if ld64 supports '-macos_version_min'. */
+#ifndef USED_FOR_TARGET
+#undef LD64_HAS_MACOS_VERSION_MIN
 #endif
 
 

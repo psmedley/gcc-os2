@@ -1,3 +1,146 @@
+2025-04-25  Release Manager
+
+	* GCC 15.1.0 released.
+
+2025-04-12  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	PR d/119761
+	* libdruntime/MERGE: Merge upstream druntime 09ed02ce56.
+	* libdruntime/Makefile.am (DRUNTIME_DISOURCES): Rename __builtins.di
+	to __importc_builtins.di.
+	* libdruntime/Makefile.in: Regenerate.
+	* libdruntime/__builtins.di: Move to...
+	* libdruntime/__importc_builtins.di: ...here.
+
+2025-04-11  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	* src/MERGE: Merge upstream phobos 40ffbb364.
+	* Makefile.in: Regenerate.
+	* configure: Regenerate.
+	* configure.ac: Call DRUNTIME_OS_FEATURES.
+	* libdruntime/Makefile.am (AM_DFLAGS): Add OS_DFLAGS.
+	* libdruntime/Makefile.in: Regenerate.
+	* m4/druntime/os.m4 (DRUNTIME_OS_FEATURES): Define.
+	* src/Makefile.am: Add OS_DFLAGS.
+	* src/Makefile.in: Regenerate.
+	* testsuite/Makefile.in: Regenerate.
+	* testsuite/testsuite_flags.in: Add OS_DFLAGS.
+
+2025-04-08  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	* src/MERGE: Merge upstream phobos 35977c802.
+	* src/Makefile.am (PHOBOS_DSOURCES): Add
+	std/internal/windows/bcrypt.d.
+	* src/Makefile.in: Regenerate.
+
+2025-03-31  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	* libdruntime/MERGE: Merge upstream druntime c6863be720.
+	* src/MERGE: Merge upstream phobos 60034b56e.
+
+2025-03-22  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	* libdruntime/MERGE: Merge upstream druntime 94950cae58.
+
+2025-03-22  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	* libdruntime/Makefile.am (DRUNTIME_DSOURCES): Rename rt/invariant.d
+	to rt/invariant_.d.
+	* libdruntime/Makefile.in: Regenerate.
+	* libdruntime/rt/invariant.d: Move to...
+	* libdruntime/rt/invariant_.d: ...here.
+
+2025-03-22  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	* src/MERGE: Merge upstream phobos d4c9efef1.
+
+2025-03-18  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	* src/MERGE: Merge upstream phobos 79cbde1ab.
+
+2025-03-18  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	* src/MERGE: Merge upstream phobos cafe86453.
+
+2025-03-18  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	* libdruntime/MERGE: Merge upstream druntime d2ee11364c.
+	* testsuite/libphobos.aa/test_aa.d: Add new test.
+	* testsuite/libphobos.betterc/test19933.d: Adjust imports.
+	* testsuite/libphobos.config/test22523.d: Likewise.
+	* testsuite/libphobos.exceptions/assert_fail.d: Adjust test.
+	* testsuite/libphobos.exceptions/chain.d: Adjust imports.
+	* testsuite/libphobos.exceptions/future_message.d: Likewise.
+	* testsuite/libphobos.exceptions/line_trace.d: Likewise.
+	* testsuite/libphobos.exceptions/long_backtrace_trunc.d: Likewise.
+	* testsuite/libphobos.exceptions/static_dtor.d: Likewise.
+	* testsuite/libphobos.gc/forkgc.d: Likewise.
+	* testsuite/libphobos.gc/precisegc.d: Likewise.
+	* testsuite/libphobos.gc/recoverfree.d: Likewise.
+	* testsuite/libphobos.hash/test_hash.d: Likewise.
+	* testsuite/libphobos.init_fini/custom_gc.d: Likewise.
+	* testsuite/libphobos.init_fini/thread_join.d: Likewise.
+	* testsuite/libphobos.thread/external_threads.d: Likewise.
+	* testsuite/libphobos.thread/fiber_guard_page.d: Likewise.
+	* testsuite/libphobos.thread/tlsgc_sections.d: Likewise.
+	* testsuite/libphobos.thread/tlsstack.d: Likewise.
+	* testsuite/libphobos.unittest/customhandler.d: Likewise.
+
+2025-03-17  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	* src/Makefile.am (PHOBOS_DSOURCES): Add etc/c/odbc/odbc32.d,
+	etc/c/odbc/odbc64.d, etc/c/odbc/package.d, etc/c/odbc/sql.d,
+	etc/c/odbc/sqlext.d, etc/c/odbc/sqltypes.d, etc/c/odbc/sqlucode.d,
+	etc/c/sqlite3.d.
+	* src/Makefile.in: Regenerate.
+	* src/etc/c/odbc/odbc32.d: New file.
+	* src/etc/c/odbc/odbc64.d: New file.
+	* src/etc/c/odbc/package.d: New file.
+	* src/etc/c/odbc/sql.d: New file.
+	* src/etc/c/odbc/sqlext.d: New file.
+	* src/etc/c/odbc/sqltypes.d: New file.
+	* src/etc/c/odbc/sqlucode.d: New file.
+	* src/etc/c/sqlite3.d: New file.
+
+2025-03-16  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	* libdruntime/MERGE: Merge upstream druntime 603225372b.
+
+2025-03-16  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	* libdruntime/MERGE: Merge upstream druntime 53a1cc8d13.
+
+2025-03-16  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	* libdruntime/MERGE: Merge upstream druntime ffbad272b6.
+
+2025-03-15  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	* libdruntime/MERGE: Merge upstream druntime d29e3eca45.
+
+2025-03-15  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	* libdruntime/MERGE: Merge upstream b7e3b3b617.
+	* libdruntime/Makefile.am (DRUNTIME_DSOURCES_WINDOWS): Add
+	core/sys/windows/bcrypt.d.
+	* libdruntime/Makefile.in: Regenerate.
+	* libdruntime/gcc/sections/elf.d (sizeofTLS): Give function the same
+	mangling as gcc.sections.sizeofTLS.
+	* libdruntime/gcc/sections/package.d: Import core.internal.traits.
+	(pinLoadedLibraries): Mangle as function from rt.sections_elf_shared.
+	(unpinLoadedLibraries): Likewise.
+	(inheritLoadedLibraries): Likewise.
+	(cleanupLoadedLibraries): Likewise.
+	(sizeOfTLS): Add forward declaration.
+
+2025-03-12  Iain Buclaw  <ibuclaw@gdcproject.org>
+
+	* src/MERGE: Merge upstream phobos 0faae92d6.
+	* testsuite/libphobos.phobos/std_array.d: Regenerate.
+	* testsuite/libphobos.phobos/std_conv.d: Regenerate.
+	* testsuite/libphobos.phobos/std_functional.d: Regenerate.
+	* testsuite/libphobos.phobos/std_sumtype.d: Regenerate.
+
 2025-02-27  Iain Buclaw  <ibuclaw@gdcproject.org>
 
 	* testsuite/libphobos.unittest/unittest.exp: Use `dg-runtest' rather

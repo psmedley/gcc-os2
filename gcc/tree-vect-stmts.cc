@@ -2522,6 +2522,7 @@ get_load_store_type (vec_info  *vinfo, stmt_vec_info stmt_info,
 	{
 	  if (!TYPE_VECTOR_SUBPARTS (vectype).is_constant ()
 	      || !TYPE_VECTOR_SUBPARTS (gs_info->offset_vectype).is_constant ()
+	      || VECTOR_BOOLEAN_TYPE_P (gs_info->offset_vectype)
 	      || !constant_multiple_p (TYPE_VECTOR_SUBPARTS
 					 (gs_info->offset_vectype),
 				       TYPE_VECTOR_SUBPARTS (vectype)))
@@ -2708,7 +2709,7 @@ get_load_store_type (vec_info  *vinfo, stmt_vec_info stmt_info,
 	 such only the first load in the group is aligned, the rest are not.
 	 Because of this the permutes may break the alignment requirements that
 	 have been set, and as such we should for now, reject them.  */
-      if (SLP_TREE_LOAD_PERMUTATION (slp_node).exists ())
+      if (slp_node && SLP_TREE_LOAD_PERMUTATION (slp_node).exists ())
 	{
 	  if (dump_enabled_p ())
 	    dump_printf_loc (MSG_MISSED_OPTIMIZATION, vect_location,
@@ -6749,13 +6750,16 @@ vectorizable_shift (vec_info *vinfo,
     {
       if (was_scalar_shift_arg)
 	{
-	  /* If the argument was the same in all lanes create
-	     the correctly typed vector shift amount directly.  */
+	  /* If the argument was the same in all lanes create the
+	     correctly typed vector shift amount directly.  Note
+	     we made SLP scheduling think we use the original scalars,
+	     so place the compensation code next to the shift which
+	     is conservative.  See PR119640 where it otherwise breaks.  */
 	  op1 = fold_convert (TREE_TYPE (vectype), op1);
 	  op1 = vect_init_vector (vinfo, stmt_info, op1, TREE_TYPE (vectype),
-				  !loop_vinfo ? gsi : NULL);
+				  gsi);
 	  vec_oprnd1 = vect_init_vector (vinfo, stmt_info, op1, vectype,
-					 !loop_vinfo ? gsi : NULL);
+					 gsi);
 	  vec_oprnds1.create (slp_node->vec_stmts_size);
 	  for (k = 0; k < slp_node->vec_stmts_size; k++)
 	    vec_oprnds1.quick_push (vec_oprnd1);
@@ -8904,7 +8908,22 @@ vectorizable_store (vec_info *vinfo,
 		    }
 		}
 	    }
-	  ltype = build_aligned_type (ltype, TYPE_ALIGN (elem_type));
+	  unsigned align;
+	  /* ???  We'd want to use
+	       if (alignment_support_scheme == dr_aligned)
+		 align = known_alignment (DR_TARGET_ALIGNMENT (first_dr_info));
+	     since doing that is what we assume we can in the above checks.
+	     But this interferes with groups with gaps where for example
+	     VF == 2 makes the group in the unrolled loop aligned but the
+	     fact that we advance with step between the two subgroups
+	     makes the access to the second unaligned.  See PR119586.
+	     We have to anticipate that here or adjust code generation to
+	     avoid the misaligned loads by means of permutations.  */
+	  align = dr_alignment (vect_dr_behavior (vinfo, first_dr_info));
+	  /* Alignment is at most the access size if we do multiple stores.  */
+	  if (nstores > 1)
+	    align = MIN (tree_to_uhwi (TYPE_SIZE_UNIT (ltype)), align);
+	  ltype = build_aligned_type (ltype, align * BITS_PER_UNIT);
 	  ncopies = SLP_TREE_NUMBER_OF_VEC_STMTS (slp_node);
 	}
 
@@ -10851,7 +10870,7 @@ vectorizable_load (vec_info *vinfo,
 						  &ptype);
 	      if (vtype != NULL_TREE)
 		{
-		  dr_alignment_support dr_align = dr_aligned;
+		  dr_alignment_support dr_align;
 		  int mis_align = 0;
 		  if (VECTOR_TYPE_P (ptype))
 		    {
@@ -10860,6 +10879,8 @@ vectorizable_load (vec_info *vinfo,
 			= vect_supportable_dr_alignment (vinfo, dr_info, ptype,
 							 mis_align);
 		    }
+		  else
+		    dr_align = dr_unaligned_supported;
 		  if (dr_align == dr_aligned
 		      || dr_align == dr_unaligned_supported)
 		    {
@@ -10872,8 +10893,13 @@ vectorizable_load (vec_info *vinfo,
 		    }
 		}
 	    }
-	  /* Else fall back to the default element-wise access.  */
-	  ltype = build_aligned_type (ltype, TYPE_ALIGN (TREE_TYPE (vectype)));
+	  unsigned align;
+	  /* ???  The above is still wrong, see vectorizable_store.  */
+	  align = dr_alignment (vect_dr_behavior (vinfo, first_dr_info));
+	  /* Alignment is at most the access size if we do multiple loads.  */
+	  if (nloads > 1)
+	    align = MIN (tree_to_uhwi (TYPE_SIZE_UNIT (ltype)), align);
+	  ltype = build_aligned_type (ltype, align * BITS_PER_UNIT);
 	}
 
       if (slp)
@@ -12559,7 +12585,7 @@ vectorizable_load (vec_info *vinfo,
 
 		  if (dump_enabled_p ())
 		    dump_printf_loc (MSG_NOTE, vect_location,
-				     "vect_model_load_cost:"
+				     "vect_model_load_cost: "
 				     "strided group_size = %d .\n",
 				     group_size);
 		}
@@ -13589,29 +13615,23 @@ vectorizable_early_exit (vec_info *vinfo, stmt_vec_info stmt_info,
      codegen so we must replace the original insn.  */
   gimple *orig_stmt = STMT_VINFO_STMT (vect_orig_stmt (stmt_info));
   gcond *cond_stmt = as_a <gcond *>(orig_stmt);
+
+  tree cst = build_zero_cst (vectype);
+  auto bb = gimple_bb (cond_stmt);
+  edge exit_true_edge = EDGE_SUCC (bb, 0);
+  if (exit_true_edge->flags & EDGE_FALSE_VALUE)
+    exit_true_edge = EDGE_SUCC (bb, 1);
+  gcc_assert (exit_true_edge->flags & EDGE_TRUE_VALUE);
+
   /* When vectorizing we assume that if the branch edge is taken that we're
      exiting the loop.  This is not however always the case as the compiler will
      rewrite conditions to always be a comparison against 0.  To do this it
      sometimes flips the edges.  This is fine for scalar,  but for vector we
-     then have to flip the test, as we're still assuming that if you take the
-     branch edge that we found the exit condition.  i.e. we need to know whether
-     we are generating a `forall` or an `exist` condition.  */
-  auto new_code = NE_EXPR;
-  auto reduc_optab = ior_optab;
-  auto reduc_op = BIT_IOR_EXPR;
-  tree cst = build_zero_cst (vectype);
-  edge exit_true_edge = EDGE_SUCC (gimple_bb (cond_stmt), 0);
-  if (exit_true_edge->flags & EDGE_FALSE_VALUE)
-    exit_true_edge = EDGE_SUCC (gimple_bb (cond_stmt), 1);
-  gcc_assert (exit_true_edge->flags & EDGE_TRUE_VALUE);
-  if (flow_bb_inside_loop_p (LOOP_VINFO_LOOP (loop_vinfo),
-			     exit_true_edge->dest))
-    {
-      new_code = EQ_EXPR;
-      reduc_optab = and_optab;
-      reduc_op = BIT_AND_EXPR;
-      cst = build_minus_one_cst (vectype);
-    }
+     then have to negate the result of the test, as we're still assuming that if
+     you take the branch edge that we found the exit condition.  i.e. we need to
+     know whether we are generating a `forall` or an `exist` condition.  */
+  bool flipped = flow_bb_inside_loop_p (LOOP_VINFO_LOOP (loop_vinfo),
+					exit_true_edge->dest);
 
   /* Analyze only.  */
   if (!vec_stmt)
@@ -13627,14 +13647,13 @@ vectorizable_early_exit (vec_info *vinfo, stmt_vec_info stmt_info,
 	}
 
       if (ncopies > 1
-	  && direct_optab_handler (reduc_optab, mode) == CODE_FOR_nothing)
+	  && direct_optab_handler (ior_optab, mode) == CODE_FOR_nothing)
 	{
 	  if (dump_enabled_p ())
 	      dump_printf_loc (MSG_MISSED_OPTIMIZATION, vect_location,
 			       "can't vectorize early exit because the "
-			       "target does not support boolean vector %s "
+			       "target does not support boolean vector IOR "
 			       "for type %T.\n",
-			       reduc_optab == ior_optab ? "OR" : "AND",
 			       vectype);
 	  return false;
 	}
@@ -13694,6 +13713,29 @@ vectorizable_early_exit (vec_info *vinfo, stmt_vec_info stmt_info,
 	stmts.quick_push (gimple_assign_lhs (stmt));
     }
 
+  /* If we're comparing against a previous forall we need to negate the resullts
+     before we do the final comparison or reduction.  */
+  if (flipped)
+    {
+      /* Rewrite the if(all(mask)) into if (!all(mask)) which is the same as
+	 if (any(~mask)) by negating the masks and flipping the branches.
+
+	1. For unmasked loops we simply reduce the ~mask.
+	2. For masked loops we reduce (~mask & loop_mask) which is the same as
+	   doing (mask & loop_mask) ^ loop_mask.  */
+      for (unsigned i = 0; i < stmts.length (); i++)
+	{
+	  tree inv_lhs = make_temp_ssa_name (vectype, NULL, "vexit_inv");
+	  auto inv_stmt = gimple_build_assign (inv_lhs, BIT_NOT_EXPR, stmts[i]);
+	  vect_finish_stmt_generation (loop_vinfo, stmt_info, inv_stmt,
+				       &cond_gsi);
+	  stmts[i] = inv_lhs;
+	}
+
+      EDGE_SUCC (bb, 0)->flags ^= (EDGE_TRUE_VALUE|EDGE_FALSE_VALUE);
+      EDGE_SUCC (bb, 1)->flags ^= (EDGE_TRUE_VALUE|EDGE_FALSE_VALUE);
+    }
+
   /* Determine if we need to reduce the final value.  */
   if (stmts.length () > 1)
     {
@@ -13732,7 +13774,7 @@ vectorizable_early_exit (vec_info *vinfo, stmt_vec_info stmt_info,
 	  new_temp = make_temp_ssa_name (vectype, NULL, "vexit_reduc");
 	  tree arg0 = workset.pop ();
 	  tree arg1 = workset.pop ();
-	  new_stmt = gimple_build_assign (new_temp, reduc_op, arg0, arg1);
+	  new_stmt = gimple_build_assign (new_temp, BIT_IOR_EXPR, arg0, arg1);
 	  vect_finish_stmt_generation (loop_vinfo, stmt_info, new_stmt,
 				       &cond_gsi);
 	  workset.quick_insert (0, new_temp);
@@ -13755,7 +13797,7 @@ vectorizable_early_exit (vec_info *vinfo, stmt_vec_info stmt_info,
 
   gcc_assert (new_temp);
 
-  gimple_cond_set_condition (cond_stmt, new_code, new_temp, cst);
+  gimple_cond_set_condition (cond_stmt, NE_EXPR, new_temp, cst);
   update_stmt (orig_stmt);
 
   if (slp_node)

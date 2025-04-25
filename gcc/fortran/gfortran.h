@@ -647,6 +647,7 @@ enum gfc_isym_id
   GFC_ISYM_RANK,
   GFC_ISYM_REAL,
   GFC_ISYM_REALPART,
+  GFC_ISYM_REDUCE,
   GFC_ISYM_RENAME,
   GFC_ISYM_REPEAT,
   GFC_ISYM_RESHAPE,
@@ -2408,12 +2409,18 @@ enum gfc_array_ref_dimen_type
   DIMEN_ELEMENT = 1, DIMEN_RANGE, DIMEN_VECTOR, DIMEN_STAR, DIMEN_THIS_IMAGE, DIMEN_UNKNOWN
 };
 
+enum gfc_array_ref_team_type
+{
+  TEAM_UNKNOWN = 0, TEAM_UNSET, TEAM_TEAM, TEAM_NUMBER
+};
+
 typedef struct gfc_array_ref
 {
   ar_type type;
   int dimen;			/* # of components in the reference */
   int codimen;
   bool in_allocate;		/* For coarray checks. */
+  enum gfc_array_ref_team_type team_type : 2;
   gfc_expr *team;
   gfc_expr *stat;
   locus where;
@@ -2537,6 +2544,8 @@ typedef union
 	    struct gfc_expr *);
   bool (*f5)(struct gfc_expr *, struct gfc_expr *, struct gfc_expr *,
 	    struct gfc_expr *, struct gfc_expr *);
+  bool (*f6)(struct gfc_expr *, struct gfc_expr *, struct gfc_expr *,
+	    struct gfc_expr *, struct gfc_expr *, struct gfc_expr *);
 }
 gfc_check_f;
 
@@ -3936,7 +3945,8 @@ bool gfc_is_coindexed (gfc_expr *);
 bool gfc_is_coarray (gfc_expr *);
 bool gfc_has_ultimate_allocatable (gfc_expr *);
 bool gfc_has_ultimate_pointer (gfc_expr *);
-gfc_expr* gfc_find_team_co (gfc_expr *);
+gfc_expr *gfc_find_team_co (gfc_expr *,
+			    gfc_array_ref_team_type req_team_type = TEAM_TEAM);
 gfc_expr* gfc_find_stat_co (gfc_expr *);
 gfc_expr* gfc_build_intrinsic_call (gfc_namespace *, gfc_isym_id, const char*,
 				    locus, unsigned, ...);

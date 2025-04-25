@@ -2481,7 +2481,7 @@ module_sym:
 	  // We need DECL_ARGUMENTS to put attributes on, in case some arguments
 	  // need adjustment
 	  create_function_arglist (sym->formal_ns->proc_name);
-	  gfc_trans_omp_declare_variant (sym->formal_ns);
+	  gfc_trans_omp_declare_variant (sym->formal_ns, sym->ns);
 	}
     }
 
@@ -3269,7 +3269,7 @@ gfc_create_function_decl (gfc_namespace * ns, bool global)
      be declared in a parent namespace, so this needs to be called even if
      there are no local directives.  */
   if (flag_openmp)
-    gfc_trans_omp_declare_variant (ns);
+    gfc_trans_omp_declare_variant (ns, NULL);
 }
 
 /* Return the decl used to hold the function return value.  If
@@ -6546,7 +6546,7 @@ add_argument_checking (stmtblock_t *block, gfc_symbol *sym)
 	    message = _("Actual string length does not match the declared one"
 			" for dummy argument '%s' (%ld/%ld)");
 	  }
-	else if (fsym->as && fsym->as->rank != 0)
+	else if ((fsym->as && fsym->as->rank != 0) || fsym->attr.artificial)
 	  continue;
 	else
 	  {
@@ -6920,6 +6920,7 @@ add_clause (gfc_symbol *sym, gfc_omp_map_op map_op)
 
   n = gfc_get_omp_namelist ();
   n->sym = sym;
+  n->where = sym->declared_at;
   n->u.map.op = map_op;
 
   if (!module_oacc_clauses)
@@ -8361,23 +8362,17 @@ gfc_generate_block_data (gfc_namespace * ns)
   rest_of_decl_compilation (decl, 1, 0);
 }
 
-
-/* Process the local variables of a BLOCK construct.  */
+void
+gfc_start_saved_local_decls ()
+{
+  gcc_checking_assert (current_function_decl != NULL_TREE);
+  saved_local_decls = NULL_TREE;
+}
 
 void
-gfc_process_block_locals (gfc_namespace* ns)
+gfc_stop_saved_local_decls ()
 {
-  tree decl;
-
-  saved_local_decls = NULL_TREE;
-  has_coarray_vars_or_accessors = caf_accessor_head != NULL;
-
-  generate_local_vars (ns);
-
-  if (flag_coarray == GFC_FCOARRAY_LIB && has_coarray_vars_or_accessors)
-    generate_coarray_init (ns);
-
-  decl = nreverse (saved_local_decls);
+  tree decl = nreverse (saved_local_decls);
   while (decl)
     {
       tree next;
@@ -8388,6 +8383,21 @@ gfc_process_block_locals (gfc_namespace* ns)
       decl = next;
     }
   saved_local_decls = NULL_TREE;
+}
+
+/* Process the local variables of a BLOCK construct.  */
+
+void
+gfc_process_block_locals (gfc_namespace* ns)
+{
+  gfc_start_saved_local_decls ();
+  has_coarray_vars_or_accessors = caf_accessor_head != NULL;
+
+  generate_local_vars (ns);
+
+  if (flag_coarray == GFC_FCOARRAY_LIB && has_coarray_vars_or_accessors)
+    generate_coarray_init (ns);
+  gfc_stop_saved_local_decls ();
 }
 
 

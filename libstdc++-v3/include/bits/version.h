@@ -1406,10 +1406,15 @@
 #undef __glibcxx_want_constexpr_vector
 
 #if !defined(__cpp_lib_constrained_equality)
-# if (__cplusplus >= 202002L) && (__glibcxx_three_way_comparison)
+# if (__cplusplus >= 202100L) && (__glibcxx_three_way_comparison)
 #  define __glibcxx_constrained_equality 202411L
 #  if defined(__glibcxx_want_all) || defined(__glibcxx_want_constrained_equality)
 #   define __cpp_lib_constrained_equality 202411L
+#  endif
+# elif (__cplusplus >= 202002L) && (__glibcxx_three_way_comparison)
+#  define __glibcxx_constrained_equality 202403L
+#  if defined(__glibcxx_want_all) || defined(__glibcxx_want_constrained_equality)
+#   define __cpp_lib_constrained_equality 202403L
 #  endif
 # endif
 #endif /* !defined(__cpp_lib_constrained_equality) && defined(__glibcxx_want_constrained_equality) */
@@ -1555,6 +1560,15 @@
 #endif /* !defined(__cpp_lib_expected) && defined(__glibcxx_want_expected) */
 #undef __glibcxx_want_expected
 
+#if !defined(__cpp_lib_format_ranges)
+# if (__cplusplus >= 202100L) && _GLIBCXX_HOSTED
+#  define __glibcxx_format_ranges 1L
+#  if defined(__glibcxx_want_all) || defined(__glibcxx_want_format_ranges)
+#  endif
+# endif
+#endif /* !defined(__cpp_lib_format_ranges) && defined(__glibcxx_want_format_ranges) */
+#undef __glibcxx_want_format_ranges
+
 #if !defined(__cpp_lib_freestanding_algorithm)
 # if (__cplusplus >= 202100L)
 #  define __glibcxx_freestanding_algorithm 202311L
@@ -1654,6 +1668,16 @@
 # endif
 #endif /* !defined(__cpp_lib_reference_from_temporary) && defined(__glibcxx_want_reference_from_temporary) */
 #undef __glibcxx_want_reference_from_temporary
+
+#if !defined(__cpp_lib_containers_ranges)
+# if (__cplusplus >= 202100L) && _GLIBCXX_HOSTED
+#  define __glibcxx_containers_ranges 202202L
+#  if defined(__glibcxx_want_all) || defined(__glibcxx_want_containers_ranges)
+#   define __cpp_lib_containers_ranges 202202L
+#  endif
+# endif
+#endif /* !defined(__cpp_lib_containers_ranges) && defined(__glibcxx_want_containers_ranges) */
+#undef __glibcxx_want_containers_ranges
 
 #if !defined(__cpp_lib_ranges_to_container)
 # if (__cplusplus >= 202100L) && _GLIBCXX_HOSTED
@@ -2119,6 +2143,16 @@
 # endif
 #endif /* !defined(__cpp_lib_text_encoding) && defined(__glibcxx_want_text_encoding) */
 #undef __glibcxx_want_text_encoding
+
+#if !defined(__cpp_lib_ranges_to_input)
+# if (__cplusplus >  202302L)
+#  define __glibcxx_ranges_to_input 202502L
+#  if defined(__glibcxx_want_all) || defined(__glibcxx_want_ranges_to_input)
+#   define __cpp_lib_ranges_to_input 202502L
+#  endif
+# endif
+#endif /* !defined(__cpp_lib_ranges_to_input) && defined(__glibcxx_want_ranges_to_input) */
+#undef __glibcxx_want_ranges_to_input
 
 #if !defined(__cpp_lib_to_string)
 # if (__cplusplus >  202302L) && _GLIBCXX_HOSTED && (__glibcxx_to_chars)

@@ -1,3 +1,48 @@
+2025-04-25  Release Manager
+
+	* GCC 15.1.0 released.
+
+2025-04-06  Sandra Loosemore  <sloosemore@baylibre.com>
+
+	* c.opt.urls: Regenerate.
+
+2025-04-06  Sandra Loosemore  <sloosemore@baylibre.com>
+
+	PR c/81831
+	* c.opt (Wpsabi): Remove "Undocumented" modifier and add a
+	documentation string.
+
+2025-04-03  Jakub Jelinek  <jakub@redhat.com>
+
+	* c.opt.urls: Regenerate.
+
+2025-03-30  Sandra Loosemore  <sloosemore@baylibre.com>
+
+	* c.opt.urls: Regenerate.
+
+2025-03-22  Jakub Jelinek  <jakub@redhat.com>
+
+	* c.opt (Wdeprecated-literal-operator): Use \"\" rather than ""
+	in option description.
+
+2025-03-18  Jakub Jelinek  <jakub@redhat.com>
+
+	PR c/116545
+	* c-attribs.cc (c_common_clang_attributes): Add musttail.
+
+2025-03-14  Jakub Jelinek  <jakub@redhat.com>
+
+	PR target/119120
+	* c-gimplify.cc (c_genericize_control_r): Set DECL_NOT_GIMPLE_REG_P
+	on {REAL,IMAG}PART_EXPR is_gimple_reg operand at -O0 if it is lhs
+	of a MODIFY_EXPR.
+
+2025-03-13  Eric Botcazou  <ebotcazou@adacore.com>
+
+	PR ada/119265
+	* c-ada-spec.cc (dump_ada_node) <INTEGER_TYPE>: Deal with typedefs
+	of unsigned __int128.
+
 2025-03-07  Jakub Jelinek  <jakub@redhat.com>
 
 	PR c/117178

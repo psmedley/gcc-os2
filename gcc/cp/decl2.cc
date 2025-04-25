@@ -2841,16 +2841,28 @@ min_vis_expr_r (tree *tp, int */*walk_subtrees*/, void *data)
       tpvis = type_visibility (TREE_TYPE (t));
       break;
 
+    case ADDR_EXPR:
+      t = TREE_OPERAND (t, 0);
+      if (VAR_P (t))
+	/* If a variable has its address taken, the lvalue-rvalue conversion is
+	   not applied, so skip that case.  */
+	goto addressable;
+      break;
+
     case VAR_DECL:
     case FUNCTION_DECL:
       if (decl_constant_var_p (t))
 	/* The ODR allows definitions in different TUs to refer to distinct
 	   constant variables with internal or no linkage, so such a reference
-	   shouldn't affect visibility (PR110323).  FIXME but only if the
-	   lvalue-rvalue conversion is applied.  We still want to restrict
-	   visibility according to the type of the declaration however.  */
-	tpvis = type_visibility (TREE_TYPE (t));
-      else if (! TREE_PUBLIC (t))
+	   shouldn't affect visibility if the lvalue-rvalue conversion is
+	   applied (PR110323).  We still want to restrict visibility according
+	   to the type of the declaration however.  */
+	{
+	  tpvis = type_visibility (TREE_TYPE (t));
+	  break;
+	}
+    addressable:
+      if (! TREE_PUBLIC (t))
 	tpvis = VISIBILITY_ANON;
       else
 	tpvis = DECL_VISIBILITY (t);
@@ -4589,6 +4601,23 @@ decomp_finalize_var_list (tree sl, int save_stmts_are_full_exprs_p)
     }
 }
 
+/* Helper for emit_partial_init_fini_fn OpenMP target handling, called via
+   walk_tree.  Set DECL_CONTEXT on any automatic temporaries which still
+   have it NULL to id->src_fn, so that later copy_tree_body_r can remap those.
+   Otherwise DECL_CONTEXT would be set only during gimplification of the host
+   fn and when copy_tree_body_r doesn't remap those, we'd ICE during the
+   target fn gimplification because the same automatic VAR_DECL can't be
+   used in multiple functions (with the exception of nested functions).  */
+
+static tree
+set_context_for_auto_vars_r (tree *tp, int *, void *data)
+{
+  copy_body_data *id = (copy_body_data *) data;
+  if (auto_var_in_fn_p (*tp, NULL_TREE) && DECL_ARTIFICIAL (*tp))
+    DECL_CONTEXT (*tp) = id->src_fn;
+  return NULL_TREE;
+}
+
 /* Generate code to do the initialization or destruction of the decls in VARS,
    a TREE_LIST of VAR_DECL with static storage duration.
    Whether initialization or destruction is performed is specified by INITP.  */
@@ -4647,6 +4676,7 @@ emit_partial_init_fini_fn (bool initp, unsigned priority, tree vars,
 	  id.transform_new_cfg = true;
 	  id.transform_return_to_modify = false;
 	  id.eh_lp_nr = 0;
+	  walk_tree (&init, set_context_for_auto_vars_r, &id, NULL);
 	  walk_tree (&init, copy_tree_body_r, &id, NULL);
 	}
       /* Do one initialization or destruction.  */

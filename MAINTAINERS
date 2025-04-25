@@ -162,6 +162,8 @@ Ada front end           Arnaud Charlet          <charlet@adacore.com>
 Ada front end           Eric Botcazou           <ebotcazou@libertysurf.fr>
 Ada front end           Marc Poulhiès           <poulhies@adacore.com>
 Ada front end           Pierre-Marie de Rodat   <derodat@adacore.com>
+COBOL front end         Robert Dubner           <rdubner@symas.com>
+COBOL front end         James K. Lowden         <jklowden@cobolworx.com>
 c++                     Jason Merrill           <jason@redhat.com>
 c++                     Nathan Sidwell          <nathan@acm.org>
 D front end             Iain Buclaw             <ibuclaw@gdcproject.org>
@@ -394,7 +396,7 @@ Tobias Burnus                   burnus          <tburnus@baylibre.com>
 Adam Butcher                    abutcher        <adam@jessamine.co.uk>
 Andrew Cagney                   cagney          <cagney@gnu.org>
 Paolo Carlini                   paolo           <paolo.carlini@oracle.com>
-Andrew Carlotti                 acarlotti       <andrew.carlotti@arm.com>
+Alice Carlotti                  acarlotti       <alice.carlotti@arm.com>
 Daniel Carrera                  dcarrera        <dcarrera@gmail.com>
 Stephane Carrez                 ciceron         <stcarrez@nerim.fr>
 Gabriel Charette                gchare          <gchare@google.com>
@@ -860,6 +862,7 @@ Ville Voutilainen               ville           <ville.voutilainen@gmail.com>
 Tom de Vries                    vries           <tdevries@suse.de>
 Nenad Vukicevic                 nenadv          <nenad@intrepid.com>
 Dmitry Vyukov                   dvyukov         <dvyukov@google.com>
+Waffl3x                         waffl3x         <waffl3x@baylibre.com>
 Jonathan Wakely                 redi            <jwakely@redhat.com>
 Krister Walfridsson             kristerw        <krister.walfridsson@gmail.com>
 Feng Wang                       -               <wangfeng@eswincomputing.com>

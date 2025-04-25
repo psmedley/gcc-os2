@@ -4528,6 +4528,7 @@ process_outer_var_ref (tree decl, tsubst_flags_t complain, bool odr_use)
   tree lambda_stack = NULL_TREE;
   tree lambda_expr = NULL_TREE;
   tree initializer = convert_from_reference (decl);
+  tree var = strip_normal_capture_proxy (decl);
 
   /* Mark it as used now even if the use is ill-formed.  */
   if (!mark_used (decl, complain))
@@ -4539,9 +4540,6 @@ process_outer_var_ref (tree decl, tsubst_flags_t complain, bool odr_use)
   if (containing_function && LAMBDA_FUNCTION_P (containing_function))
     {
       /* Check whether we've already built a proxy.  */
-      tree var = decl;
-      while (is_normal_capture_proxy (var))
-	var = DECL_CAPTURED_VARIABLE (var);
       tree d = retrieve_local_specialization (var);
 
       if (d && d != decl && is_capture_proxy (d))
@@ -4601,8 +4599,8 @@ process_outer_var_ref (tree decl, tsubst_flags_t complain, bool odr_use)
   /* Only an odr-use of an outer automatic variable causes an
      error, and a constant variable can decay to a prvalue
      constant without odr-use.  So don't complain yet.  */
-  else if (!odr_use && decl_constant_var_p (decl))
-    return decl;
+  else if (!odr_use && decl_constant_var_p (var))
+    return var;
   else if (lambda_expr)
     {
       if (complain & tf_error)
@@ -4757,6 +4755,7 @@ finish_id_expression_1 (tree id_expression,
 	 body, except inside an unevaluated context (i.e. decltype).  */
       if (TREE_CODE (decl) == PARM_DECL
 	  && DECL_CONTEXT (decl) == NULL_TREE
+	  && !CONSTRAINT_VAR_P (decl)
 	  && !cp_unevaluated_operand
 	  && !processing_contract_condition
 	  && !processing_omp_trait_property_expr)
@@ -5088,7 +5087,7 @@ finish_underlying_type (tree type)
 static tree
 finish_type_pack_element (tree idx, tree types, tsubst_flags_t complain)
 {
-  idx = maybe_constant_value (idx);
+  idx = maybe_constant_value (idx, NULL_TREE, mce_true);
   if (TREE_CODE (idx) != INTEGER_CST || !INTEGRAL_TYPE_P (TREE_TYPE (idx)))
     {
       if (complain & tf_error)
@@ -5504,7 +5503,7 @@ expand_or_defer_fn_1 (tree fn)
 	 need it anymore.  */
       if (!DECL_DECLARED_CONSTEXPR_P (fn)
 	  && !(module_maybe_has_cmi_p () && vague_linkage_p (fn)))
-	DECL_SAVED_TREE (fn) = NULL_TREE;
+	DECL_SAVED_TREE (fn) = void_node;
       return false;
     }
 
@@ -7468,17 +7467,17 @@ cp_oacc_check_attachments (tree c)
 /* Update OMP_CLAUSE_INIT_PREFER_TYPE in case template substitution
    happened.  */
 
-static void
-cp_omp_init_prefer_type_update (tree c)
+tree
+cp_finish_omp_init_prefer_type (tree pref_type)
 {
   if (processing_template_decl
-      || OMP_CLAUSE_INIT_PREFER_TYPE (c) == NULL_TREE
-      || TREE_CODE (OMP_CLAUSE_INIT_PREFER_TYPE (c)) != TREE_LIST)
-    return;
+      || pref_type == NULL_TREE
+      || TREE_CODE (pref_type) != TREE_LIST)
+    return pref_type;
 
-  tree t = TREE_PURPOSE (OMP_CLAUSE_INIT_PREFER_TYPE (c));
+  tree t = TREE_PURPOSE (pref_type);
   char *str = const_cast<char *> (TREE_STRING_POINTER (t));
-  tree fr_list = TREE_VALUE (OMP_CLAUSE_INIT_PREFER_TYPE (c));
+  tree fr_list = TREE_VALUE (pref_type);
   int len = TREE_VEC_LENGTH (fr_list);
   int cnt = 0;
 
@@ -7504,7 +7503,7 @@ cp_omp_init_prefer_type_update (tree c)
 		  || !tree_fits_shwi_p (value))
 		error_at (loc,
 			  "expected string literal or "
-			  "constant integer expression instead of %qE", value); // FIXME of 'qE' and no 'loc'?
+			  "constant integer expression instead of %qE", value);
 	      else
 		{
 		  HOST_WIDE_INT n = tree_to_shwi (value);
@@ -7533,7 +7532,7 @@ cp_omp_init_prefer_type_update (tree c)
       if (cnt >= len)
 	break;
     }
-  OMP_CLAUSE_INIT_PREFER_TYPE (c) = t;
+  return t;
 }
 
 /* For all elements of CLAUSES, validate them vs OpenMP constraints.
@@ -9692,7 +9691,8 @@ finish_omp_clauses (tree clauses, enum c_omp_region_type ort)
 	  break;
 	case OMP_CLAUSE_INIT:
 	  init_seen = true;
-	  cp_omp_init_prefer_type_update (c);
+	  OMP_CLAUSE_INIT_PREFER_TYPE (c)
+	    = cp_finish_omp_init_prefer_type (OMP_CLAUSE_INIT_PREFER_TYPE (c));
 	  if (!OMP_CLAUSE_INIT_TARGETSYNC (c))
 	    init_no_targetsync_clause = c;
 	  /* FALLTHRU */

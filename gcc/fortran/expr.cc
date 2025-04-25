@@ -629,6 +629,8 @@ gfc_free_ref_list (gfc_ref *p)
 	      gfc_free_expr (p->u.ar.stride[i]);
 	    }
 
+	  gfc_free_expr (p->u.ar.stat);
+	  gfc_free_expr (p->u.ar.team);
 	  break;
 
 	case REF_SUBSTRING:
@@ -5486,11 +5488,14 @@ gfc_traverse_expr (gfc_expr *expr, gfc_symbol *sym,
   if ((*func) (expr, sym, &f))
     return true;
 
-  if (expr->ts.type == BT_CHARACTER
-	&& expr->ts.u.cl
-	&& expr->ts.u.cl->length
-	&& expr->ts.u.cl->length->expr_type != EXPR_CONSTANT
-	&& gfc_traverse_expr (expr->ts.u.cl->length, sym, func, f))
+  /* Descend into length type parameter of character expressions only for
+     non-negative f.  */
+  if (f >= 0
+      && expr->ts.type == BT_CHARACTER
+      && expr->ts.u.cl
+      && expr->ts.u.cl->length
+      && expr->ts.u.cl->length->expr_type != EXPR_CONSTANT
+      && gfc_traverse_expr (expr->ts.u.cl->length, sym, func, f))
     return true;
 
   switch (expr->expr_type)
@@ -5570,13 +5575,14 @@ gfc_traverse_expr (gfc_expr *expr, gfc_symbol *sym,
 	  break;
 
 	case REF_COMPONENT:
-	  if (ref->u.c.component->ts.type == BT_CHARACTER
-		&& ref->u.c.component->ts.u.cl
-		&& ref->u.c.component->ts.u.cl->length
-		&& ref->u.c.component->ts.u.cl->length->expr_type
-		     != EXPR_CONSTANT
-		&& gfc_traverse_expr (ref->u.c.component->ts.u.cl->length,
-				      sym, func, f))
+	  if (f >= 0
+	      && ref->u.c.component->ts.type == BT_CHARACTER
+	      && ref->u.c.component->ts.u.cl
+	      && ref->u.c.component->ts.u.cl->length
+	      && ref->u.c.component->ts.u.cl->length->expr_type
+	      != EXPR_CONSTANT
+	      && gfc_traverse_expr (ref->u.c.component->ts.u.cl->length,
+				    sym, func, f))
 	    return true;
 
 	  if (ref->u.c.component->as)
@@ -5840,18 +5846,20 @@ gfc_ref_this_image (gfc_ref *ref)
 }
 
 gfc_expr *
-gfc_find_team_co (gfc_expr *e)
+gfc_find_team_co (gfc_expr *e, enum gfc_array_ref_team_type req_team_type)
 {
   gfc_ref *ref;
 
   for (ref = e->ref; ref; ref = ref->next)
-    if (ref->type == REF_ARRAY && ref->u.ar.codimen > 0)
+    if (ref->type == REF_ARRAY && ref->u.ar.codimen > 0
+	&& ref->u.ar.team_type == req_team_type)
       return ref->u.ar.team;
 
-  if (e->value.function.actual->expr)
+  if (e->expr_type == EXPR_FUNCTION && e->value.function.actual->expr)
     for (ref = e->value.function.actual->expr->ref; ref;
 	 ref = ref->next)
-      if (ref->type == REF_ARRAY && ref->u.ar.codimen > 0)
+      if (ref->type == REF_ARRAY && ref->u.ar.codimen > 0
+	  && ref->u.ar.team_type == req_team_type)
 	return ref->u.ar.team;
 
   return NULL;

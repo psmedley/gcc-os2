@@ -342,7 +342,7 @@ const struct s390_processor processor_table[] =
   { "z14",    "arch12", PROCESSOR_3906_Z14,    &zEC12_cost,  12 },
   { "z15",    "arch13", PROCESSOR_8561_Z15,    &zEC12_cost,  13 },
   { "z16",    "arch14", PROCESSOR_3931_Z16,    &zEC12_cost,  14 },
-  { "arch15", "arch15", PROCESSOR_ARCH15,      &zEC12_cost,  15 },
+  { "z17",    "arch15", PROCESSOR_9175_Z17,    &zEC12_cost,  15 },
   { "native", "",       PROCESSOR_NATIVE,      NULL,         0  }
 };
 
@@ -916,7 +916,7 @@ s390_expand_builtin (tree exp, rtx target, rtx subtarget ATTRIBUTE_UNUSED,
 
       if ((bflags & B_VXE3) && !TARGET_VXE3)
 	{
-	  error ("Builtin %qF requires arch15 or higher", fndecl);
+	  error ("Builtin %qF requires z17 or higher", fndecl);
 	  return const0_rtx;
 	}
     }
@@ -3898,6 +3898,26 @@ s390_memory_move_cost (machine_mode mode ATTRIBUTE_UNUSED,
 		       bool in ATTRIBUTE_UNUSED)
 {
   return 2;
+}
+
+/* Implement TARGET_INSN_COST.  */
+
+static int
+s390_insn_cost (rtx_insn *insn, bool speed)
+{
+  /* For stores also consider the destination.  Penalize if the address
+     contains a SYMBOL_REF since this has to be fixed up by reload.  */
+  rtx pat = single_set (insn);
+  if (pat && MEM_P (SET_DEST (pat)))
+    {
+      rtx mem = SET_DEST (pat);
+      rtx addr = XEXP (mem, 0);
+      int penalty = contains_symbol_ref_p (addr) ? COSTS_N_INSNS (1) : 0;
+      int src_cost = set_src_cost (SET_SRC (pat), GET_MODE (mem), speed);
+      src_cost = src_cost > 0 ? src_cost : COSTS_N_INSNS (1);
+      return penalty + src_cost;
+    }
+  return pattern_cost (PATTERN (insn), speed);
 }
 
 /* Compute a (partial) cost for rtx X.  Return true if the complete
@@ -8218,6 +8238,21 @@ s390_delegitimize_address (rtx orig_x)
 	return plus_constant (Pmode, XVECEXP (y, 0, 0), offset);
     }
 
+  if (GET_CODE (x) == CONST)
+    {
+      /* Extract the symbol ref from:
+	 (const:DI (unspec:DI [(symbol_ref:DI ("foo"))]
+				       UNSPEC_PLT/GOTENT))  */
+
+      y = XEXP (x, 0);
+      if (GET_CODE (y) == UNSPEC
+	  && (XINT (y, 1) == UNSPEC_GOTENT
+	      || XINT (y, 1) == UNSPEC_PLT31))
+	return XVECEXP (y, 0, 0);
+      else
+	return orig_x;
+    }
+
   if (GET_CODE (x) != MEM)
     return orig_x;
 
@@ -9169,7 +9204,7 @@ s390_issue_rate (void)
     case PROCESSOR_3906_Z14:
     case PROCESSOR_8561_Z15:
     case PROCESSOR_3931_Z16:
-    case PROCESSOR_ARCH15:
+    case PROCESSOR_9175_Z17:
     default:
       return 1;
     }
@@ -11138,8 +11173,8 @@ s390_hard_regno_mode_ok (unsigned int regno, machine_mode mode)
 	}
       break;
     case ADDR_REGS:
-      if (FRAME_REGNO_P (regno) && mode == Pmode)
-	return true;
+      if (FRAME_REGNO_P (regno))
+	return mode == Pmode;
 
       /* fallthrough */
     case GENERAL_REGS:
@@ -15597,7 +15632,6 @@ s390_get_sched_attrmask (rtx_insn *insn)
 	mask |= S390_SCHED_ATTR_MASK_GROUPOFTWO;
       break;
     case PROCESSOR_3931_Z16:
-    case PROCESSOR_ARCH15:
       if (get_attr_z16_cracked (insn))
 	mask |= S390_SCHED_ATTR_MASK_CRACKED;
       if (get_attr_z16_expanded (insn))
@@ -15607,6 +15641,18 @@ s390_get_sched_attrmask (rtx_insn *insn)
       if (get_attr_z16_groupalone (insn))
 	mask |= S390_SCHED_ATTR_MASK_GROUPALONE;
       if (get_attr_z16_groupoftwo (insn))
+	mask |= S390_SCHED_ATTR_MASK_GROUPOFTWO;
+      break;
+    case PROCESSOR_9175_Z17:
+      if (get_attr_z17_cracked (insn))
+	mask |= S390_SCHED_ATTR_MASK_CRACKED;
+      if (get_attr_z17_expanded (insn))
+	mask |= S390_SCHED_ATTR_MASK_EXPANDED;
+      if (get_attr_z17_endgroup (insn))
+	mask |= S390_SCHED_ATTR_MASK_ENDGROUP;
+      if (get_attr_z17_groupalone (insn))
+	mask |= S390_SCHED_ATTR_MASK_GROUPALONE;
+      if (get_attr_z17_groupoftwo (insn))
 	mask |= S390_SCHED_ATTR_MASK_GROUPOFTWO;
       break;
     default:
@@ -15656,7 +15702,6 @@ s390_get_unit_mask (rtx_insn *insn, int *units)
 	mask |= 1 << 3;
       break;
     case PROCESSOR_3931_Z16:
-    case PROCESSOR_ARCH15:
       *units = 4;
       if (get_attr_z16_unit_lsu (insn))
 	mask |= 1 << 0;
@@ -15665,6 +15710,17 @@ s390_get_unit_mask (rtx_insn *insn, int *units)
       if (get_attr_z16_unit_fxb (insn))
 	mask |= 1 << 2;
       if (get_attr_z16_unit_vfu (insn))
+	mask |= 1 << 3;
+      break;
+    case PROCESSOR_9175_Z17:
+      *units = 4;
+      if (get_attr_z17_unit_lsu (insn))
+	mask |= 1 << 0;
+      if (get_attr_z17_unit_fxa (insn))
+	mask |= 1 << 1;
+      if (get_attr_z17_unit_fxb (insn))
+	mask |= 1 << 2;
+      if (get_attr_z17_unit_vfu (insn))
 	mask |= 1 << 3;
       break;
     default:
@@ -15680,7 +15736,8 @@ s390_is_fpd (rtx_insn *insn)
     return false;
 
   return get_attr_z13_unit_fpd (insn) || get_attr_z14_unit_fpd (insn)
-    || get_attr_z15_unit_fpd (insn) || get_attr_z16_unit_fpd (insn);
+    || get_attr_z15_unit_fpd (insn) || get_attr_z16_unit_fpd (insn)
+    || get_attr_z17_unit_fpd (insn);
 }
 
 static bool
@@ -15690,7 +15747,8 @@ s390_is_fxd (rtx_insn *insn)
     return false;
 
   return get_attr_z13_unit_fxd (insn) || get_attr_z14_unit_fxd (insn)
-    || get_attr_z15_unit_fxd (insn) || get_attr_z16_unit_fxd (insn);
+    || get_attr_z15_unit_fxd (insn) || get_attr_z16_unit_fxd (insn)
+    || get_attr_z17_unit_fxd (insn);
 }
 
 /* Returns TRUE if INSN is a long-running instruction.  */
@@ -18355,6 +18413,8 @@ s390_c_mode_for_floating_type (enum tree_index ti)
 
 #undef TARGET_CANNOT_COPY_INSN_P
 #define TARGET_CANNOT_COPY_INSN_P s390_cannot_copy_insn_p
+#undef TARGET_INSN_COST
+#define TARGET_INSN_COST s390_insn_cost
 #undef TARGET_RTX_COSTS
 #define TARGET_RTX_COSTS s390_rtx_costs
 #undef TARGET_ADDRESS_COST

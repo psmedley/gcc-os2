@@ -751,6 +751,7 @@ datadir = @datadir@
 localedir = $(datadir)/locale
 # Extension (if any) to put in installed man-page filename.
 man1ext = .1
+man3ext = .3
 man7ext = .7
 objext = .o
 exeext = @host_exeext@
@@ -759,6 +760,7 @@ build_exeext = @build_exeext@
 # Directory in which to put man pages.
 mandir = @mandir@
 man1dir = $(mandir)/man1
+man3dir = $(mandir)/man3
 man7dir = $(mandir)/man7
 # Dir for temp files.
 tmpdir = /tmp
@@ -1229,6 +1231,7 @@ LANG_CONFIGUREFRAGS  = @all_lang_configurefrags@
 LANG_MAKEFRAGS = @all_lang_makefrags@
 
 # Used by gcc/jit/Make-lang.in
+LIBGCCJIT_VERSION_NUM = @libgccjit_version@
 LD_VERSION_SCRIPT_OPTION = @ld_version_script_option@
 LD_SONAME_OPTION = @ld_soname_option@
 @ENABLE_DARWIN_AT_RPATH_TRUE@DARWIN_RPATH = @rpath
@@ -1566,6 +1569,7 @@ OBJS = \
 	incpath.o \
 	init-regs.o \
 	internal-fn.o \
+	ipa-locality-cloning.o \
 	ipa-cp.o \
 	ipa-sra.o \
 	ipa-devirt.o \
@@ -1651,6 +1655,8 @@ OBJS = \
 	opts-global.o \
 	ordered-hash-map-tests.o \
 	passes.o \
+	prime-paths.o \
+	path-coverage.o \
 	plugin.o \
 	pointer-query.o \
 	postreload-gcse.o \
@@ -2527,7 +2533,7 @@ s-mlib: $(srcdir)/genmultilib Makefile
 srcextra: gcc.srcextra lang.srcextra
 
 gcc.srcextra: gengtype-lex.cc
-	-cp -p $^ $(srcdir)
+	-sed -e '/^#line/s,".*/gcc/gengtype-lex\.l","gengtype-lex.l",' $^ > $(srcdir)/$^
 
 AR_OBJS = file-find.o
 AR_LIBS = @COLLECT2_LIBS@
@@ -3045,6 +3051,7 @@ GTFILES = $(CPPLIB_H) $(srcdir)/input.h $(srcdir)/coretypes.h \
   $(srcdir)/ipa-param-manipulation.h $(srcdir)/ipa-sra.cc $(srcdir)/dbxout.cc \
   $(srcdir)/ipa-modref.h $(srcdir)/ipa-modref.cc \
   $(srcdir)/ipa-modref-tree.h \
+  $(srcdir)/ipa-locality-cloning.cc \
   $(srcdir)/signop.h \
   $(srcdir)/diagnostic-spec.h $(srcdir)/diagnostic-spec.cc \
   $(srcdir)/dwarf2out.h \
@@ -3079,6 +3086,8 @@ GTFILES = $(CPPLIB_H) $(srcdir)/input.h $(srcdir)/coretypes.h \
   $(srcdir)/tree-scalar-evolution.cc \
   $(srcdir)/tree-ssa-operands.h \
   $(srcdir)/tree-profile.cc $(srcdir)/tree-nested.cc \
+  $(srcdir)/path-coverage.cc \
+  $(srcdir)/prime-paths.cc \
   $(srcdir)/omp-offload.h \
   $(srcdir)/omp-general.h \
   $(srcdir)/omp-general.cc \
@@ -3456,7 +3465,7 @@ s-version: build/genversion$(build_exeext)
 # gcov.o needs $(ZLIBINC) added to the include flags.
 CFLAGS-gcov.o += $(ZLIBINC)
 
-GCOV_OBJS = gcov.o json.o
+GCOV_OBJS = gcov.o json.o graphds.o prime-paths.o bitmap.o
 gcov$(exeext): $(GCOV_OBJS) $(LIBDEPS)
 	+$(LINKER) $(ALL_LINKERFLAGS) $(LDFLAGS) $(GCOV_OBJS) \
 		hash-table.o ggc-none.o $(LIBS) $(ZLIB) -o $@
@@ -4055,6 +4064,7 @@ installdirs:
 	$(mkinstalldirs) $(DESTDIR)$(includedir)
 	$(mkinstalldirs) $(DESTDIR)$(infodir)
 	$(mkinstalldirs) $(DESTDIR)$(man1dir)
+	$(mkinstalldirs) $(DESTDIR)$(man3dir)
 	$(mkinstalldirs) $(DESTDIR)$(man7dir)
 
 PLUGIN_HEADERS = $(TREE_H) $(CONFIG_H) $(SYSTEM_H) coretypes.h $(TM_H) \

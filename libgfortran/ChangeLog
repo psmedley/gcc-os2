@@ -1,3 +1,52 @@
+2025-04-25  Release Manager
+
+	* GCC 15.1.0 released.
+
+2025-04-13  Jerry DeLisle  <jvdelisle@gcc.gnu.org>
+
+	PR libfortran/119502
+	* io/close.c (st_close): Issue an error and avoid
+	calling close_share when there is no stream assigned.
+	* io/open.c (st_open): If there is no stream assigned
+	to the unit, unlock the unit and issue an error.
+
+2025-04-09  Paul Thomas  <pault@gcc.gnu.org>
+	    and Harald Anlauf  <anlauf@gcc.gnu.org>
+
+	PR libfortran/119460
+	* intrinsics/reduce.c (reduce): Correct error message about
+	mismatch between dim and the rank of array. Output the values
+	of both. Correct the evaluation of the result stride and
+	extent.
+	(reduce_scalar): The front end treats the result as an
+	allocatable so eliminate memcpy and free. Return the base-addr
+	of the local descriptor.
+	(reduce_c): Correct the type of the string lengths.
+	(reduce_scalar_c): Correct the type of the string lengths.Test
+	to see if 'res' is allocated. If not then return the base_addr
+	of the local descriptor.
+
+2025-04-07  Lulu Cheng  <chenglulu@loongson.cn>
+
+	PR target/119408
+	* acinclude.m4: When checking for __float128 support, determine
+	whether the current architecture is LoongArch.  If so, return false.
+	* configure: Regenerate.
+
+2025-03-22  Hans-Peter Nilsson  <hp@axis.com>
+
+	* intrinsics/reduce.c (reduce_scalar_c): Correct type of parameter DIM.
+
+2025-03-21  Paul Thomas  <pault@gcc.gnu.org>
+
+	PR libfortran/85836
+	* Makefile.am : Add reduce.c
+	* Makefile.in : Regenerated
+	* gfortran.map : Add _gfortran_reduce, _gfortran_reduce_scalar,
+	_gfortran_reduce_c and _gfortran_reduce_scalar_c to the list.
+	* intrinsics/reduce.c (reduce, reduce_scalar, reduce_c,
+	reduce_scalar_c): New functions and prototypes
+
 2025-02-27  Thomas Schwinge  <tschwinge@baylibre.com>
 
 	PR target/107635

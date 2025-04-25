@@ -11328,17 +11328,14 @@ aarch64_valid_fp_move (rtx dst, rtx src, machine_mode mode)
   if (MEM_P (src))
     return true;
 
-  if (!DECIMAL_FLOAT_MODE_P (mode))
-    {
-      if (aarch64_can_const_movi_rtx_p (src, mode)
-	  || aarch64_float_const_representable_p (src)
-	  || aarch64_float_const_zero_rtx_p (src))
-	return true;
+  if (aarch64_can_const_movi_rtx_p (src, mode)
+      || aarch64_float_const_representable_p (src)
+      || aarch64_float_const_zero_rtx_p (src))
+    return true;
 
-      /* Block FP immediates which are split during expand.  */
-      if (aarch64_float_const_rtx_p (src))
-	return false;
-    }
+  /* Block FP immediates which are split during expand.  */
+  if (aarch64_float_const_rtx_p (src))
+    return false;
 
   return can_create_pseudo_p ();
 }
@@ -17501,7 +17498,8 @@ aarch64_vector_costs::count_ops (unsigned int count, vect_cost_for_stmt kind,
 
   /* Calculate the minimum cycles per iteration imposed by a reduction
      operation.  */
-  if ((kind == scalar_stmt || kind == vector_stmt || kind == vec_to_scalar)
+  if (stmt_info
+      && (kind == scalar_stmt || kind == vector_stmt || kind == vec_to_scalar)
       && vect_is_reduction (stmt_info))
     {
       unsigned int base
@@ -17537,7 +17535,8 @@ aarch64_vector_costs::count_ops (unsigned int count, vect_cost_for_stmt kind,
      costing when we see a vec_to_scalar on a stmt with VMAT_GATHER_SCATTER we
      are dealing with an emulated instruction and should adjust costing
      properly.  */
-  if (kind == vec_to_scalar
+  if (stmt_info
+      && kind == vec_to_scalar
       && (m_vec_flags & VEC_ADVSIMD)
       && vect_mem_access_type (stmt_info, node) == VMAT_GATHER_SCATTER)
     {
@@ -17593,7 +17592,8 @@ aarch64_vector_costs::count_ops (unsigned int count, vect_cost_for_stmt kind,
     case vector_load:
     case unaligned_load:
       ops->loads += count;
-      if (m_vec_flags || FLOAT_TYPE_P (aarch64_dr_type (stmt_info)))
+      if (m_vec_flags
+	  || (stmt_info && FLOAT_TYPE_P (aarch64_dr_type (stmt_info))))
 	ops->general_ops += base_issue->fp_simd_load_general_ops * count;
       break;
 
@@ -17601,24 +17601,29 @@ aarch64_vector_costs::count_ops (unsigned int count, vect_cost_for_stmt kind,
     case unaligned_store:
     case scalar_store:
       ops->stores += count;
-      if (m_vec_flags || FLOAT_TYPE_P (aarch64_dr_type (stmt_info)))
+      if (m_vec_flags
+	  || (stmt_info && FLOAT_TYPE_P (aarch64_dr_type (stmt_info))))
 	ops->general_ops += base_issue->fp_simd_store_general_ops * count;
       break;
     }
 
   /* Add any embedded comparison operations.  */
-  if ((kind == scalar_stmt || kind == vector_stmt || kind == vec_to_scalar)
+  if (stmt_info
+      && (kind == scalar_stmt || kind == vector_stmt || kind == vec_to_scalar)
       && vect_embedded_comparison_type (stmt_info))
     ops->general_ops += count;
 
   /* COND_REDUCTIONS need two sets of VEC_COND_EXPRs, whereas so far we
      have only accounted for one.  */
-  if ((kind == vector_stmt || kind == vec_to_scalar)
+  if (stmt_info
+      && (kind == vector_stmt || kind == vec_to_scalar)
       && vect_reduc_type (m_vinfo, stmt_info) == COND_REDUCTION)
     ops->general_ops += count;
 
   /* Count the predicate operations needed by an SVE comparison.  */
-  if (sve_issue && (kind == vector_stmt || kind == vec_to_scalar))
+  if (stmt_info
+      && sve_issue
+      && (kind == vector_stmt || kind == vec_to_scalar))
     if (tree type = vect_comparison_type (stmt_info))
       {
 	unsigned int base = (FLOAT_TYPE_P (type)
@@ -17628,7 +17633,7 @@ aarch64_vector_costs::count_ops (unsigned int count, vect_cost_for_stmt kind,
       }
 
   /* Add any extra overhead associated with LD[234] and ST[234] operations.  */
-  if (simd_issue)
+  if (stmt_info && simd_issue)
     switch (aarch64_ld234_st234_vectors (kind, stmt_info, node))
       {
       case 2:
@@ -17645,7 +17650,8 @@ aarch64_vector_costs::count_ops (unsigned int count, vect_cost_for_stmt kind,
       }
 
   /* Add any overhead associated with gather loads and scatter stores.  */
-  if (sve_issue
+  if (stmt_info
+      && sve_issue
       && (kind == scalar_load || kind == scalar_store)
       && vect_mem_access_type (stmt_info, node) == VMAT_GATHER_SCATTER)
     {
@@ -17855,16 +17861,6 @@ aarch64_vector_costs::add_stmt_cost (int count, vect_cost_for_stmt kind,
       stmt_cost = aarch64_adjust_stmt_cost (m_vinfo, kind, stmt_info, node,
 					    vectype, m_vec_flags, stmt_cost);
 
-      /* If we're recording a nonzero vector loop body cost for the
-	 innermost loop, also estimate the operations that would need
-	 to be issued by all relevant implementations of the loop.  */
-      if (loop_vinfo
-	  && (m_costing_for_scalar || where == vect_body)
-	  && (!LOOP_VINFO_LOOP (loop_vinfo)->inner || in_inner_loop_p)
-	  && stmt_cost != 0)
-	for (auto &ops : m_ops)
-	  count_ops (count, kind, stmt_info, node, &ops);
-
       /* If we're applying the SVE vs. Advanced SIMD unrolling heuristic,
 	 estimate the number of statements in the unrolled Advanced SIMD
 	 loop.  For simplicitly, we assume that one iteration of the
@@ -17888,6 +17884,16 @@ aarch64_vector_costs::add_stmt_cost (int count, vect_cost_for_stmt kind,
 	    }
 	}
     }
+
+  /* If we're recording a nonzero vector loop body cost for the
+     innermost loop, also estimate the operations that would need
+     to be issued by all relevant implementations of the loop.  */
+  if (loop_vinfo
+      && (m_costing_for_scalar || where == vect_body)
+      && (!LOOP_VINFO_LOOP (loop_vinfo)->inner || in_inner_loop_p)
+      && stmt_cost != 0)
+    for (auto &ops : m_ops)
+      count_ops (count, kind, stmt_info, node, &ops);
 
   /* If the statement stores to a decl that is known to be the argument
      to a vld1 in the same function, ignore the store for costing purposes.
@@ -18759,7 +18765,10 @@ aarch64_override_options_internal (struct gcc_options *opts)
 	      " option %<-march%>, or by using the %<target%>"
 	      " attribute or pragma", "sme");
       opts->x_target_flags &= ~MASK_GENERAL_REGS_ONLY;
-      auto new_flags = isa_flags | feature_deps::SME ().enable;
+      auto new_flags = (isa_flags
+			| feature_deps::SME ().enable
+			/* TODO: Remove once we support SME without SVE2.  */
+			| feature_deps::SVE2 ().enable);
       aarch64_set_asm_isa_flags (opts, new_flags);
     }
 
@@ -18885,6 +18894,12 @@ aarch64_override_options_internal (struct gcc_options *opts)
       & AARCH64_EXTRA_TUNE_FULLY_PIPELINED_FMA)
     SET_OPTION_IF_UNSET (opts, &global_options_set, param_fully_pipelined_fma,
 			 1);
+
+  /* TODO: SME codegen without SVE2 is not supported, once this support is added
+     remove this 'sorry' and the implicit enablement of SVE2 in the checks for
+     streaming mode above in this function.  */
+  if (TARGET_SME && !TARGET_SVE2)
+    sorry ("no support for %qs without %qs", "sme", "sve2");
 
   aarch64_override_options_after_change_1 (opts);
 }
@@ -25611,6 +25626,10 @@ aarch64_float_const_representable_p (rtx x)
 {
   x = unwrap_const_vec_duplicate (x);
   machine_mode mode = GET_MODE (x);
+
+  if (DECIMAL_FLOAT_MODE_P (mode))
+    return false;
+
   if (!CONST_DOUBLE_P (x))
     return false;
 
@@ -26851,8 +26870,8 @@ aarch64_vectorize_vec_perm_const (machine_mode vmode, machine_mode op_mode,
   d.op_vec_flags = aarch64_classify_vector_mode (d.op_mode);
   d.target = target;
   d.op0 = op0 ? force_reg (op_mode, op0) : NULL_RTX;
-  if (op0 == op1)
-    d.op1 = d.op0;
+  if (op0 && d.one_vector_p)
+    d.op1 = copy_rtx (d.op0);
   else
     d.op1 = op1 ? force_reg (op_mode, op1) : NULL_RTX;
   d.testing_p = !target;
@@ -31054,8 +31073,6 @@ aarch64_valid_sysreg_name_p (const char *regname)
   const sysreg_t *sysreg = aarch64_lookup_sysreg_map (regname);
   if (sysreg == NULL)
     return aarch64_is_implem_def_reg (regname);
-  if (sysreg->arch_reqs)
-    return bool (aarch64_isa_flags & sysreg->arch_reqs);
   return true;
 }
 
@@ -31078,8 +31095,6 @@ aarch64_retrieve_sysreg (const char *regname, bool write_p, bool is128op)
     return NULL;
   if ((write_p && (sysreg->properties & F_REG_READ))
       || (!write_p && (sysreg->properties & F_REG_WRITE)))
-    return NULL;
-  if ((~aarch64_isa_flags & sysreg->arch_reqs) != 0)
     return NULL;
   return sysreg->encoding;
 }

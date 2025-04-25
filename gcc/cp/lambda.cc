@@ -59,7 +59,13 @@ build_lambda_object (tree lambda_expr)
   vec<constructor_elt, va_gc> *elts = NULL;
   tree node, expr, type;
 
-  if (processing_template_decl || lambda_expr == error_mark_node)
+  if (processing_template_decl && !in_template_context
+      && current_binding_level->requires_expression)
+    /* As in cp_parser_lambda_expression, don't get confused by
+       cp_parser_requires_expression setting processing_template_decl.  In that
+       case we want to return the result of finish_compound_literal, to avoid
+       tsubst_lambda_expr.  */;
+  else if (processing_template_decl || lambda_expr == error_mark_node)
     return lambda_expr;
 
   /* Make sure any error messages refer to the lambda-introducer.  */
@@ -295,6 +301,17 @@ is_normal_capture_proxy (tree decl)
 	  && DECL_CAPTURED_VARIABLE (decl));
 }
 
+/* If DECL is a normal capture proxy, return the variable it captures.
+   Otherwise, just return DECL.  */
+
+tree
+strip_normal_capture_proxy (tree decl)
+{
+  while (is_normal_capture_proxy (decl))
+    decl = DECL_CAPTURED_VARIABLE (decl);
+  return decl;
+}
+
 /* Returns true iff DECL is a capture proxy for a normal capture
    of a constant variable.  */
 
@@ -469,8 +486,7 @@ build_capture_proxy (tree member, tree init)
       STRIP_NOPS (init);
 
       gcc_assert (VAR_P (init) || TREE_CODE (init) == PARM_DECL);
-      while (is_normal_capture_proxy (init))
-	init = DECL_CAPTURED_VARIABLE (init);
+      init = strip_normal_capture_proxy (init);
       retrofit_lang_decl (var);
       DECL_CAPTURED_VARIABLE (var) = init;
     }
@@ -1842,6 +1858,13 @@ prune_lambda_captures (tree body)
 
   cp_walk_tree_without_duplicates (&body, mark_const_cap_r, &const_vars);
 
+  tree bind_expr = expr_single (DECL_SAVED_TREE (lambda_function (lam)));
+  if (bind_expr && TREE_CODE (bind_expr) == MUST_NOT_THROW_EXPR)
+    bind_expr = expr_single (TREE_OPERAND (bind_expr, 0));
+  /* FIXME: We don't currently handle noexcept lambda captures correctly,
+     so bind_expr may not be set; see PR c++/119764.  */
+  gcc_assert (!bind_expr || TREE_CODE (bind_expr) == BIND_EXPR);
+
   tree *fieldp = &TYPE_FIELDS (LAMBDA_EXPR_CLOSURE (lam));
   for (tree *capp = &LAMBDA_EXPR_CAPTURE_LIST (lam); *capp; )
     {
@@ -1862,6 +1885,23 @@ prune_lambda_captures (tree body)
 	      while (*fieldp != field)
 		fieldp = &DECL_CHAIN (*fieldp);
 	      *fieldp = DECL_CHAIN (*fieldp);
+
+	      /* And out of the bindings for the function.  */
+	      tree *blockp = &BLOCK_VARS (current_binding_level->blocks);
+	      while (*blockp != DECL_EXPR_DECL (**use))
+		blockp = &DECL_CHAIN (*blockp);
+	      *blockp = DECL_CHAIN (*blockp);
+
+	      /* And maybe out of the vars declared in the containing
+		 BIND_EXPR, if it's listed there.  */
+	      if (bind_expr)
+		{
+		  tree *bindp = &BIND_EXPR_VARS (bind_expr);
+		  while (*bindp && *bindp != DECL_EXPR_DECL (**use))
+		    bindp = &DECL_CHAIN (*bindp);
+		  if (*bindp)
+		    *bindp = DECL_CHAIN (*bindp);
+		}
 
 	      /* And remove the capture proxy declaration.  */
 	      **use = void_node;
