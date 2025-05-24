@@ -7,5 +7,5 @@ set ld=c:/usr/bin/ld.exe
 set nm=c:/usr/bin/nm.exe
 set grep=grep.exe
 set GCCOPT=
-dash ./configure --disable-bootstrap --enable-languages=c,c++ --build=i686-pc-os2-emx --with-sysroot=/@unixroot --prefix=/@unixroot/usr/local1420 --mandir=/@unixroot/usr/local1420/share/man --infodir=/@unixroot/usr/local1420/share/info --enable-shared --enable-threads --enable-checking=release --disable-multilib --with-system-zlib --with-gcc-major-version-only --without-isl --with-tune=generic --with-arch=i686 --with-gnu-as --disable-libstdcxx-pch
+dash ./configure --disable-bootstrap --enable-languages=c,c++ --build=i686-pc-os2-emx --with-sysroot=/@unixroot --prefix=/@unixroot/usr/local1430 --mandir=/@unixroot/usr/local1430/share/man --infodir=/@unixroot/usr/local1430/share/info --enable-shared --enable-threads --enable-checking=release --disable-multilib --with-system-zlib --with-gcc-major-version-only --without-isl --with-tune=generic --with-arch=i686 --with-gnu-as --disable-libstdcxx-pch
 
