@@ -1,4 +1,4 @@
-This is gccinstall.info, produced by makeinfo version 6.8 from
+This is gccinstall.info, produced by makeinfo version 6.5 from
 install.texi.
 
 Copyright (C) 1988-2024 Free Software Foundation, Inc.
@@ -227,6 +227,10 @@ A "working" POSIX compatible shell, or GNU bash
      'zsh' is not a fully compliant POSIX shell and will not work when
      configuring GCC.
 
+GNU flex
+
+     Necessary to build the lexical analysis module.
+
 A POSIX or SVR4 awk
 
      Necessary for creating some of the generated source files for GCC.
@@ -345,6 +349,12 @@ Python3 modules
 
      g++ testsuite
           'gcov', 'gzip', 'json', 'os' and 'pytest'.
+
+     SARIF testsuite
+          Tests of SARIF output will use the 'check-jsonschema' program
+          from the 'check-jsonschema' module (if available) to validate
+          generated .sarif files.  If this tool is not found, the
+          validation parts of those tests are skipped.
 
      c++ cxx api generation
           'csv', 'os', 'sys' and 'time'.
@@ -924,7 +934,7 @@ option.
      provide additional protection against Return Oriented Programming
      (ROP) attacks.
 
-     '--enable-host-pie') may be used with '--enable-host-shared'), in
+     '--enable-host-pie' may be used with '--enable-host-shared', in
      which case '-fPIC' is used when compiling, and '-pie' when linking.
 
 '--enable-host-bind-now'
@@ -1973,7 +1983,7 @@ option.
      Note that this functionality requires either libintl (provided by
      GNU gettext) or C standard library that contains support for
      gettext (such as the GNU C Library).  *Note -with-included-gettext:
-     with-included-gettext. for more information on the conditions
+     with-included-gettext.  for more information on the conditions
      required to get gettext support.
 
 '--with-libintl-prefix=DIR'
@@ -4906,7 +4916,7 @@ Concept Index
 * Menu:
 
 * Binaries:                              Binaries.           (line    6)
-* build_configargs:                      Configuration.      (line 1971)
+* build_configargs:                      Configuration.      (line 1972)
 * Configuration:                         Configuration.      (line    6)
 * Downloading GCC:                       Downloading the source.
                                                              (line    6)
@@ -4915,7 +4925,7 @@ Concept Index
 * FDL, GNU Free Documentation License:   GNU Free Documentation License.
                                                              (line    6)
 * Host specific installation:            Specific.           (line    6)
-* host_configargs:                       Configuration.      (line 1975)
+* host_configargs:                       Configuration.      (line 1976)
 * Installing GCC: Binaries:              Binaries.           (line    6)
 * Installing GCC: Building:              Building.           (line    6)
 * Installing GCC: Configuration:         Configuration.      (line    6)
@@ -4925,7 +4935,7 @@ Concept Index
 * Specific installation notes:           Specific.           (line    6)
 * Target specific installation:          Specific.           (line    6)
 * Target specific installation notes:    Specific.           (line    6)
-* target_configargs:                     Configuration.      (line 1979)
+* target_configargs:                     Configuration.      (line 1980)
 * Testing:                               Testing.            (line    6)
 * Testsuite:                             Testing.            (line    6)
 
@@ -4938,102 +4948,97 @@ Node: Prerequisites3659
 Ref: GNAT-prerequisite5850
 Ref: GDC-prerequisite7247
 Ref: GM2-prerequisite8430
-Node: Downloading the source18878
-Node: Configuration20597
-Ref: with-gnu-as39864
-Ref: with-as40715
-Ref: with-gnu-ld42080
-Ref: WithAixSoname71919
-Ref: AixLdCommand72580
-Ref: with-included-gettext88464
-Node: Building116819
-Node: Testing133030
-Node: Final install140561
-Node: Binaries143739
-Node: Specific144724
-Ref: aarch64-x-x145258
-Ref: amd64-x-solaris2147278
-Ref: amdgcn-x-amdhsa147360
-Ref: arc-x-elf32148422
-Ref: arc-linux-uclibc148598
-Ref: arm-x-eabi148739
-Ref: avr148992
-Ref: bfin149573
-Ref: cris149836
-Ref: dos150162
-Ref: epiphany-x-elf150487
-Ref: x-x-freebsd150592
-Ref: ft32-x-elf151320
-Ref: h8300-hms151418
-Ref: hppa-hp-hpux151770
-Ref: hppa-hp-hpux11153284
-Ref: x-x-linux-gnu158390
-Ref: ix86-x-linux158713
-Ref: ix86-x-solaris2159026
-Ref: ia64-x-linux159274
-Ref: ia64-x-hpux159521
-Ref: x-ibm-aix159739
-Ref: TransferAixShobj163401
-Ref: iq2000-x-elf167211
-Ref: lm32-x-elf167351
-Ref: lm32-x-uclinux167455
-Ref: loongarch167583
-Ref: m32c-x-elf168220
-Ref: m32r-x-elf168322
-Ref: m68k-x-x168424
-Ref: m68k-x-uclinux169462
-Ref: microblaze-x-elf169707
-Ref: mips-x-x169826
-Ref: moxie-x-elf171736
-Ref: msp430-x-elf171783
-Ref: nds32le-x-elf172340
-Ref: nds32be-x-elf172412
-Ref: nvptx-x-none172481
-Ref: or1k-x-elf173344
-Ref: or1k-x-linux173475
-Ref: powerpc-x-x173556
-Ref: powerpc-x-darwin173747
-Ref: powerpc-x-elf174242
-Ref: powerpc-x-linux-gnu174327
-Ref: powerpc-x-netbsd174422
-Ref: powerpc-x-eabisim174510
-Ref: powerpc-x-eabi174636
-Ref: powerpcle-x-elf174712
-Ref: powerpcle-x-eabisim174804
-Ref: powerpcle-x-eabi174937
-Ref: rl78-x-elf175020
-Ref: riscv32-x-elf175126
-Ref: riscv32-x-linux175315
-Ref: riscv64-x-elf175472
-Ref: riscv64-x-linux175661
-Ref: rx-x-elf175818
-Ref: s390-x-linux175864
-Ref: s390x-x-linux175936
-Ref: s390x-ibm-tpf176023
-Ref: x-x-solaris2176154
-Ref: sparc-x-x179927
-Ref: sparc-sun-solaris2180429
-Ref: sparc-x-linux181328
-Ref: sparc64-x-solaris2181359
-Ref: sparcv9-x-solaris2181446
-Ref: c6x-x-x182167
-Ref: visium-x-elf182259
-Ref: x-x-vxworks182367
-Ref: x86-64-x-x183890
-Ref: x86-64-x-solaris2184218
-Ref: xtensa-x-elf184844
-Ref: xtensa-x-linux185515
-Ref: windows185856
-Ref: x-x-cygwin187503
-Ref: x-x-mingw32188056
-Ref: older188438
-Ref: elf190555
-Node: GNU Free Documentation License190809
-Node: Concept Index215947
+Node: Downloading the source19229
+Node: Configuration20948
+Ref: with-gnu-as40213
+Ref: with-as41064
+Ref: with-gnu-ld42429
+Ref: WithAixSoname72268
+Ref: AixLdCommand72929
+Ref: with-included-gettext88814
+Node: Building117169
+Node: Testing133380
+Node: Final install140911
+Node: Binaries144089
+Node: Specific145074
+Ref: aarch64-x-x145608
+Ref: amd64-x-solaris2147628
+Ref: amdgcn-x-amdhsa147710
+Ref: arc-x-elf32148772
+Ref: arc-linux-uclibc148948
+Ref: arm-x-eabi149089
+Ref: avr149342
+Ref: bfin149923
+Ref: cris150186
+Ref: dos150512
+Ref: epiphany-x-elf150837
+Ref: x-x-freebsd150942
+Ref: ft32-x-elf151670
+Ref: h8300-hms151768
+Ref: hppa-hp-hpux152120
+Ref: hppa-hp-hpux11153634
+Ref: x-x-linux-gnu158740
+Ref: ix86-x-linux159063
+Ref: ix86-x-solaris2159376
+Ref: ia64-x-linux159624
+Ref: ia64-x-hpux159871
+Ref: x-ibm-aix160089
+Ref: TransferAixShobj163751
+Ref: iq2000-x-elf167561
+Ref: lm32-x-elf167701
+Ref: lm32-x-uclinux167805
+Ref: loongarch167933
+Ref: m32c-x-elf168570
+Ref: m32r-x-elf168672
+Ref: m68k-x-x168774
+Ref: m68k-x-uclinux169812
+Ref: microblaze-x-elf170057
+Ref: mips-x-x170176
+Ref: moxie-x-elf172086
+Ref: msp430-x-elf172133
+Ref: nds32le-x-elf172690
+Ref: nds32be-x-elf172762
+Ref: nvptx-x-none172831
+Ref: or1k-x-elf173694
+Ref: or1k-x-linux173825
+Ref: powerpc-x-x173906
+Ref: powerpc-x-darwin174097
+Ref: powerpc-x-elf174592
+Ref: powerpc-x-linux-gnu174677
+Ref: powerpc-x-netbsd174772
+Ref: powerpc-x-eabisim174860
+Ref: powerpc-x-eabi174986
+Ref: powerpcle-x-elf175062
+Ref: powerpcle-x-eabisim175154
+Ref: powerpcle-x-eabi175287
+Ref: rl78-x-elf175370
+Ref: riscv32-x-elf175476
+Ref: riscv32-x-linux175665
+Ref: riscv64-x-elf175822
+Ref: riscv64-x-linux176011
+Ref: rx-x-elf176168
+Ref: s390-x-linux176214
+Ref: s390x-x-linux176286
+Ref: s390x-ibm-tpf176373
+Ref: x-x-solaris2176504
+Ref: sparc-x-x180277
+Ref: sparc-sun-solaris2180779
+Ref: sparc-x-linux181678
+Ref: sparc64-x-solaris2181709
+Ref: sparcv9-x-solaris2181796
+Ref: c6x-x-x182517
+Ref: visium-x-elf182609
+Ref: x-x-vxworks182717
+Ref: x86-64-x-x184240
+Ref: x86-64-x-solaris2184568
+Ref: xtensa-x-elf185194
+Ref: xtensa-x-linux185865
+Ref: windows186206
+Ref: x-x-cygwin187853
+Ref: x-x-mingw32188406
+Ref: older188788
+Ref: elf190905
+Node: GNU Free Documentation License191159
+Node: Concept Index216297
 
 End Tag Table
-
-
-Local Variables:
-coding: utf-8
-End:
