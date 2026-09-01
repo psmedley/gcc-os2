@@ -1,5 +1,5 @@
 /* Top level of GCC compilers (cc1, cc1plus, etc.)
-   Copyright (C) 1987-2025 Free Software Foundation, Inc.
+   Copyright (C) 1987-2026 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -22,6 +22,7 @@ along with GCC; see the file COPYING3.  If not see
    in the proper order, and counts the time used by each.
    Error messages and low-level interface to malloc also handled here.  */
 
+#define INCLUDE_VECTOR
 #include "config.h"
 #include "system.h"
 #include "coretypes.h"
@@ -81,7 +82,9 @@ along with GCC; see the file COPYING3.  If not see
 #include "ipa-utils.h"
 #include "gcse.h"
 #include "omp-offload.h"
-#include "edit-context.h"
+#include "diagnostics/changes.h"
+#include "diagnostics/file-cache.h"
+#include "diagnostics/sarif-sink.h"
 #include "tree-pass.h"
 #include "dumpfile.h"
 #include "ipa-fnsummary.h"
@@ -94,7 +97,6 @@ along with GCC; see the file COPYING3.  If not see
 #include "dbgcnt.h"
 #include "gcc-urlifier.h"
 #include "unique-argv.h"
-#include "make-unique.h"
 
 #if defined(DBX_DEBUGGING_INFO)
 #include "dbxout.h"
@@ -235,7 +237,8 @@ announce_function (tree decl)
 		 identifier_to_locale (lang_hooks.decl_printable_name (decl, 2)));
       fflush (stderr);
       pp_needs_newline (global_dc->get_reference_printer ()) = true;
-      diagnostic_set_last_function (global_dc, (diagnostic_info *) NULL);
+      diagnostic_set_last_function (global_dc,
+				    (diagnostics::diagnostic_info *) nullptr);
     }
 }
 
@@ -1022,7 +1025,7 @@ open_auxiliary_file (const char *ext)
 /* Alternative diagnostics callback for reentered ICE reporting.  */
 
 static void
-internal_error_reentered (diagnostic_context *, const char *, va_list *)
+internal_error_reentered (diagnostics::context *, const char *, va_list *)
 {
   /* Flush the dump file if emergency_dump_function itself caused an ICE.  */
   if (dump_file)
@@ -1032,9 +1035,9 @@ internal_error_reentered (diagnostic_context *, const char *, va_list *)
 /* Auxiliary callback for the diagnostics code.  */
 
 static void
-internal_error_function (diagnostic_context *, const char *, va_list *)
+internal_error_function (diagnostics::context *, const char *, va_list *)
 {
-  global_dc->m_internal_error = internal_error_reentered;
+  global_dc->set_internal_error_callback (internal_error_reentered);
   warn_if_plugins ();
   emergency_dump_function ();
 }
@@ -1073,13 +1076,14 @@ general_init (const char *argv0, bool init_signals, unique_argv original_argv)
 
   global_dc->set_original_argv (std::move (original_argv));
 
-  global_dc->m_source_printing.enabled
+  auto &source_printing_opts = global_dc->get_source_printing_options ();
+  source_printing_opts.enabled
     = global_options_init.x_flag_diagnostics_show_caret;
-  global_dc->m_source_printing.show_event_links_p
+  source_printing_opts.show_event_links_p
     = global_options_init.x_flag_diagnostics_show_event_links;
-  global_dc->m_source_printing.show_labels_p
+  source_printing_opts.show_labels_p
     = global_options_init.x_flag_diagnostics_show_labels;
-  global_dc->m_source_printing.show_line_numbers_p
+  source_printing_opts.show_line_numbers_p
     = global_options_init.x_flag_diagnostics_show_line_numbers;
   global_dc->set_show_cwe (global_options_init.x_flag_diagnostics_show_cwe);
   global_dc->set_show_rules (global_options_init.x_flag_diagnostics_show_rules);
@@ -1090,18 +1094,24 @@ general_init (const char *argv0, bool init_signals, unique_argv original_argv)
     (global_options_init.x_flag_diagnostics_show_path_depths);
   global_dc->set_show_option_requested
     (global_options_init.x_flag_diagnostics_show_option);
-  global_dc->m_source_printing.min_margin_width
+  source_printing_opts.min_margin_width
     = global_options_init.x_diagnostics_minimum_margin_width;
   global_dc->m_show_column
     = global_options_init.x_flag_show_column;
   global_dc->set_show_highlight_colors
     (global_options_init.x_flag_diagnostics_show_highlight_colors);
-  global_dc->m_internal_error = internal_error_function;
+  global_dc->set_show_nesting
+    (global_options_init.x_flag_diagnostics_show_nesting);
+  global_dc->set_show_nesting_locations
+    (global_options_init.x_flag_diagnostics_show_nesting_locations);
+  global_dc->set_show_nesting_levels
+    (global_options_init.x_flag_diagnostics_show_nesting_levels);
+  global_dc->set_internal_error_callback (internal_error_function);
   const unsigned lang_mask = lang_hooks.option_lang_mask ();
-  global_dc->set_option_manager
-    (::make_unique<compiler_diagnostic_option_manager> (*global_dc,
-							lang_mask,
-							&global_options),
+  global_dc->set_option_id_manager
+    (std::make_unique<compiler_diagnostic_option_id_manager> (*global_dc,
+							      lang_mask,
+							      &global_options),
      lang_mask);
   global_dc->push_owned_urlifier (make_gcc_urlifier (lang_mask));
 
@@ -1292,11 +1302,11 @@ process_options ()
   input_location = saved_location;
 
   if (flag_diagnostics_generate_patch)
-    global_dc->create_edit_context ();
+    global_dc->initialize_fixits_change_set ();
 
   /* Avoid any informative notes in the second run of -fcompare-debug.  */
   if (flag_compare_debug)
-    diagnostic_inhibit_notes (global_dc);
+    global_dc->inhibit_notes ();
 
   if (flag_section_anchors && !target_supports_section_anchors_p ())
     {
@@ -1432,7 +1442,8 @@ process_options ()
 
   /* CTF is supported for only C at this time.  */
   if (!lang_GNU_C ()
-      && ctf_debug_info_level > CTFINFO_LEVEL_NONE)
+      && ctf_debug_info_level > CTFINFO_LEVEL_NONE
+      && warn_complain_wrong_lang)
     {
       /* Compiling with -flto results in frontend language of GNU GIMPLE.  It
 	 is not useful to warn in that case.  */
@@ -1759,11 +1770,13 @@ process_options ()
       if (warn_coverage_mismatch
 	  && option_unspecified_p (OPT_Wcoverage_mismatch))
 	diagnostic_classify_diagnostic (global_dc, OPT_Wcoverage_mismatch,
-					DK_ERROR, UNKNOWN_LOCATION);
+					diagnostics::kind::error,
+					UNKNOWN_LOCATION);
       if (warn_coverage_invalid_linenum
 	  && option_unspecified_p (OPT_Wcoverage_invalid_line_number))
 	diagnostic_classify_diagnostic (global_dc, OPT_Wcoverage_invalid_line_number,
-					DK_ERROR, UNKNOWN_LOCATION);
+					diagnostics::kind::error,
+					UNKNOWN_LOCATION);
     }
 
   /* Save the current optimization options.  */
@@ -1826,6 +1839,10 @@ backend_init_target (void)
 static void
 backend_init (void)
 {
+#if CHECKING_P
+  verify_reg_names_in_constraints ();
+#endif
+
   init_emit_once ();
 
   init_rtlanal ();
@@ -2321,8 +2338,7 @@ toplev::main (int argc, char **argv)
 
   /* Convert the options to an array.  */
   decode_cmdline_options_to_array_default_mask (argc,
-						CONST_CAST2 (const char **,
-							     char **, argv),
+						const_cast<const char **> (argv),
 						&save_decoded_options,
 						&save_decoded_options_count);
 
@@ -2347,6 +2363,8 @@ toplev::main (int argc, char **argv)
 				     param_file_cache_lines);
 
   handle_common_deferred_options ();
+
+  diagnostics::maybe_open_sarif_sink_for_socket (*global_dc);
 
   init_local_tick ();
 
@@ -2396,11 +2414,11 @@ toplev::main (int argc, char **argv)
      emit some diagnostics here.  */
   invoke_plugin_callbacks (PLUGIN_FINISH, NULL);
 
-  if (auto edit_context_ptr = global_dc->get_edit_context ())
+  if (auto change_set_ptr = global_dc->get_fixits_change_set ())
     {
       pretty_printer pp;
       pp_show_color (&pp) = pp_show_color (global_dc->get_reference_printer ());
-      edit_context_ptr->print_diff (&pp, true);
+      change_set_ptr->print_diff (&pp, true);
       pp_flush (&pp);
     }
 

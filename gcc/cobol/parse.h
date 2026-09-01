@@ -70,18 +70,56 @@ extern int yydebug;
     accept_envar_e,
   };
 
+  struct coll_alphanat_t {
+    const char *alpha, *national; 
+  };
+
+  struct label_pair_t {
+    cbl_label_t *from, *to;
+  };
+  
+class locale_tgt_t {
+  char user_system_default;
+  std::vector<int> categories;
+ public:
+  locale_tgt_t() : user_system_default('\0') {}
+  locale_tgt_t( int category )
+    : user_system_default('\0')
+    , categories(1, category)
+    {}
+  locale_tgt_t operator=( int ch ) {
+    assert(categories.empty());
+    switch(ch) {
+    case 'S': case 'U':
+      user_system_default = ch;
+      return *this;
+    }
+    gcc_unreachable();
+  }
+  locale_tgt_t push_back( int token ) {
+    categories.push_back(token);
+    return *this;
+  }
+  
+  bool is_default() const { return 0 < user_system_default; }
+  char default_of() const {
+    assert(categories.empty());
+    return user_system_default;
+  }
+  const std::vector<int>& lc_categories() const { return categories; }
+};
+
   class literal_t {
     size_t isym;
   public:
+    cbl_encoding_t encoding;
     char prefix[3];
     size_t len;
     char *data;
 
     bool empty() const { return data == NULL; }
     size_t isymbol() const { return isym; }
-    const char * symbol_name() const {
-      return isym? cbl_field_of(symbol_at(isym))->name : "";
-    }
+    const char * symbol_name() const;
 
     literal_t&
     set( size_t len, char *data, const char prefix[] ) {
@@ -90,17 +128,8 @@ extern int yydebug;
       return *this;
     }
 
-    literal_t&
-    set( const cbl_field_t * field ) {
-      assert(field->has_attr(constant_e));
-      assert(is_literal(field));
+    literal_t& set( const cbl_field_t * field );
 
-      set_prefix( "", 0 );
-      set_data( field->data.capacity,
-                const_cast<char*>(field->data.initial),
-                field_index(field) );
-      return *this;
-    }
     literal_t&
     set_data( size_t len, char *data, size_t isym = 0 ) {
       this->isym = isym;
@@ -113,19 +142,31 @@ extern int yydebug;
       }
       return *this;
     }
-    literal_t&
-    set_prefix( const char *input, size_t len ) {
-      assert(len < sizeof(prefix));
-      std::fill(prefix, prefix + sizeof(prefix), '\0');
-      std::transform(input, input + len, prefix, toupper);
-      return *this;
-    }
+    literal_t& set_prefix( const char *input, size_t len );
+
     bool
     compatible_prefix( const literal_t& that ) const {
       if( prefix[0] != that.prefix[0] ) {
         return prefix[0] != 'N' && that.prefix[0] != 'N';
       }
       return true;
+    }
+    cbl_encoding_t encode_as() const {
+      switch(prefix[0]) {
+      case '\0':
+      case 'X': 
+      case 'Z': 
+        return current_encoding('A');
+      case 'N': 
+        return current_encoding('N');
+      default:
+        dbgmsg("no such prefix '%s'", prefix);
+        if( prefix[0] != ftoupper(prefix[0]) ) {
+          gcc_unreachable();
+        }
+        break;
+      }
+      gcc_unreachable();
     }
   };
 
@@ -233,7 +274,7 @@ extern int yydebug;
 
   struct cbl_field_t;
   static inline cbl_field_t *
-  new_literal( const char initial[], enum radix_t radix );
+  new_literal( const cbl_loc_t loc, const char initial[], enum radix_t radix );
 #pragma GCC diagnostic pop
 
   enum select_clause_t {
@@ -298,7 +339,7 @@ extern int yydebug;
 #include "../../libgcobol/common-defs.h"
 #include "inspect.h"
 
-#line 302 "parse.h"
+#line 343 "parse.h"
 
 /* Token kinds.  */
 #ifndef YYTOKENTYPE
@@ -349,554 +390,554 @@ extern int yydebug;
     PIC_P = 295,                   /* PIC_P  */
     ONES = 296,                    /* ONES  */
     SPACES = 297,                  /* SPACES  */
-    LITERAL = 298,                 /* LITERAL  */
-    END = 299,                     /* END  */
-    EOP = 300,                     /* EOP  */
-    FILENAME = 301,                /* FILENAME  */
-    INVALID = 302,                 /* INVALID  */
-    NUMBER = 303,                  /* NUMBER  */
-    NEGATIVE = 304,                /* NEGATIVE  */
-    NUMSTR = 305,                  /* "numeric literal"  */
-    OVERFLOW_kw = 306,             /* "OVERFLOW"  */
-    BINARY_INTEGER = 307,          /* BINARY_INTEGER  */
-    COMPUTATIONAL = 308,           /* COMPUTATIONAL  */
-    PERFORM = 309,                 /* PERFORM  */
-    BACKWARD = 310,                /* BACKWARD  */
-    POSITIVE = 311,                /* POSITIVE  */
-    POINTER = 312,                 /* POINTER  */
-    SECTION = 313,                 /* SECTION  */
-    STANDARD_ALPHABET = 314,       /* "STANDARD ALPHABET"  */
-    SWITCH = 315,                  /* SWITCH  */
-    UPSI = 316,                    /* UPSI  */
-    ZERO = 317,                    /* ZERO  */
-    SYSIN = 318,                   /* SYSIN  */
-    SYSIPT = 319,                  /* SYSIPT  */
-    SYSOUT = 320,                  /* SYSOUT  */
-    SYSLIST = 321,                 /* SYSLIST  */
-    SYSLST = 322,                  /* SYSLST  */
-    SYSPUNCH = 323,                /* SYSPUNCH  */
-    SYSPCH = 324,                  /* SYSPCH  */
-    CONSOLE = 325,                 /* CONSOLE  */
-    C01 = 326,                     /* C01  */
-    C02 = 327,                     /* C02  */
-    C03 = 328,                     /* C03  */
-    C04 = 329,                     /* C04  */
-    C05 = 330,                     /* C05  */
-    C06 = 331,                     /* C06  */
-    C07 = 332,                     /* C07  */
-    C08 = 333,                     /* C08  */
-    C09 = 334,                     /* C09  */
-    C10 = 335,                     /* C10  */
-    C11 = 336,                     /* C11  */
-    C12 = 337,                     /* C12  */
-    CSP = 338,                     /* CSP  */
-    S01 = 339,                     /* S01  */
-    S02 = 340,                     /* S02  */
-    S03 = 341,                     /* S03  */
-    S04 = 342,                     /* S04  */
-    S05 = 343,                     /* S05  */
-    AFP_5A = 344,                  /* "AFP 5A"  */
-    STDIN = 345,                   /* STDIN  */
-    STDOUT = 346,                  /* STDOUT  */
-    STDERR = 347,                  /* STDERR  */
-    LIST = 348,                    /* LIST  */
-    MAP = 349,                     /* MAP  */
-    NOLIST = 350,                  /* NOLIST  */
-    NOMAP = 351,                   /* NOMAP  */
-    NOSOURCE = 352,                /* NOSOURCE  */
-    MIGHT_BE = 353,                /* "IS or IS NOT"  */
-    FUNCTION_UDF = 354,            /* "UDF name"  */
-    FUNCTION_UDF_0 = 355,          /* "UDF"  */
-    DATE_FMT = 356,                /* "date format"  */
-    TIME_FMT = 357,                /* "time format"  */
-    DATETIME_FMT = 358,            /* "datetime format"  */
-    BASIS = 359,                   /* BASIS  */
-    CBL = 360,                     /* CBL  */
-    CONSTANT = 361,                /* CONSTANT  */
-    COPY = 362,                    /* COPY  */
-    DEFINED = 363,                 /* DEFINED  */
-    ENTER = 364,                   /* ENTER  */
-    FEATURE = 365,                 /* FEATURE  */
-    INSERTT = 366,                 /* INSERTT  */
-    LSUB = 367,                    /* "("  */
-    PARAMETER_kw = 368,            /* "PARAMETER"  */
-    OVERRIDE = 369,                /* OVERRIDE  */
-    READY = 370,                   /* READY  */
-    RESET = 371,                   /* RESET  */
-    RSUB = 372,                    /* ")"  */
-    SERVICE_RELOAD = 373,          /* "SERVICE RELOAD"  */
-    STAR_CBL = 374,                /* "*CBL"  */
-    SUBSCRIPT = 375,               /* SUBSCRIPT  */
-    SUPPRESS = 376,                /* SUPPRESS  */
-    TITLE = 377,                   /* TITLE  */
-    TRACE = 378,                   /* TRACE  */
-    USE = 379,                     /* USE  */
-    COBOL_WORDS = 380,             /* ">>COBOL-WORDS"  */
-    EQUATE = 381,                  /* EQUATE  */
-    UNDEFINE = 382,                /* UNDEFINE  */
-    CDF_DEFINE = 383,              /* ">>DEFINE"  */
-    CDF_DISPLAY = 384,             /* ">>DISPLAY"  */
-    CDF_IF = 385,                  /* ">>IF"  */
-    CDF_ELSE = 386,                /* ">>ELSE"  */
-    CDF_END_IF = 387,              /* ">>END-IF"  */
-    CDF_EVALUATE = 388,            /* ">>EVALUATE"  */
-    CDF_WHEN = 389,                /* ">>WHEN"  */
-    CDF_END_EVALUATE = 390,        /* ">>END-EVALUATE"  */
-    CALL_CONVENTION = 391,         /* ">>CALL-CONVENTION"  */
-    CALL_COBOL = 392,              /* "CALL"  */
-    CALL_VERBATIM = 393,           /* "CALL (as C)"  */
-    CDF_PUSH = 394,                /* ">>PUSH"  */
-    CDF_POP = 395,                 /* ">>POP"  */
-    SOURCE_FORMAT = 396,           /* ">>SOURCE FORMAT"  */
-    IF = 397,                      /* IF  */
-    THEN = 398,                    /* THEN  */
-    ELSE = 399,                    /* ELSE  */
-    SENTENCE = 400,                /* SENTENCE  */
-    ACCEPT = 401,                  /* ACCEPT  */
-    ADD = 402,                     /* ADD  */
-    ALTER = 403,                   /* ALTER  */
-    CALL = 404,                    /* CALL  */
-    CANCEL = 405,                  /* CANCEL  */
-    CLOSE = 406,                   /* CLOSE  */
-    COMPUTE = 407,                 /* COMPUTE  */
-    CONTINUE = 408,                /* CONTINUE  */
-    DELETE = 409,                  /* DELETE  */
-    DISPLAY = 410,                 /* DISPLAY  */
-    DIVIDE = 411,                  /* DIVIDE  */
-    EVALUATE = 412,                /* EVALUATE  */
-    EXIT = 413,                    /* EXIT  */
-    FILLER_kw = 414,               /* "FILLER"  */
-    GOBACK = 415,                  /* GOBACK  */
-    GOTO = 416,                    /* GOTO  */
-    INITIALIZE = 417,              /* INITIALIZE  */
-    INSPECT = 418,                 /* INSPECT  */
-    MERGE = 419,                   /* MERGE  */
-    MOVE = 420,                    /* MOVE  */
-    MULTIPLY = 421,                /* MULTIPLY  */
-    OPEN = 422,                    /* OPEN  */
-    PARAGRAPH = 423,               /* PARAGRAPH  */
-    READ = 424,                    /* READ  */
-    RELEASE = 425,                 /* RELEASE  */
-    RETURN = 426,                  /* RETURN  */
-    REWRITE = 427,                 /* REWRITE  */
-    SEARCH = 428,                  /* SEARCH  */
-    SET = 429,                     /* SET  */
-    SELECT = 430,                  /* SELECT  */
-    SORT = 431,                    /* SORT  */
-    SORT_MERGE = 432,              /* "SORT-MERGE"  */
-    STRING_kw = 433,               /* "STRING"  */
-    STOP = 434,                    /* STOP  */
-    SUBTRACT = 435,                /* SUBTRACT  */
-    START = 436,                   /* START  */
-    UNSTRING = 437,                /* UNSTRING  */
-    WRITE = 438,                   /* WRITE  */
-    WHEN = 439,                    /* WHEN  */
-    ARGUMENT_NUMBER = 440,         /* ARGUMENT_NUMBER  */
-    ARGUMENT_VALUE = 441,          /* ARGUMENT_VALUE  */
-    ENVIRONMENT_NAME = 442,        /* ENVIRONMENT_NAME  */
-    ENVIRONMENT_VALUE = 443,       /* ENVIRONMENT_VALUE  */
-    ABS = 444,                     /* ABS  */
-    ACCESS = 445,                  /* ACCESS  */
-    ACOS = 446,                    /* ACOS  */
-    ACTUAL = 447,                  /* ACTUAL  */
-    ADVANCING = 448,               /* ADVANCING  */
-    AFTER = 449,                   /* AFTER  */
-    ALL = 450,                     /* ALL  */
-    ALLOCATE = 451,                /* ALLOCATE  */
-    ALPHABET = 452,                /* ALPHABET  */
-    ALPHABETIC = 453,              /* ALPHABETIC  */
-    ALPHABETIC_LOWER = 454,        /* "ALPHABETIC-LOWER"  */
-    ALPHABETIC_UPPER = 455,        /* "ALPHABETIC-UPPER"  */
-    ALPHANUMERIC = 456,            /* ALPHANUMERIC  */
-    ALPHANUMERIC_EDITED = 457,     /* "ALPHANUMERIC-EDITED"  */
-    ALSO = 458,                    /* ALSO  */
-    ALTERNATE = 459,               /* ALTERNATE  */
-    ANNUITY = 460,                 /* ANNUITY  */
-    ANUM = 461,                    /* ANUM  */
-    ANY = 462,                     /* ANY  */
-    ANYCASE = 463,                 /* ANYCASE  */
-    APPLY = 464,                   /* APPLY  */
-    ARE = 465,                     /* ARE  */
-    AREA = 466,                    /* AREA  */
-    AREAS = 467,                   /* AREAS  */
-    AS = 468,                      /* AS  */
-    ASCENDING = 469,               /* ASCENDING  */
-    ACTIVATING = 470,              /* ACTIVATING  */
-    ASIN = 471,                    /* ASIN  */
-    ASSIGN = 472,                  /* ASSIGN  */
-    AT = 473,                      /* AT  */
-    ATAN = 474,                    /* ATAN  */
-    BASED = 475,                   /* BASED  */
-    BASECONVERT = 476,             /* BASECONVERT  */
-    BEFORE = 477,                  /* BEFORE  */
-    BINARY = 478,                  /* BINARY  */
-    BIT = 479,                     /* BIT  */
-    BIT_OF = 480,                  /* "BIT-OF"  */
-    BIT_TO_CHAR = 481,             /* "BIT-TO-CHAR"  */
-    BLANK = 482,                   /* BLANK  */
-    BLOCK_kw = 483,                /* BLOCK_kw  */
-    BOOLEAN_OF_INTEGER = 484,      /* "BOOLEAN-OF-INTEGER"  */
-    BOTTOM = 485,                  /* BOTTOM  */
-    BY = 486,                      /* BY  */
-    BYTE = 487,                    /* BYTE  */
-    BYTE_LENGTH = 488,             /* "BYTE-LENGTH"  */
-    CF = 489,                      /* CF  */
-    CH = 490,                      /* CH  */
-    CHANGED = 491,                 /* CHANGED  */
-    CHAR = 492,                    /* CHAR  */
-    CHAR_NATIONAL = 493,           /* "CHAR-NATIONAL"  */
-    CHARACTER = 494,               /* CHARACTER  */
-    CHARACTERS = 495,              /* CHARACTERS  */
-    CHECKING = 496,                /* CHECKING  */
-    CLASS = 497,                   /* CLASS  */
-    COBOL = 498,                   /* COBOL  */
-    CODE = 499,                    /* CODE  */
-    CODESET = 500,                 /* CODESET  */
-    COLLATING = 501,               /* COLLATING  */
-    COLUMN = 502,                  /* COLUMN  */
-    COMBINED_DATETIME = 503,       /* "COMBINED-DATETIME"  */
-    COMMA = 504,                   /* COMMA  */
-    COMMAND_LINE = 505,            /* "COMMAND-LINE"  */
-    COMMAND_LINE_COUNT = 506,      /* "COMMAND-LINE-COUNT"  */
-    COMMIT = 507,                  /* COMMIT  */
-    COMMON = 508,                  /* COMMON  */
-    CONCAT = 509,                  /* CONCAT  */
-    CONDITION = 510,               /* CONDITION  */
-    CONFIGURATION_SECT = 511,      /* "CONFIGURATION SECTION"  */
-    CONTAINS = 512,                /* CONTAINS  */
-    CONTENT = 513,                 /* CONTENT  */
-    CONTROL = 514,                 /* CONTROL  */
-    CONTROLS = 515,                /* CONTROLS  */
-    CONVERT = 516,                 /* CONVERT  */
-    CONVERTING = 517,              /* CONVERTING  */
-    CORRESPONDING = 518,           /* CORRESPONDING  */
-    COS = 519,                     /* COS  */
-    COUNT = 520,                   /* COUNT  */
-    CURRENCY = 521,                /* CURRENCY  */
-    CURRENT = 522,                 /* CURRENT  */
-    CURRENT_DATE = 523,            /* CURRENT_DATE  */
-    DATA = 524,                    /* DATA  */
-    DATE = 525,                    /* DATE  */
-    DATE_COMPILED = 526,           /* DATE_COMPILED  */
-    DATE_OF_INTEGER = 527,         /* "DATE-OF-INTEGER"  */
-    DATE_TO_YYYYMMDD = 528,        /* "DATE-TO-YYYYMMDD"  */
-    DATE_WRITTEN = 529,            /* "DATE-WRITTEN"  */
-    DAY = 530,                     /* DAY  */
-    DAY_OF_INTEGER = 531,          /* "DAY-OF-INTEGER"  */
-    DAY_OF_WEEK = 532,             /* "DAY-OF-WEEK"  */
-    DAY_TO_YYYYDDD = 533,          /* "DAY-TO-YYYYDDD"  */
-    DBCS = 534,                    /* DBCS  */
-    DE = 535,                      /* DE  */
-    DEBUGGING = 536,               /* DEBUGGING  */
-    DECIMAL_POINT = 537,           /* DECIMAL_POINT  */
-    DECLARATIVES = 538,            /* DECLARATIVES  */
-    DEFAULT = 539,                 /* DEFAULT  */
-    DELIMITED = 540,               /* DELIMITED  */
-    DELIMITER = 541,               /* DELIMITER  */
-    DEPENDING = 542,               /* DEPENDING  */
-    DESCENDING = 543,              /* DESCENDING  */
-    DETAIL = 544,                  /* DETAIL  */
-    DIRECT = 545,                  /* DIRECT  */
-    DIRECT_ACCESS = 546,           /* "DIRECT-ACCESS"  */
-    DOWN = 547,                    /* DOWN  */
-    DUPLICATES = 548,              /* DUPLICATES  */
-    DYNAMIC = 549,                 /* DYNAMIC  */
-    E = 550,                       /* E  */
-    EBCDIC = 551,                  /* EBCDIC  */
-    EC = 552,                      /* EC  */
-    EGCS = 553,                    /* EGCS  */
-    ENTRY = 554,                   /* ENTRY  */
-    ENVIRONMENT = 555,             /* ENVIRONMENT  */
-    EQUAL = 556,                   /* EQUAL  */
-    EVERY = 557,                   /* EVERY  */
-    EXAMINE = 558,                 /* EXAMINE  */
-    EXHIBIT = 559,                 /* EXHIBIT  */
-    EXP = 560,                     /* EXP  */
-    EXP10 = 561,                   /* EXP10  */
-    EXTEND = 562,                  /* EXTEND  */
-    EXTERNAL = 563,                /* EXTERNAL  */
-    EXCEPTION_FILE = 564,          /* "EXCEPTION-FILE"  */
-    EXCEPTION_FILE_N = 565,        /* "EXCEPTION-FILE-N"  */
-    EXCEPTION_LOCATION = 566,      /* "EXCEPTION-LOCATION"  */
-    EXCEPTION_LOCATION_N = 567,    /* "EXCEPTION-LOCATION-N"  */
-    EXCEPTION_STATEMENT = 568,     /* "EXCEPTION-STATEMENT"  */
-    EXCEPTION_STATUS = 569,        /* "EXCEPTION-STATUS"  */
-    FACTORIAL = 570,               /* FACTORIAL  */
-    FALSE_kw = 571,                /* "False"  */
-    FD = 572,                      /* FD  */
-    FILE_CONTROL = 573,            /* "FILE-CONTROL"  */
-    FILE_KW = 574,                 /* "File"  */
-    FILE_LIMIT = 575,              /* "FILE-LIMIT"  */
-    FINAL = 576,                   /* FINAL  */
-    FINALLY = 577,                 /* FINALLY  */
-    FIND_STRING = 578,             /* "FIND-STRING"  */
-    FIRST = 579,                   /* FIRST  */
-    FIXED = 580,                   /* FIXED  */
-    FOOTING = 581,                 /* FOOTING  */
-    FOR = 582,                     /* FOR  */
-    FORMATTED_CURRENT_DATE = 583,  /* "FORMATTED-CURRENT-DATE"  */
-    FORMATTED_DATE = 584,          /* "FORMATTED-DATE"  */
-    FORMATTED_DATETIME = 585,      /* "FORMATTED-DATETIME"  */
-    FORMATTED_TIME = 586,          /* "FORMATTED-TIME"  */
-    FORM_OVERFLOW = 587,           /* "FORM-OVERFLOW"  */
-    FREE = 588,                    /* FREE  */
-    FRACTION_PART = 589,           /* "FRACTION-PART"  */
-    FROM = 590,                    /* FROM  */
-    FUNCTION = 591,                /* FUNCTION  */
-    GENERATE = 592,                /* GENERATE  */
-    GIVING = 593,                  /* GIVING  */
-    GLOBAL = 594,                  /* GLOBAL  */
-    GO = 595,                      /* GO  */
-    GROUP = 596,                   /* GROUP  */
-    HEADING = 597,                 /* HEADING  */
-    HEX = 598,                     /* HEX  */
-    HEX_OF = 599,                  /* "HEX-OF"  */
-    HEX_TO_CHAR = 600,             /* "HEX-TO-CHAR"  */
-    HIGH_VALUES = 601,             /* "HIGH-VALUES"  */
-    HIGHEST_ALGEBRAIC = 602,       /* "HIGHEST-ALGEBRAIC"  */
-    HOLD = 603,                    /* HOLD  */
-    IBM_360 = 604,                 /* IBM_360  */
-    IN = 605,                      /* IN  */
-    INCLUDE = 606,                 /* INCLUDE  */
-    INDEX = 607,                   /* INDEX  */
-    INDEXED = 608,                 /* INDEXED  */
-    INDICATE = 609,                /* INDICATE  */
-    INITIAL_kw = 610,              /* "INITIAL"  */
-    INITIATE = 611,                /* INITIATE  */
-    INPUT = 612,                   /* INPUT  */
-    INSTALLATION = 613,            /* INSTALLATION  */
-    INTERFACE = 614,               /* INTERFACE  */
-    INTEGER = 615,                 /* INTEGER  */
-    INTEGER_OF_BOOLEAN = 616,      /* "INTEGER-OF-BOOLEAN"  */
-    INTEGER_OF_DATE = 617,         /* "INTEGER-OF-DATE"  */
-    INTEGER_OF_DAY = 618,          /* "INTEGER-OF-DAY"  */
-    INTEGER_OF_FORMATTED_DATE = 619, /* "INTEGER-OF-FORMATTED-DATE"  */
-    INTEGER_PART = 620,            /* "INTEGER-PART"  */
-    INTO = 621,                    /* INTO  */
-    INTRINSIC = 622,               /* INTRINSIC  */
-    INVOKE = 623,                  /* INVOKE  */
-    IO = 624,                      /* IO  */
-    IO_CONTROL = 625,              /* "IO-CONTROL"  */
-    IS = 626,                      /* IS  */
-    ISNT = 627,                    /* "IS NOT"  */
-    KANJI = 628,                   /* KANJI  */
-    KEY = 629,                     /* KEY  */
-    LABEL = 630,                   /* LABEL  */
-    LAST = 631,                    /* LAST  */
-    LEADING = 632,                 /* LEADING  */
-    LEFT = 633,                    /* LEFT  */
-    LENGTH = 634,                  /* LENGTH  */
-    LENGTH_OF = 635,               /* "LENGTH-OF"  */
-    LIMIT = 636,                   /* LIMIT  */
-    LIMITS = 637,                  /* LIMITS  */
-    LINE = 638,                    /* LINE  */
-    LINES = 639,                   /* LINES  */
-    LINE_COUNTER = 640,            /* "LINE-COUNTER"  */
-    LINAGE = 641,                  /* LINAGE  */
-    LINKAGE = 642,                 /* LINKAGE  */
-    LOCALE = 643,                  /* LOCALE  */
-    LOCALE_COMPARE = 644,          /* "LOCALE-COMPARE"  */
-    LOCALE_DATE = 645,             /* "LOCALE-DATE"  */
-    LOCALE_TIME = 646,             /* "LOCALE-TIME"  */
-    LOCALE_TIME_FROM_SECONDS = 647, /* "LOCALE-TIME-FROM-SECONDS"  */
-    LOCAL_STORAGE = 648,           /* "LOCAL-STORAGE"  */
-    LOCATION = 649,                /* LOCATION  */
-    LOCK = 650,                    /* LOCK  */
-    LOCK_ON = 651,                 /* LOCK_ON  */
-    LOG = 652,                     /* LOG  */
-    LOG10 = 653,                   /* LOG10  */
-    LOWER_CASE = 654,              /* "LOWER-CASE"  */
-    LOW_VALUES = 655,              /* "LOW-VALUES"  */
-    LOWEST_ALGEBRAIC = 656,        /* "LOWEST-ALGEBRAIC"  */
-    LPAREN = 657,                  /* " )"  */
-    MANUAL = 658,                  /* MANUAL  */
-    MAXX = 659,                    /* "Max"  */
-    MEAN = 660,                    /* MEAN  */
-    MEDIAN = 661,                  /* MEDIAN  */
-    MIDRANGE = 662,                /* MIDRANGE  */
-    MINN = 663,                    /* "Min"  */
-    MULTIPLE = 664,                /* MULTIPLE  */
-    MOD = 665,                     /* MOD  */
-    MODE = 666,                    /* MODE  */
-    MODULE_NAME = 667,             /* "MODULE-NAME "  */
-    NAMED = 668,                   /* NAMED  */
-    NAT = 669,                     /* NAT  */
-    NATIONAL = 670,                /* NATIONAL  */
-    NATIONAL_EDITED = 671,         /* "NATIONAL-EDITED"  */
-    NATIONAL_OF = 672,             /* "NATIONAL-OF"  */
-    NATIVE = 673,                  /* NATIVE  */
-    NESTED = 674,                  /* NESTED  */
-    NEXT = 675,                    /* NEXT  */
-    NO = 676,                      /* NO  */
-    NOTE = 677,                    /* NOTE  */
-    NULLS = 678,                   /* NULLS  */
-    NULLPTR = 679,                 /* NULLPTR  */
-    NUMERIC = 680,                 /* NUMERIC  */
-    NUMERIC_EDITED = 681,          /* NUMERIC_EDITED  */
-    NUMVAL = 682,                  /* NUMVAL  */
-    NUMVAL_C = 683,                /* "NUMVAL-C"  */
-    NUMVAL_F = 684,                /* "NUMVAL-F"  */
-    OCCURS = 685,                  /* OCCURS  */
-    OF = 686,                      /* OF  */
-    OFF = 687,                     /* OFF  */
-    OMITTED = 688,                 /* OMITTED  */
-    ON = 689,                      /* ON  */
-    ONLY = 690,                    /* ONLY  */
-    OPTIONAL = 691,                /* OPTIONAL  */
-    OPTIONS = 692,                 /* OPTIONS  */
-    ORD = 693,                     /* ORD  */
-    ORDER = 694,                   /* ORDER  */
-    ORD_MAX = 695,                 /* "ORD-MAX"  */
-    ORD_MIN = 696,                 /* "ORD-MIN"  */
-    ORGANIZATION = 697,            /* ORGANIZATION  */
-    OTHER = 698,                   /* OTHER  */
-    OTHERWISE = 699,               /* OTHERWISE  */
-    OUTPUT = 700,                  /* OUTPUT  */
-    PACKED_DECIMAL = 701,          /* PACKED_DECIMAL  */
-    PADDING = 702,                 /* PADDING  */
-    PAGE = 703,                    /* PAGE  */
-    PAGE_COUNTER = 704,            /* "PAGE-COUNTER"  */
-    PF = 705,                      /* PF  */
-    PH = 706,                      /* PH  */
-    PI = 707,                      /* PI  */
-    PIC = 708,                     /* PIC  */
-    PICTURE = 709,                 /* PICTURE  */
-    PLUS = 710,                    /* PLUS  */
-    PRESENT_VALUE = 711,           /* PRESENT_VALUE  */
-    PRINT_SWITCH = 712,            /* PRINT_SWITCH  */
-    PROCEDURE = 713,               /* PROCEDURE  */
-    PROCEDURES = 714,              /* PROCEDURES  */
-    PROCEED = 715,                 /* PROCEED  */
-    PROCESS = 716,                 /* PROCESS  */
-    PROGRAM_ID = 717,              /* "PROGRAM-ID"  */
-    PROGRAM_kw = 718,              /* "Program"  */
-    PROPERTY = 719,                /* PROPERTY  */
-    PROTOTYPE = 720,               /* PROTOTYPE  */
-    PSEUDOTEXT = 721,              /* PSEUDOTEXT  */
-    QUOTES = 722,                  /* "QUOTE"  */
-    RANDOM = 723,                  /* RANDOM  */
-    RANDOM_SEED = 724,             /* RANDOM_SEED  */
-    RANGE = 725,                   /* RANGE  */
-    RAISE = 726,                   /* RAISE  */
-    RAISING = 727,                 /* RAISING  */
-    RD = 728,                      /* RD  */
-    RECORD = 729,                  /* RECORD  */
-    RECORDING = 730,               /* RECORDING  */
-    RECORDS = 731,                 /* RECORDS  */
-    RECURSIVE = 732,               /* RECURSIVE  */
-    REDEFINES = 733,               /* REDEFINES  */
-    REEL = 734,                    /* REEL  */
-    REFERENCE = 735,               /* REFERENCE  */
-    RELATIVE = 736,                /* RELATIVE  */
-    REM = 737,                     /* REM  */
-    REMAINDER = 738,               /* REMAINDER  */
-    REMARKS = 739,                 /* REMARKS  */
-    REMOVAL = 740,                 /* REMOVAL  */
-    RENAMES = 741,                 /* RENAMES  */
-    REPLACE = 742,                 /* REPLACE  */
-    REPLACING = 743,               /* REPLACING  */
-    REPORT = 744,                  /* REPORT  */
-    REPORTING = 745,               /* REPORTING  */
-    REPORTS = 746,                 /* REPORTS  */
-    REPOSITORY = 747,              /* REPOSITORY  */
-    RERUN = 748,                   /* RERUN  */
-    RESERVE = 749,                 /* RESERVE  */
-    RESTRICTED = 750,              /* RESTRICTED  */
-    RESUME = 751,                  /* RESUME  */
-    REVERSE = 752,                 /* REVERSE  */
-    REVERSED = 753,                /* REVERSED  */
-    REWIND = 754,                  /* REWIND  */
-    RF = 755,                      /* RF  */
-    RH = 756,                      /* RH  */
-    RIGHT = 757,                   /* RIGHT  */
-    ROUNDED = 758,                 /* ROUNDED  */
-    RUN = 759,                     /* RUN  */
-    SAME = 760,                    /* SAME  */
-    SCREEN = 761,                  /* SCREEN  */
-    SD = 762,                      /* SD  */
-    SECONDS_FROM_FORMATTED_TIME = 763, /* "SECONDS-FROM-FORMATTED-TIME"  */
-    SECONDS_PAST_MIDNIGHT = 764,   /* "SECONDS-PAST-MIDNIGHT"  */
-    SECURITY = 765,                /* SECURITY  */
-    SEPARATE = 766,                /* SEPARATE  */
-    SEQUENCE = 767,                /* SEQUENCE  */
-    SEQUENTIAL = 768,              /* SEQUENTIAL  */
-    SHARING = 769,                 /* SHARING  */
-    SIMPLE_EXIT = 770,             /* "(simple) EXIT"  */
-    SIGN = 771,                    /* SIGN  */
-    SIN = 772,                     /* SIN  */
-    SIZE = 773,                    /* SIZE  */
-    SMALLEST_ALGEBRAIC = 774,      /* "SMALLEST-ALGEBRAIC"  */
-    SOURCE = 775,                  /* SOURCE  */
-    SOURCE_COMPUTER = 776,         /* "SOURCE-COMPUTER"  */
-    SPECIAL_NAMES = 777,           /* SPECIAL_NAMES  */
-    SQRT = 778,                    /* SQRT  */
-    STACK = 779,                   /* STACK  */
-    STANDARD = 780,                /* STANDARD  */
-    STANDARD_1 = 781,              /* "STANDARD-1"  */
-    STANDARD_DEVIATION = 782,      /* "STANDARD-DEVIATION "  */
-    STANDARD_COMPARE = 783,        /* "STANDARD-COMPARE"  */
-    STATUS = 784,                  /* STATUS  */
-    STRONG = 785,                  /* STRONG  */
-    SUBSTITUTE = 786,              /* SUBSTITUTE  */
-    SUM = 787,                     /* SUM  */
-    SYMBOL = 788,                  /* SYMBOL  */
-    SYMBOLIC = 789,                /* SYMBOLIC  */
-    SYNCHRONIZED = 790,            /* SYNCHRONIZED  */
-    TALLY = 791,                   /* TALLY  */
-    TALLYING = 792,                /* TALLYING  */
-    TAN = 793,                     /* TAN  */
-    TERMINATE = 794,               /* TERMINATE  */
-    TEST = 795,                    /* TEST  */
-    TEST_DATE_YYYYMMDD = 796,      /* "TEST-DATE-YYYYMMDD"  */
-    TEST_DAY_YYYYDDD = 797,        /* "TEST-DAY-YYYYDDD"  */
-    TEST_FORMATTED_DATETIME = 798, /* "TEST-FORMATTED-DATETIME"  */
-    TEST_NUMVAL = 799,             /* "TEST-NUMVAL"  */
-    TEST_NUMVAL_C = 800,           /* "TEST-NUMVAL-C"  */
-    TEST_NUMVAL_F = 801,           /* "TEST-NUMVAL-F"  */
-    THAN = 802,                    /* THAN  */
-    TIME = 803,                    /* TIME  */
-    TIMES = 804,                   /* TIMES  */
-    TO = 805,                      /* TO  */
-    TOP = 806,                     /* TOP  */
-    TOP_LEVEL = 807,               /* TOP_LEVEL  */
-    TRACKS = 808,                  /* TRACKS  */
-    TRACK_AREA = 809,              /* TRACK_AREA  */
-    TRAILING = 810,                /* TRAILING  */
-    TRANSFORM = 811,               /* TRANSFORM  */
-    TRIM = 812,                    /* TRIM  */
-    TRUE_kw = 813,                 /* "True"  */
-    TRY = 814,                     /* TRY  */
-    TURN = 815,                    /* TURN  */
-    TYPE = 816,                    /* TYPE  */
-    TYPEDEF = 817,                 /* TYPEDEF  */
-    ULENGTH = 818,                 /* ULENGTH  */
-    UNBOUNDED = 819,               /* UNBOUNDED  */
-    UNIT = 820,                    /* UNIT  */
-    UNITS = 821,                   /* UNITS  */
-    UNIT_RECORD = 822,             /* UNIT_RECORD  */
-    UNTIL = 823,                   /* UNTIL  */
-    UP = 824,                      /* UP  */
-    UPON = 825,                    /* UPON  */
-    UPOS = 826,                    /* UPOS  */
-    UPPER_CASE = 827,              /* UPPER_CASE  */
-    USAGE = 828,                   /* USAGE  */
-    USING = 829,                   /* USING  */
-    USUBSTR = 830,                 /* USUBSTR  */
-    USUPPLEMENTARY = 831,          /* USUPPLEMENTARY  */
-    UTILITY = 832,                 /* UTILITY  */
-    UUID4 = 833,                   /* UUID4  */
-    UVALID = 834,                  /* UVALID  */
-    UWIDTH = 835,                  /* UWIDTH  */
-    VALUE = 836,                   /* VALUE  */
-    VARIANCE = 837,                /* VARIANCE  */
-    VARYING = 838,                 /* VARYING  */
-    VOLATILE = 839,                /* VOLATILE  */
-    WHEN_COMPILED = 840,           /* WHEN_COMPILED  */
-    WITH = 841,                    /* WITH  */
-    WORKING_STORAGE = 842,         /* WORKING_STORAGE  */
-    XML = 843,                     /* XML  */
-    XMLGENERATE = 844,             /* XMLGENERATE  */
-    XMLPARSE = 845,                /* XMLPARSE  */
+    EQ = 298,                      /* "EQUAL"  */
+    LITERAL = 299,                 /* LITERAL  */
+    END = 300,                     /* END  */
+    EOP = 301,                     /* EOP  */
+    FILENAME = 302,                /* FILENAME  */
+    INVALID = 303,                 /* INVALID  */
+    NUMBER = 304,                  /* NUMBER  */
+    NEGATIVE = 305,                /* NEGATIVE  */
+    NUMSTR = 306,                  /* "numeric literal"  */
+    OVERFLOW_kw = 307,             /* "OVERFLOW"  */
+    BINARY_INTEGER = 308,          /* BINARY_INTEGER  */
+    COMPUTATIONAL = 309,           /* COMPUTATIONAL  */
+    PERFORM = 310,                 /* PERFORM  */
+    BACKWARD = 311,                /* BACKWARD  */
+    POSITIVE = 312,                /* POSITIVE  */
+    POINTER = 313,                 /* POINTER  */
+    SECTION = 314,                 /* SECTION  */
+    STANDARD_ALPHABET = 315,       /* "STANDARD ALPHABET"  */
+    SWITCH = 316,                  /* SWITCH  */
+    UPSI = 317,                    /* UPSI  */
+    ZERO = 318,                    /* ZERO  */
+    SYSIN = 319,                   /* SYSIN  */
+    SYSIPT = 320,                  /* SYSIPT  */
+    SYSOUT = 321,                  /* SYSOUT  */
+    SYSLIST = 322,                 /* SYSLIST  */
+    SYSLST = 323,                  /* SYSLST  */
+    SYSPUNCH = 324,                /* SYSPUNCH  */
+    SYSPCH = 325,                  /* SYSPCH  */
+    CONSOLE = 326,                 /* CONSOLE  */
+    C01 = 327,                     /* C01  */
+    C02 = 328,                     /* C02  */
+    C03 = 329,                     /* C03  */
+    C04 = 330,                     /* C04  */
+    C05 = 331,                     /* C05  */
+    C06 = 332,                     /* C06  */
+    C07 = 333,                     /* C07  */
+    C08 = 334,                     /* C08  */
+    C09 = 335,                     /* C09  */
+    C10 = 336,                     /* C10  */
+    C11 = 337,                     /* C11  */
+    C12 = 338,                     /* C12  */
+    CSP = 339,                     /* CSP  */
+    S01 = 340,                     /* S01  */
+    S02 = 341,                     /* S02  */
+    S03 = 342,                     /* S03  */
+    S04 = 343,                     /* S04  */
+    S05 = 344,                     /* S05  */
+    AFP_5A = 345,                  /* "AFP 5A"  */
+    STDIN = 346,                   /* STDIN  */
+    STDOUT = 347,                  /* STDOUT  */
+    STDERR = 348,                  /* STDERR  */
+    LIST = 349,                    /* LIST  */
+    MAP = 350,                     /* MAP  */
+    NOLIST = 351,                  /* NOLIST  */
+    NOMAP = 352,                   /* NOMAP  */
+    NOSOURCE = 353,                /* NOSOURCE  */
+    MIGHT_BE = 354,                /* "IS or IS NOT"  */
+    FUNCTION_UDF = 355,            /* "UDF name"  */
+    FUNCTION_UDF_0 = 356,          /* "UDF"  */
+    DEFAULT = 357,                 /* DEFAULT  */
+    DATE_FMT = 358,                /* "date format"  */
+    TIME_FMT = 359,                /* "time format"  */
+    DATETIME_FMT = 360,            /* "datetime format"  */
+    BASIS = 361,                   /* BASIS  */
+    CBL = 362,                     /* CBL  */
+    CONSTANT = 363,                /* CONSTANT  */
+    COPY = 364,                    /* COPY  */
+    DEFINED = 365,                 /* DEFINED  */
+    ENTER = 366,                   /* ENTER  */
+    FEATURE = 367,                 /* FEATURE  */
+    INSERTT = 368,                 /* INSERTT  */
+    LSUB = 369,                    /* "("  */
+    PARAMETER_kw = 370,            /* "PARAMETER"  */
+    OVERRIDE = 371,                /* OVERRIDE  */
+    READY = 372,                   /* READY  */
+    RESET = 373,                   /* RESET  */
+    RSUB = 374,                    /* ")"  */
+    SERVICE_RELOAD = 375,          /* "SERVICE RELOAD"  */
+    STAR_CBL = 376,                /* "*CBL"  */
+    SUBSCRIPT = 377,               /* SUBSCRIPT  */
+    SUPPRESS = 378,                /* SUPPRESS  */
+    TITLE = 379,                   /* TITLE  */
+    TRACE = 380,                   /* TRACE  */
+    USE = 381,                     /* USE  */
+    COBOL_WORDS = 382,             /* ">>COBOL-WORDS"  */
+    EQUATE = 383,                  /* EQUATE  */
+    UNDEFINE = 384,                /* UNDEFINE  */
+    CDF_DEFINE = 385,              /* ">>DEFINE"  */
+    CDF_DISPLAY = 386,             /* ">>DISPLAY"  */
+    CDF_IF = 387,                  /* ">>IF"  */
+    CDF_ELSE = 388,                /* ">>ELSE"  */
+    CDF_END_IF = 389,              /* ">>END-IF"  */
+    CDF_EVALUATE = 390,            /* ">>EVALUATE"  */
+    CDF_WHEN = 391,                /* ">>WHEN"  */
+    CDF_END_EVALUATE = 392,        /* ">>END-EVALUATE"  */
+    CALL_CONVENTION = 393,         /* ">>CALL-CONVENTION"  */
+    CALL_COBOL = 394,              /* "CALL"  */
+    CALL_VERBATIM = 395,           /* "CALL (as C)"  */
+    CDF_PUSH = 396,                /* ">>PUSH"  */
+    CDF_POP = 397,                 /* ">>POP"  */
+    SOURCE_FORMAT = 398,           /* ">>SOURCE FORMAT"  */
+    IF = 399,                      /* IF  */
+    THEN = 400,                    /* THEN  */
+    ELSE = 401,                    /* ELSE  */
+    SENTENCE = 402,                /* SENTENCE  */
+    ACCEPT = 403,                  /* ACCEPT  */
+    ADD = 404,                     /* ADD  */
+    ALTER = 405,                   /* ALTER  */
+    CALL = 406,                    /* CALL  */
+    CANCEL = 407,                  /* CANCEL  */
+    CLOSE = 408,                   /* CLOSE  */
+    COMPUTE = 409,                 /* COMPUTE  */
+    CONTINUE = 410,                /* CONTINUE  */
+    DELETE = 411,                  /* DELETE  */
+    DISPLAY = 412,                 /* DISPLAY  */
+    DIVIDE = 413,                  /* DIVIDE  */
+    EVALUATE = 414,                /* EVALUATE  */
+    EXIT = 415,                    /* EXIT  */
+    FILLER_kw = 416,               /* "FILLER"  */
+    GOBACK = 417,                  /* GOBACK  */
+    GOTO = 418,                    /* GOTO  */
+    INITIALIZE = 419,              /* INITIALIZE  */
+    INSPECT = 420,                 /* INSPECT  */
+    MERGE = 421,                   /* MERGE  */
+    MOVE = 422,                    /* MOVE  */
+    MULTIPLY = 423,                /* MULTIPLY  */
+    OPEN = 424,                    /* OPEN  */
+    PARAGRAPH = 425,               /* PARAGRAPH  */
+    READ = 426,                    /* READ  */
+    RELEASE = 427,                 /* RELEASE  */
+    RETURN = 428,                  /* RETURN  */
+    REWRITE = 429,                 /* REWRITE  */
+    SEARCH = 430,                  /* SEARCH  */
+    SET = 431,                     /* SET  */
+    SELECT = 432,                  /* SELECT  */
+    SORT = 433,                    /* SORT  */
+    SORT_MERGE = 434,              /* "SORT-MERGE"  */
+    STRING_kw = 435,               /* "STRING"  */
+    STOP = 436,                    /* STOP  */
+    SUBTRACT = 437,                /* SUBTRACT  */
+    START = 438,                   /* START  */
+    UNSTRING = 439,                /* UNSTRING  */
+    WRITE = 440,                   /* WRITE  */
+    WHEN = 441,                    /* WHEN  */
+    ARGUMENT_NUMBER = 442,         /* ARGUMENT_NUMBER  */
+    ARGUMENT_VALUE = 443,          /* ARGUMENT_VALUE  */
+    ENVIRONMENT_NAME = 444,        /* ENVIRONMENT_NAME  */
+    ENVIRONMENT_VALUE = 445,       /* ENVIRONMENT_VALUE  */
+    ABS = 446,                     /* ABS  */
+    ACCESS = 447,                  /* ACCESS  */
+    ACOS = 448,                    /* ACOS  */
+    ACTUAL = 449,                  /* ACTUAL  */
+    ADVANCING = 450,               /* ADVANCING  */
+    AFTER = 451,                   /* AFTER  */
+    ALL = 452,                     /* ALL  */
+    ALLOCATE = 453,                /* ALLOCATE  */
+    ALPHABET = 454,                /* ALPHABET  */
+    ALPHABETIC = 455,              /* ALPHABETIC  */
+    ALPHABETIC_LOWER = 456,        /* "ALPHABETIC-LOWER"  */
+    ALPHABETIC_UPPER = 457,        /* "ALPHABETIC-UPPER"  */
+    ALPHANUMERIC = 458,            /* ALPHANUMERIC  */
+    ALPHANUMERIC_EDITED = 459,     /* "ALPHANUMERIC-EDITED"  */
+    ALSO = 460,                    /* ALSO  */
+    ALTERNATE = 461,               /* ALTERNATE  */
+    ANNUITY = 462,                 /* ANNUITY  */
+    ANUM = 463,                    /* ANUM  */
+    ANY = 464,                     /* ANY  */
+    ANYCASE = 465,                 /* ANYCASE  */
+    APPLY = 466,                   /* APPLY  */
+    ARE = 467,                     /* ARE  */
+    AREA = 468,                    /* AREA  */
+    AREAS = 469,                   /* AREAS  */
+    AS = 470,                      /* AS  */
+    ASCENDING = 471,               /* ASCENDING  */
+    ACTIVATING = 472,              /* ACTIVATING  */
+    ASIN = 473,                    /* ASIN  */
+    ASSIGN = 474,                  /* ASSIGN  */
+    AT = 475,                      /* AT  */
+    ATAN = 476,                    /* ATAN  */
+    BASED = 477,                   /* BASED  */
+    BASECONVERT = 478,             /* BASECONVERT  */
+    BEFORE = 479,                  /* BEFORE  */
+    BINARY = 480,                  /* BINARY  */
+    BIT = 481,                     /* BIT  */
+    BIT_OF = 482,                  /* "BIT-OF"  */
+    BIT_TO_CHAR = 483,             /* "BIT-TO-CHAR"  */
+    BLANK = 484,                   /* BLANK  */
+    BLOCK_kw = 485,                /* BLOCK_kw  */
+    BOOLEAN_OF_INTEGER = 486,      /* "BOOLEAN-OF-INTEGER"  */
+    BOTTOM = 487,                  /* BOTTOM  */
+    BY = 488,                      /* BY  */
+    BYTE = 489,                    /* BYTE  */
+    BYTE_LENGTH = 490,             /* "BYTE-LENGTH"  */
+    CF = 491,                      /* CF  */
+    CH = 492,                      /* CH  */
+    CHANGED = 493,                 /* CHANGED  */
+    CHAR = 494,                    /* CHAR  */
+    CHAR_NATIONAL = 495,           /* "CHAR-NATIONAL"  */
+    CHARACTER = 496,               /* CHARACTER  */
+    CHARACTERS = 497,              /* CHARACTERS  */
+    CHECKING = 498,                /* CHECKING  */
+    CLASS = 499,                   /* CLASS  */
+    COBOL = 500,                   /* COBOL  */
+    CODE = 501,                    /* CODE  */
+    CODESET = 502,                 /* "CODE-SET"  */
+    COLLATING = 503,               /* COLLATING  */
+    COLUMN = 504,                  /* COLUMN  */
+    COMBINED_DATETIME = 505,       /* "COMBINED-DATETIME"  */
+    COMMA = 506,                   /* COMMA  */
+    COMMAND_LINE = 507,            /* "COMMAND-LINE"  */
+    COMMAND_LINE_COUNT = 508,      /* "COMMAND-LINE-COUNT"  */
+    COMMIT = 509,                  /* COMMIT  */
+    COMMON = 510,                  /* COMMON  */
+    CONCAT = 511,                  /* CONCAT  */
+    CONDITION = 512,               /* CONDITION  */
+    CONFIGURATION_SECT = 513,      /* "CONFIGURATION SECTION"  */
+    CONTAINS = 514,                /* CONTAINS  */
+    CONTENT = 515,                 /* CONTENT  */
+    CONTROL = 516,                 /* CONTROL  */
+    CONTROLS = 517,                /* CONTROLS  */
+    CONVERT = 518,                 /* CONVERT  */
+    CONVERTING = 519,              /* CONVERTING  */
+    CORRESPONDING = 520,           /* CORRESPONDING  */
+    COS = 521,                     /* COS  */
+    COUNT = 522,                   /* COUNT  */
+    CURRENCY = 523,                /* CURRENCY  */
+    CURRENT = 524,                 /* CURRENT  */
+    CURRENT_DATE = 525,            /* CURRENT_DATE  */
+    DATA = 526,                    /* DATA  */
+    DATE = 527,                    /* DATE  */
+    DATE_COMPILED = 528,           /* DATE_COMPILED  */
+    DATE_OF_INTEGER = 529,         /* "DATE-OF-INTEGER"  */
+    DATE_TO_YYYYMMDD = 530,        /* "DATE-TO-YYYYMMDD"  */
+    DATE_WRITTEN = 531,            /* "DATE-WRITTEN"  */
+    DAY = 532,                     /* DAY  */
+    DAY_OF_INTEGER = 533,          /* "DAY-OF-INTEGER"  */
+    DAY_OF_WEEK = 534,             /* "DAY-OF-WEEK"  */
+    DAY_TO_YYYYDDD = 535,          /* "DAY-TO-YYYYDDD"  */
+    DBCS = 536,                    /* DBCS  */
+    DE = 537,                      /* DE  */
+    DEBUGGING = 538,               /* DEBUGGING  */
+    DECIMAL_POINT = 539,           /* DECIMAL_POINT  */
+    DECLARATIVES = 540,            /* DECLARATIVES  */
+    DELIMITED = 541,               /* DELIMITED  */
+    DELIMITER = 542,               /* DELIMITER  */
+    DEPENDING = 543,               /* DEPENDING  */
+    DESCENDING = 544,              /* DESCENDING  */
+    DETAIL = 545,                  /* DETAIL  */
+    DIRECT = 546,                  /* DIRECT  */
+    DIRECT_ACCESS = 547,           /* "DIRECT-ACCESS"  */
+    DOWN = 548,                    /* DOWN  */
+    DUPLICATES = 549,              /* DUPLICATES  */
+    DYNAMIC = 550,                 /* DYNAMIC  */
+    E = 551,                       /* E  */
+    EBCDIC = 552,                  /* EBCDIC  */
+    EC = 553,                      /* EC  */
+    EGCS = 554,                    /* EGCS  */
+    ENCODING = 555,                /* ENCODING  */
+    ENTRY = 556,                   /* ENTRY  */
+    ENVIRONMENT = 557,             /* ENVIRONMENT  */
+    EVERY = 558,                   /* EVERY  */
+    EXAMINE = 559,                 /* EXAMINE  */
+    EXHIBIT = 560,                 /* EXHIBIT  */
+    EXP = 561,                     /* EXP  */
+    EXP10 = 562,                   /* EXP10  */
+    EXTEND = 563,                  /* EXTEND  */
+    EXTERNAL = 564,                /* EXTERNAL  */
+    EXCEPTION_FILE = 565,          /* "EXCEPTION-FILE"  */
+    EXCEPTION_FILE_N = 566,        /* "EXCEPTION-FILE-N"  */
+    EXCEPTION_LOCATION = 567,      /* "EXCEPTION-LOCATION"  */
+    EXCEPTION_LOCATION_N = 568,    /* "EXCEPTION-LOCATION-N"  */
+    EXCEPTION_STATEMENT = 569,     /* "EXCEPTION-STATEMENT"  */
+    EXCEPTION_STATUS = 570,        /* "EXCEPTION-STATUS"  */
+    FACTORIAL = 571,               /* FACTORIAL  */
+    FALSE_kw = 572,                /* "False"  */
+    FD = 573,                      /* FD  */
+    FILE_CONTROL = 574,            /* "FILE-CONTROL"  */
+    FILE_KW = 575,                 /* "File"  */
+    FILE_LIMIT = 576,              /* "FILE-LIMIT"  */
+    FINAL = 577,                   /* FINAL  */
+    FINALLY = 578,                 /* FINALLY  */
+    FIND_STRING = 579,             /* "FIND-STRING"  */
+    FIRST = 580,                   /* FIRST  */
+    FIXED = 581,                   /* FIXED  */
+    FOOTING = 582,                 /* FOOTING  */
+    FOR = 583,                     /* FOR  */
+    FORMATTED_CURRENT_DATE = 584,  /* "FORMATTED-CURRENT-DATE"  */
+    FORMATTED_DATE = 585,          /* "FORMATTED-DATE"  */
+    FORMATTED_DATETIME = 586,      /* "FORMATTED-DATETIME"  */
+    FORMATTED_TIME = 587,          /* "FORMATTED-TIME"  */
+    FORM_OVERFLOW = 588,           /* "FORM-OVERFLOW"  */
+    FREE = 589,                    /* FREE  */
+    FRACTION_PART = 590,           /* "FRACTION-PART"  */
+    FROM = 591,                    /* FROM  */
+    FUNCTION = 592,                /* FUNCTION  */
+    GENERATE = 593,                /* GENERATE  */
+    GIVING = 594,                  /* GIVING  */
+    GLOBAL = 595,                  /* GLOBAL  */
+    GO = 596,                      /* GO  */
+    GROUP = 597,                   /* GROUP  */
+    HEADING = 598,                 /* HEADING  */
+    HEX = 599,                     /* HEX  */
+    HEX_OF = 600,                  /* "HEX-OF"  */
+    HEX_TO_CHAR = 601,             /* "HEX-TO-CHAR"  */
+    HIGH_VALUES = 602,             /* "HIGH-VALUES"  */
+    HIGHEST_ALGEBRAIC = 603,       /* "HIGHEST-ALGEBRAIC"  */
+    HOLD = 604,                    /* HOLD  */
+    IBM_360 = 605,                 /* IBM_360  */
+    IN = 606,                      /* IN  */
+    INCLUDE = 607,                 /* INCLUDE  */
+    INDEX = 608,                   /* INDEX  */
+    INDEXED = 609,                 /* INDEXED  */
+    INDICATE = 610,                /* INDICATE  */
+    INITIAL_kw = 611,              /* "INITIAL"  */
+    INITIATE = 612,                /* INITIATE  */
+    INPUT = 613,                   /* INPUT  */
+    INSTALLATION = 614,            /* INSTALLATION  */
+    INTERFACE = 615,               /* INTERFACE  */
+    INTEGER = 616,                 /* INTEGER  */
+    INTEGER_OF_BOOLEAN = 617,      /* "INTEGER-OF-BOOLEAN"  */
+    INTEGER_OF_DATE = 618,         /* "INTEGER-OF-DATE"  */
+    INTEGER_OF_DAY = 619,          /* "INTEGER-OF-DAY"  */
+    INTEGER_OF_FORMATTED_DATE = 620, /* "INTEGER-OF-FORMATTED-DATE"  */
+    INTEGER_PART = 621,            /* "INTEGER-PART"  */
+    INTO = 622,                    /* INTO  */
+    INTRINSIC = 623,               /* INTRINSIC  */
+    INVOKE = 624,                  /* INVOKE  */
+    IO = 625,                      /* "I-O"  */
+    IO_CONTROL = 626,              /* "I-O-CONTROL"  */
+    IS = 627,                      /* IS  */
+    ISNT = 628,                    /* "IS NOT"  */
+    KANJI = 629,                   /* KANJI  */
+    KEY = 630,                     /* KEY  */
+    LABEL = 631,                   /* LABEL  */
+    LAST = 632,                    /* LAST  */
+    LEADING = 633,                 /* LEADING  */
+    LEFT = 634,                    /* LEFT  */
+    LENGTH = 635,                  /* LENGTH  */
+    LENGTH_OF = 636,               /* "LENGTH-OF"  */
+    LIMIT = 637,                   /* LIMIT  */
+    LIMITS = 638,                  /* LIMITS  */
+    LINE = 639,                    /* LINE  */
+    LINES = 640,                   /* LINES  */
+    LINE_COUNTER = 641,            /* "LINE-COUNTER"  */
+    LINAGE = 642,                  /* LINAGE  */
+    LINKAGE = 643,                 /* LINKAGE  */
+    LOCALE = 644,                  /* LOCALE  */
+    LOCALE_COMPARE = 645,          /* "LOCALE-COMPARE"  */
+    LOCALE_DATE = 646,             /* "LOCALE-DATE"  */
+    LOCALE_TIME = 647,             /* "LOCALE-TIME"  */
+    LOCALE_TIME_FROM_SECONDS = 648, /* "LOCALE-TIME-FROM-SECONDS"  */
+    LOCAL_STORAGE = 649,           /* "LOCAL-STORAGE"  */
+    LOCATION = 650,                /* LOCATION  */
+    LOCK = 651,                    /* LOCK  */
+    LOCK_ON = 652,                 /* LOCK_ON  */
+    LOG = 653,                     /* LOG  */
+    LOG10 = 654,                   /* LOG10  */
+    LOWER_CASE = 655,              /* "LOWER-CASE"  */
+    LOW_VALUES = 656,              /* "LOW-VALUES"  */
+    LOWEST_ALGEBRAIC = 657,        /* "LOWEST-ALGEBRAIC"  */
+    LPAREN = 658,                  /* " )"  */
+    MANUAL = 659,                  /* MANUAL  */
+    MAXX = 660,                    /* "Max"  */
+    MEAN = 661,                    /* MEAN  */
+    MEDIAN = 662,                  /* MEDIAN  */
+    MIDRANGE = 663,                /* MIDRANGE  */
+    MINN = 664,                    /* "Min"  */
+    MULTIPLE = 665,                /* MULTIPLE  */
+    MOD = 666,                     /* MOD  */
+    MODE = 667,                    /* MODE  */
+    MODULE_NAME = 668,             /* "MODULE-NAME "  */
+    NAMED = 669,                   /* NAMED  */
+    NAT = 670,                     /* NAT  */
+    NATIONAL = 671,                /* NATIONAL  */
+    NATIONAL_EDITED = 672,         /* "NATIONAL-EDITED"  */
+    NATIONAL_OF = 673,             /* "NATIONAL-OF"  */
+    NATIVE = 674,                  /* NATIVE  */
+    NESTED = 675,                  /* NESTED  */
+    NEXT = 676,                    /* NEXT  */
+    NO = 677,                      /* NO  */
+    NOTE = 678,                    /* NOTE  */
+    NULLS = 679,                   /* NULLS  */
+    NULLPTR = 680,                 /* NULLPTR  */
+    NUMERIC = 681,                 /* NUMERIC  */
+    NUMERIC_EDITED = 682,          /* NUMERIC_EDITED  */
+    NUMVAL = 683,                  /* NUMVAL  */
+    NUMVAL_C = 684,                /* "NUMVAL-C"  */
+    NUMVAL_F = 685,                /* "NUMVAL-F"  */
+    OCCURS = 686,                  /* OCCURS  */
+    OF = 687,                      /* OF  */
+    OFF = 688,                     /* OFF  */
+    OMITTED = 689,                 /* OMITTED  */
+    ON = 690,                      /* ON  */
+    ONLY = 691,                    /* ONLY  */
+    OPTIONAL = 692,                /* OPTIONAL  */
+    OPTIONS = 693,                 /* OPTIONS  */
+    ORD = 694,                     /* ORD  */
+    ORDER = 695,                   /* ORDER  */
+    ORD_MAX = 696,                 /* "ORD-MAX"  */
+    ORD_MIN = 697,                 /* "ORD-MIN"  */
+    ORGANIZATION = 698,            /* ORGANIZATION  */
+    OTHER = 699,                   /* OTHER  */
+    OTHERWISE = 700,               /* OTHERWISE  */
+    OUTPUT = 701,                  /* OUTPUT  */
+    PACKED_DECIMAL = 702,          /* PACKED_DECIMAL  */
+    PADDING = 703,                 /* PADDING  */
+    PAGE = 704,                    /* PAGE  */
+    PAGE_COUNTER = 705,            /* "PAGE-COUNTER"  */
+    PF = 706,                      /* PF  */
+    PH = 707,                      /* PH  */
+    PI = 708,                      /* PI  */
+    PIC = 709,                     /* PIC  */
+    PICTURE = 710,                 /* PICTURE  */
+    PLUS = 711,                    /* PLUS  */
+    PRESENT_VALUE = 712,           /* PRESENT_VALUE  */
+    PRINT_SWITCH = 713,            /* PRINT_SWITCH  */
+    PROCEDURE = 714,               /* PROCEDURE  */
+    PROCEDURES = 715,              /* PROCEDURES  */
+    PROCEED = 716,                 /* PROCEED  */
+    PROCESS = 717,                 /* PROCESS  */
+    PROCESSING = 718,              /* PROCESSING  */
+    PROGRAM_ID = 719,              /* "PROGRAM-ID"  */
+    PROGRAM_kw = 720,              /* "Program"  */
+    PROPERTY = 721,                /* PROPERTY  */
+    PROTOTYPE = 722,               /* PROTOTYPE  */
+    PSEUDOTEXT = 723,              /* PSEUDOTEXT  */
+    QUOTES = 724,                  /* "QUOTE"  */
+    RANDOM = 725,                  /* RANDOM  */
+    RANDOM_SEED = 726,             /* RANDOM_SEED  */
+    RANGE = 727,                   /* RANGE  */
+    RAISE = 728,                   /* RAISE  */
+    RAISING = 729,                 /* RAISING  */
+    RD = 730,                      /* RD  */
+    RECORD = 731,                  /* RECORD  */
+    RECORDING = 732,               /* RECORDING  */
+    RECORDS = 733,                 /* RECORDS  */
+    RECURSIVE = 734,               /* RECURSIVE  */
+    REDEFINES = 735,               /* REDEFINES  */
+    REEL = 736,                    /* REEL  */
+    REFERENCE = 737,               /* REFERENCE  */
+    RELATIVE = 738,                /* RELATIVE  */
+    REM = 739,                     /* REM  */
+    REMAINDER = 740,               /* REMAINDER  */
+    REMARKS = 741,                 /* REMARKS  */
+    REMOVAL = 742,                 /* REMOVAL  */
+    RENAMES = 743,                 /* RENAMES  */
+    REPLACE = 744,                 /* REPLACE  */
+    REPLACING = 745,               /* REPLACING  */
+    REPORT = 746,                  /* REPORT  */
+    REPORTING = 747,               /* REPORTING  */
+    REPORTS = 748,                 /* REPORTS  */
+    REPOSITORY = 749,              /* REPOSITORY  */
+    RERUN = 750,                   /* RERUN  */
+    RESERVE = 751,                 /* RESERVE  */
+    RESTRICTED = 752,              /* RESTRICTED  */
+    RESUME = 753,                  /* RESUME  */
+    RETRY = 754,                   /* RETRY  */
+    REVERSE = 755,                 /* REVERSE  */
+    REVERSED = 756,                /* REVERSED  */
+    REWIND = 757,                  /* REWIND  */
+    RF = 758,                      /* RF  */
+    RH = 759,                      /* RH  */
+    RIGHT = 760,                   /* RIGHT  */
+    ROUNDED = 761,                 /* ROUNDED  */
+    RUN = 762,                     /* RUN  */
+    SAME = 763,                    /* SAME  */
+    SCREEN = 764,                  /* SCREEN  */
+    SD = 765,                      /* SD  */
+    SECONDS_FROM_FORMATTED_TIME = 766, /* "SECONDS-FROM-FORMATTED-TIME"  */
+    SECONDS_PAST_MIDNIGHT = 767,   /* "SECONDS-PAST-MIDNIGHT"  */
+    SECURITY = 768,                /* SECURITY  */
+    SEPARATE = 769,                /* SEPARATE  */
+    SEQUENCE = 770,                /* SEQUENCE  */
+    SEQUENTIAL = 771,              /* SEQUENTIAL  */
+    SHARING = 772,                 /* SHARING  */
+    SIMPLE_EXIT = 773,             /* "(simple) EXIT"  */
+    SIGN = 774,                    /* SIGN  */
+    SIN = 775,                     /* SIN  */
+    SIZE = 776,                    /* SIZE  */
+    SMALLEST_ALGEBRAIC = 777,      /* "SMALLEST-ALGEBRAIC"  */
+    SOURCE = 778,                  /* SOURCE  */
+    SOURCE_COMPUTER = 779,         /* "SOURCE-COMPUTER"  */
+    SPECIAL_NAMES = 780,           /* SPECIAL_NAMES  */
+    SQRT = 781,                    /* SQRT  */
+    STACK = 782,                   /* STACK  */
+    STANDARD = 783,                /* STANDARD  */
+    STANDARD_1 = 784,              /* "STANDARD-1"  */
+    STANDARD_DEVIATION = 785,      /* "STANDARD-DEVIATION "  */
+    STANDARD_COMPARE = 786,        /* "STANDARD-COMPARE"  */
+    STATUS = 787,                  /* STATUS  */
+    STRONG = 788,                  /* STRONG  */
+    SUBSTITUTE = 789,              /* SUBSTITUTE  */
+    SUM = 790,                     /* SUM  */
+    SYMBOL = 791,                  /* SYMBOL  */
+    SYMBOLIC = 792,                /* SYMBOLIC  */
+    SYNCHRONIZED = 793,            /* SYNCHRONIZED  */
+    TALLYING = 794,                /* TALLYING  */
+    TAN = 795,                     /* TAN  */
+    TERMINATE = 796,               /* TERMINATE  */
+    TEST = 797,                    /* TEST  */
+    TEST_DATE_YYYYMMDD = 798,      /* "TEST-DATE-YYYYMMDD"  */
+    TEST_DAY_YYYYDDD = 799,        /* "TEST-DAY-YYYYDDD"  */
+    TEST_FORMATTED_DATETIME = 800, /* "TEST-FORMATTED-DATETIME"  */
+    TEST_NUMVAL = 801,             /* "TEST-NUMVAL"  */
+    TEST_NUMVAL_C = 802,           /* "TEST-NUMVAL-C"  */
+    TEST_NUMVAL_F = 803,           /* "TEST-NUMVAL-F"  */
+    THAN = 804,                    /* THAN  */
+    TIME = 805,                    /* TIME  */
+    TIMES = 806,                   /* TIMES  */
+    TO = 807,                      /* TO  */
+    TOP = 808,                     /* TOP  */
+    TOP_LEVEL = 809,               /* TOP_LEVEL  */
+    TRACKS = 810,                  /* TRACKS  */
+    TRACK_AREA = 811,              /* TRACK_AREA  */
+    TRAILING = 812,                /* TRAILING  */
+    TRANSFORM = 813,               /* TRANSFORM  */
+    TRIM = 814,                    /* TRIM  */
+    TRUE_kw = 815,                 /* "True"  */
+    TRY = 816,                     /* TRY  */
+    TURN = 817,                    /* TURN  */
+    TYPE = 818,                    /* TYPE  */
+    TYPEDEF = 819,                 /* TYPEDEF  */
+    ULENGTH = 820,                 /* ULENGTH  */
+    UNBOUNDED = 821,               /* UNBOUNDED  */
+    UNIT = 822,                    /* UNIT  */
+    UNITS = 823,                   /* UNITS  */
+    UNIT_RECORD = 824,             /* UNIT_RECORD  */
+    UNTIL = 825,                   /* UNTIL  */
+    UP = 826,                      /* UP  */
+    UPON = 827,                    /* UPON  */
+    UPOS = 828,                    /* UPOS  */
+    UPPER_CASE = 829,              /* UPPER_CASE  */
+    USAGE = 830,                   /* USAGE  */
+    USING = 831,                   /* USING  */
+    USUBSTR = 832,                 /* USUBSTR  */
+    USUPPLEMENTARY = 833,          /* USUPPLEMENTARY  */
+    UTILITY = 834,                 /* UTILITY  */
+    UUID4 = 835,                   /* UUID4  */
+    UVALID = 836,                  /* UVALID  */
+    UWIDTH = 837,                  /* UWIDTH  */
+    VALIDATING = 838,              /* VALIDATING  */
+    VALUE = 839,                   /* VALUE  */
+    VARIANCE = 840,                /* VARIANCE  */
+    VARYING = 841,                 /* VARYING  */
+    VOLATILE = 842,                /* VOLATILE  */
+    WHEN_COMPILED = 843,           /* WHEN_COMPILED  */
+    WITH = 844,                    /* WITH  */
+    WORKING_STORAGE = 845,         /* WORKING_STORAGE  */
     YEAR_TO_YYYY = 846,            /* YEAR_TO_YYYY  */
     YYYYDDD = 847,                 /* YYYYDDD  */
     YYYYMMDD = 848,                /* YYYYMMDD  */
@@ -969,36 +1010,45 @@ extern int yydebug;
     UNSIGNED_kw = 915,             /* UNSIGNED_kw  */
     UTF_16 = 916,                  /* "UTF-16"  */
     UTF_8 = 917,                   /* "UTF-8"  */
-    ADDRESS = 918,                 /* ADDRESS  */
-    END_ACCEPT = 919,              /* "END-ACCEPT"  */
-    END_ADD = 920,                 /* "END-ADD"  */
-    END_CALL = 921,                /* "END-CALL"  */
-    END_COMPUTE = 922,             /* "END-COMPUTE"  */
-    END_DELETE = 923,              /* "END-DELETE"  */
-    END_DISPLAY = 924,             /* "END-DISPLAY"  */
-    END_DIVIDE = 925,              /* "END-DIVIDE"  */
-    END_EVALUATE = 926,            /* "END-EVALUATE"  */
-    END_MULTIPLY = 927,            /* "END-MULTIPLY"  */
-    END_PERFORM = 928,             /* "END-PERFORM"  */
-    END_READ = 929,                /* "END-READ"  */
-    END_RETURN = 930,              /* "END-RETURN"  */
-    END_REWRITE = 931,             /* "END-REWRITE"  */
-    END_SEARCH = 932,              /* "END-SEARCH"  */
-    END_START = 933,               /* "END-START"  */
-    END_STRING = 934,              /* "END-STRING"  */
-    END_SUBTRACT = 935,            /* "END-SUBTRACT"  */
-    END_UNSTRING = 936,            /* "END-UNSTRING"  */
-    END_WRITE = 937,               /* "END-WRITE"  */
-    END_IF = 938,                  /* "END-IF"  */
-    THRU = 939,                    /* THRU  */
-    OR = 940,                      /* OR  */
-    AND = 941,                     /* AND  */
-    NOT = 942,                     /* NOT  */
-    NE = 943,                      /* NE  */
-    LE = 944,                      /* LE  */
-    GE = 945,                      /* GE  */
-    POW = 946,                     /* POW  */
-    NEG = 947                      /* NEG  */
+    XMLGENERATE = 918,             /* "XML GENERATE"  */
+    XMLPARSE = 919,                /* "XML PARSE"  */
+    ADDRESS = 920,                 /* ADDRESS  */
+    END_ACCEPT = 921,              /* "END-ACCEPT"  */
+    END_ADD = 922,                 /* "END-ADD"  */
+    END_CALL = 923,                /* "END-CALL"  */
+    END_COMPUTE = 924,             /* "END-COMPUTE"  */
+    END_DELETE = 925,              /* "END-DELETE"  */
+    END_DISPLAY = 926,             /* "END-DISPLAY"  */
+    END_DIVIDE = 927,              /* "END-DIVIDE"  */
+    END_EVALUATE = 928,            /* "END-EVALUATE"  */
+    END_MULTIPLY = 929,            /* "END-MULTIPLY"  */
+    END_PERFORM = 930,             /* "END-PERFORM"  */
+    END_READ = 931,                /* "END-READ"  */
+    END_RETURN = 932,              /* "END-RETURN"  */
+    END_REWRITE = 933,             /* "END-REWRITE"  */
+    END_SEARCH = 934,              /* "END-SEARCH"  */
+    END_START = 935,               /* "END-START"  */
+    END_STRING = 936,              /* "END-STRING"  */
+    END_SUBTRACT = 937,            /* "END-SUBTRACT"  */
+    END_UNSTRING = 938,            /* "END-UNSTRING"  */
+    END_WRITE = 939,               /* "END-WRITE"  */
+    END_XML = 940,                 /* "END-XML"  */
+    END_IF = 941,                  /* "END-IF"  */
+    ATTRIBUTES = 942,              /* ATTRIBUTES  */
+    ELEMENT = 943,                 /* ELEMENT  */
+    NAMESPACE = 944,               /* NAMESPACE  */
+    NAMESPACE_PREFIX = 945,        /* NAMESPACE_PREFIX  */
+    NONNUMERIC = 947,              /* NONNUMERIC  */
+    XML_DECLARATION = 948,         /* XML_DECLARATION  */
+    THRU = 950,                    /* THRU  */
+    OR = 951,                      /* OR  */
+    AND = 952,                     /* AND  */
+    NOT = 953,                     /* NOT  */
+    NE = 954,                      /* NE  */
+    LE = 955,                      /* LE  */
+    GE = 956,                      /* GE  */
+    POW = 957,                     /* POW  */
+    NEG = 958                      /* NEG  */
   };
   typedef enum yytokentype yytoken_kind_t;
 #endif
@@ -1007,12 +1057,12 @@ extern int yydebug;
 #if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
 union YYSTYPE
 {
-#line 846 "parse.y"
+#line 912 "parse.y"
 
     bool boolean;
     int number;
     char *string;
-    REAL_VALUE_TYPE float128;
+    struct { REAL_VALUE_TYPE r; char *s; } cce_type;
     literal_t literal;
     cbl_field_attr_t field_attr;
     ec_type_t ec_type;
@@ -1021,9 +1071,13 @@ union YYSTYPE
     cbl_namelocs_t *namelocs;
            declarative_list_t* dcl_list_t;
            isym_list_t* isym_list;
-    struct { radix_t radix; char *string; } numstr;
+    struct { bool is_float; radix_t radix; char *string; } numstr;
     struct { YYLTYPE loc; int token; literal_t name; } prog_end;
     struct { int token; special_name_t id; } special_type;
+    struct { char locale_type; const char * name; } locale_phrase;
+             coll_alphanat_t char_class_locales;
+    struct collating_name_t { int token; const char *name; } collating_name;
+    struct { size_t isym; cbl_encoding_t encoding; } codeset;
     struct { cbl_field_type_t type;
              uint32_t capacity; bool signable; } computational;
     struct cbl_special_name_t *special;
@@ -1035,7 +1089,7 @@ union YYSTYPE
     struct { cbl_file_t *file; file_status_t handled; } file_op;
     struct cbl_label_t *label;
     struct { cbl_label_t *label; int token; } exception;
-    struct cbl_field_data_t *field_data;
+    struct { cbl_encoding_t encoding; cbl_field_data_t *data; } field_data;
     struct cbl_field_t *field;
     struct { bool tf; cbl_field_t *field; } bool_field;
     struct { int token; cbl_field_t *cond; } cond_field;
@@ -1071,7 +1125,9 @@ union YYSTYPE
     struct { cbl_refer_t *input, *delimiter; } delimited_1;
     struct { cbl_refer_t *from, *len; } refmod_parts;
     struct refer_collection_t *delimiteds;
+
     struct { cbl_label_t *on_error, *not_error; } error;
+           label_pair_t label_pair;
     struct { unsigned int nclause; bool tf; } error_clauses;
     struct refer_pair_t { cbl_refer_t *first, *second; } refer2;
     struct { refer_collection_t *inputs; refer_pair_t into; } str_body;
@@ -1092,7 +1148,7 @@ union YYSTYPE
     struct { enum select_clause_t clause; cbl_file_t *file; } select_clause;
     struct { size_t clauses; cbl_file_t *file; } select_clauses;
     struct { YYLTYPE loc; char *on, *off; } switches;
-    struct cbl_domain_t *false_domain;
+    struct { cbl_encoding_t encoding; cbl_domain_t *domain; } false_domain;
     struct { size_t also; unsigned char *low, *high; } colseq;
     struct { cbl_field_attr_t attr; int nbyte; } pic_part;
 
@@ -1104,6 +1160,9 @@ union YYSTYPE
            substitution_t substitution;
            substitutions_t  *substitutions;
     struct { bool is_locale; cbl_refer_t *arg2; } numval_locale_t;
+           locale_tgt_t *token_list;
+
+    struct xml_decl_attr_t { bool with_decl, with_attr; } xml_decl_attr;
 
     cbl_options_t::arith_t opt_arith;
     cbl_round_t opt_round;
@@ -1111,7 +1170,7 @@ union YYSTYPE
     struct { bool local, working; } opt_init_sects;
     module_type_t module_type;
 
-#line 1115 "parse.h"
+#line 1174 "parse.h"
 
 };
 typedef union YYSTYPE YYSTYPE;

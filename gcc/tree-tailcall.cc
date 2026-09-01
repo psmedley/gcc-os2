@@ -1,5 +1,5 @@
 /* Tail call optimization on trees.
-   Copyright (C) 2003-2025 Free Software Foundation, Inc.
+   Copyright (C) 2003-2026 Free Software Foundation, Inc.
 
 This file is part of GCC.
 
@@ -605,6 +605,12 @@ find_tail_calls (basic_block bb, edge esucc, struct tailcall **ret,
 	  && (stmt = last_nondebug_stmt (bb))
 	  && gimple_code (stmt) == GIMPLE_COND)
 	;
+      else if (esucc
+	       && cfun->has_musttail
+	       && diag_musttail
+	       && (stmt = last_nondebug_stmt (bb))
+	       && gimple_code (stmt) == GIMPLE_SWITCH)
+	;
       /* If there is an abnormal edge assume it's the only extra one.
 	 Tolerate that case so that we can give better error messages
 	 for musttail later.  */
@@ -668,7 +674,7 @@ find_tail_calls (basic_block bb, edge esucc, struct tailcall **ret,
 	   else
 	     goto <bb 6>; [INV]
 	 When walking backwards, ESUCC is the edge we are coming from,
-	 depending on its EDGE_TRUE_FLAG, == vs. != for the comparison
+	 depending on its EDGE_TRUE_FLAG, comparison code
 	 and value compared against try to find out through which edge
 	 we need to go and which edge should be ignored.  The code handles
 	 both INTEGER_CST PHI arguments and SSA_NAMEs set to constants
@@ -677,19 +683,16 @@ find_tail_calls (basic_block bb, edge esucc, struct tailcall **ret,
 	  && diag_musttail
 	  && esucc
 	  && gimple_code (stmt) == GIMPLE_COND
-	  && (gimple_cond_code (stmt) == EQ_EXPR
-	      || gimple_cond_code (stmt) == NE_EXPR)
 	  && TREE_CODE (gimple_cond_lhs (stmt)) == SSA_NAME
 	  && TREE_CODE (gimple_cond_rhs (stmt)) == INTEGER_CST
 	  && INTEGRAL_TYPE_P (TREE_TYPE (gimple_cond_lhs (stmt)))
-	  && (integer_zerop (gimple_cond_rhs (stmt))
-	      || integer_onep (gimple_cond_rhs (stmt))))
+	  && tree_int_cst_sgn (gimple_cond_rhs (stmt)) >= 0)
 	{
 	  tree lhs = gimple_cond_lhs (stmt);
-	  bool rhsv = integer_onep (gimple_cond_rhs (stmt));
-	  if (((esucc->flags & EDGE_TRUE_VALUE) != 0)
-	      ^ (gimple_cond_code (stmt) == EQ_EXPR))
-	    rhsv = !rhsv;
+	  tree_code ccode = gimple_cond_code (stmt);
+	  tree rhsv = gimple_cond_rhs (stmt);
+	  if ((esucc->flags & EDGE_FALSE_VALUE) != 0)
+	    ccode = invert_tree_comparison (ccode, false);
 	  if (!ignored_edges)
 	    {
 	      ignored_edges = new hash_set<edge>;
@@ -700,8 +703,10 @@ find_tail_calls (basic_block bb, edge esucc, struct tailcall **ret,
 	      && (gimple_assign_rhs_code (SSA_NAME_DEF_STMT (lhs))
 		  == INTEGER_CST))
 	    {
-	      tree rhs = gimple_assign_rhs1 (SSA_NAME_DEF_STMT (lhs));
-	      if (rhsv ? integer_onep (rhs) : integer_zerop (rhs))
+	      tree lhsv = gimple_assign_rhs1 (SSA_NAME_DEF_STMT (lhs));
+
+	      if (const_binop (ccode, boolean_type_node, lhsv, rhsv)
+		  == boolean_true_node)
 		continue;
 	    }
 	  else if (gimple_code (SSA_NAME_DEF_STMT (lhs)) == GIMPLE_PHI)
@@ -712,15 +717,62 @@ find_tail_calls (basic_block bb, edge esucc, struct tailcall **ret,
 	      edge_iterator ei;
 	      FOR_EACH_EDGE (e, ei, pbb->preds)
 		{
-		  tree rhs = gimple_phi_arg_def_from_edge (phi, e);
-		  if (TREE_CODE (rhs) == SSA_NAME
-		      && is_gimple_assign (SSA_NAME_DEF_STMT (rhs))
-		      && (gimple_assign_rhs_code (SSA_NAME_DEF_STMT (rhs))
+		  tree lhsv = gimple_phi_arg_def_from_edge (phi, e);
+		  if (TREE_CODE (lhsv) == SSA_NAME
+		      && is_gimple_assign (SSA_NAME_DEF_STMT (lhsv))
+		      && (gimple_assign_rhs_code (SSA_NAME_DEF_STMT (lhsv))
 			  == INTEGER_CST))
-		    rhs = gimple_assign_rhs1 (SSA_NAME_DEF_STMT (rhs));
-		  if (!(rhsv ? integer_onep (rhs) : integer_zerop (rhs)))
+		    lhsv = gimple_assign_rhs1 (SSA_NAME_DEF_STMT (lhsv));
+		  if (TREE_CODE (lhsv) != INTEGER_CST
+		      || const_binop (ccode, boolean_type_node,
+				      lhsv, rhsv) != boolean_true_node)
 		    ignored_edges->add (e);
 		}
+	      continue;
+	    }
+	}
+      if (cfun->has_musttail
+	  && diag_musttail
+	  && esucc
+	  && gimple_code (stmt) == GIMPLE_SWITCH
+	  && (TREE_CODE (gimple_switch_index (as_a <gswitch *> (stmt)))
+	      == SSA_NAME))
+	{
+	  gswitch *swtch = as_a <gswitch *> (stmt);
+	  tree idx = gimple_switch_index (swtch);
+	  if (!ignored_edges)
+	    {
+	      ignored_edges = new hash_set<edge>;
+	      must_see_bbs = new hash_set<basic_block>;
+	      delete_ignored_edges = true;
+	    }
+	  if (is_gimple_assign (SSA_NAME_DEF_STMT (idx))
+	      && (gimple_assign_rhs_code (SSA_NAME_DEF_STMT (idx))
+		  == INTEGER_CST))
+	    {
+	      tree val = gimple_assign_rhs1 (SSA_NAME_DEF_STMT (idx));
+	      if (find_taken_edge_switch_expr (swtch, val) == esucc)
+		continue;
+	    }
+	  else if (gimple_code (SSA_NAME_DEF_STMT (idx)) == GIMPLE_PHI)
+	    {
+	      gimple *phi = SSA_NAME_DEF_STMT (idx);
+	      basic_block pbb = gimple_bb (phi);
+	      must_see_bbs->add (pbb);
+	      edge_iterator ei;
+	      FOR_EACH_EDGE (e, ei, pbb->preds)
+		{
+		  tree val = gimple_phi_arg_def_from_edge (phi, e);
+		  if (TREE_CODE (val) == SSA_NAME
+		      && is_gimple_assign (SSA_NAME_DEF_STMT (val))
+		      && (gimple_assign_rhs_code (SSA_NAME_DEF_STMT (val))
+			  == INTEGER_CST))
+		    val = gimple_assign_rhs1 (SSA_NAME_DEF_STMT (val));
+		  if (TREE_CODE (val) != INTEGER_CST
+		      || find_taken_edge_switch_expr (swtch, val) != esucc)
+		    ignored_edges->add (e);
+		}
+	      continue;
 	    }
 	}
 
@@ -957,8 +1009,7 @@ find_tail_calls (basic_block bb, edge esucc, struct tailcall **ret,
 		  ? !is_gimple_reg (param)
 		  : (!is_gimple_variable (param)
 		     || TREE_THIS_VOLATILE (param)
-		     || may_be_aliased (param)
-		     || !gimple_call_must_tail_p (call)))
+		     || may_be_aliased (param)))
 		break;
 	    }
 	}
@@ -1139,47 +1190,67 @@ find_tail_calls (basic_block bb, edge esucc, struct tailcall **ret,
       if (ignored_edges)
 	{
 	  if (is_gimple_assign (stmt)
-	      && gimple_assign_rhs_code (stmt) == INTEGER_CST)
+	      && gimple_assign_rhs_code (stmt) == INTEGER_CST
+	      && tree_int_cst_sgn (gimple_assign_rhs1 (stmt)) >= 0)
 	    {
 	      use_operand_p use_p;
-	      gimple *use_stmt;
-	      if ((integer_zerop (gimple_assign_rhs1 (stmt))
-		   || integer_onep (gimple_assign_rhs1 (stmt)))
-		  && single_imm_use (gimple_assign_lhs (stmt), &use_p,
-				     &use_stmt))
+	      imm_use_iterator imm_iter;
+	      bool bad_p = false;
+	      FOR_EACH_IMM_USE_FAST (use_p, imm_iter,
+				     gimple_assign_lhs (stmt))
 		{
-		  if (gimple_code (use_stmt) == GIMPLE_COND)
+		  gimple *use_stmt = USE_STMT (use_p);
+		  if (is_gimple_debug (use_stmt)
+		      || gimple_code (use_stmt) == GIMPLE_COND
+		      || gimple_code (use_stmt) == GIMPLE_SWITCH)
 		    continue;
-		  if (gimple_code (use_stmt) == GIMPLE_PHI
-		      && single_imm_use (gimple_phi_result (use_stmt),
-					 &use_p, &use_stmt)
-		      && gimple_code (use_stmt) == GIMPLE_COND)
-		    continue;
+		  if (gimple_code (use_stmt) == GIMPLE_PHI)
+		    {
+		      use_operand_p use_p2;
+		      imm_use_iterator imm_iter2;
+		      FOR_EACH_IMM_USE_FAST (use_p2, imm_iter2,
+					     gimple_phi_result (use_stmt))
+			{
+			  gimple *use_stmt2 = USE_STMT (use_p2);
+			  if (is_gimple_debug (use_stmt2)
+			      || gimple_code (use_stmt2) == GIMPLE_COND
+			      || gimple_code (use_stmt2) == GIMPLE_SWITCH)
+			    continue;
+			  bad_p = true;
+			  break;
+			}
+		      if (bad_p)
+			break;
+		    }
+		  else
+		    {
+		      bad_p = true;
+		      break;
+		    }
 		}
+	      if (!bad_p)
+		continue;
 	    }
 	  if (gimple_code (stmt) == GIMPLE_COND
-	      && (gimple_cond_code (stmt) == EQ_EXPR
-		  || gimple_cond_code (stmt) == NE_EXPR)
 	      && TREE_CODE (gimple_cond_lhs (stmt)) == SSA_NAME
 	      && TREE_CODE (gimple_cond_rhs (stmt)) == INTEGER_CST
 	      && INTEGRAL_TYPE_P (TREE_TYPE (gimple_cond_lhs (stmt)))
-	      && (integer_zerop (gimple_cond_rhs (stmt))
-		  || integer_onep (gimple_cond_rhs (stmt))))
+	      && tree_int_cst_sgn (gimple_cond_rhs (stmt)) >= 0)
 	    {
 	      edge e = NULL, et, ef;
+	      enum tree_code ccode = gimple_cond_code (stmt);
 	      tree lhs = gimple_cond_lhs (stmt);
-	      bool rhsv = integer_onep (gimple_cond_rhs (stmt));
-	      if (gimple_cond_code (stmt) == NE_EXPR)
-		rhsv = !rhsv;
+	      tree rhsv = gimple_cond_rhs (stmt);
 	      extract_true_false_edges_from_block (gimple_bb (stmt), &et, &ef);
 	      if (is_gimple_assign (SSA_NAME_DEF_STMT (lhs))
 		  && (gimple_assign_rhs_code (SSA_NAME_DEF_STMT (lhs))
 		      == INTEGER_CST))
 		{
-		  tree rhs = gimple_assign_rhs1 (SSA_NAME_DEF_STMT (lhs));
-		  if (rhsv ? integer_onep (rhs) : integer_zerop (rhs))
+		  tree lhsv = gimple_assign_rhs1 (SSA_NAME_DEF_STMT (lhs));
+		  tree r = const_binop (ccode, boolean_type_node, lhsv, rhsv);
+		  if (r == boolean_true_node)
 		    e = et;
-		  else if (rhsv ? integer_zerop (rhs) : integer_onep (rhs))
+		  else if (r == boolean_false_node)
 		    e = ef;
 		}
 	      else if (gimple_code (SSA_NAME_DEF_STMT (lhs)) == GIMPLE_PHI)
@@ -1189,17 +1260,60 @@ find_tail_calls (basic_block bb, edge esucc, struct tailcall **ret,
 		  for (edge e2 : edges)
 		    if (e2->dest == pbb)
 		      {
-			tree rhs = gimple_phi_arg_def_from_edge (phi, e2);
-			if (TREE_CODE (rhs) == SSA_NAME)
-			  if (gimple *g = SSA_NAME_DEF_STMT (rhs))
+			tree lhsv = gimple_phi_arg_def_from_edge (phi, e2);
+			if (TREE_CODE (lhsv) == SSA_NAME)
+			  if (gimple *g = SSA_NAME_DEF_STMT (lhsv))
 			    if (is_gimple_assign (g)
 				&& gimple_assign_rhs_code (g) == INTEGER_CST)
-			      rhs = gimple_assign_rhs1 (g);
-			if (rhsv ? integer_onep (rhs) : integer_zerop (rhs))
+			      lhsv = gimple_assign_rhs1 (g);
+			tree r = const_binop (ccode, boolean_type_node,
+					      lhsv, rhsv);
+			if (r == boolean_true_node)
 			  e = et;
-			else if (rhsv ? integer_zerop (rhs)
-				 : integer_onep (rhs))
+			else if (r == boolean_false_node)
 			  e = ef;
+			break;
+		      }
+		}
+	      if (e)
+		{
+		  ass_var = propagate_through_phis (ass_var, e);
+		  if (!ass_var || ignored_edges)
+		    edges.safe_push (e);
+		  abb = e->dest;
+		  agsi = gsi_start_bb (abb);
+		  goto new_bb;
+		}
+	    }
+	  if (gimple_code (stmt) == GIMPLE_SWITCH
+	      && (TREE_CODE (gimple_switch_index (as_a <gswitch *> (stmt)))
+		  == SSA_NAME))
+	    {
+	      edge e = NULL;
+	      gswitch *swtch = as_a <gswitch *> (stmt);
+	      tree idx = gimple_switch_index (swtch);
+	      if (is_gimple_assign (SSA_NAME_DEF_STMT (idx))
+		  && (gimple_assign_rhs_code (SSA_NAME_DEF_STMT (idx))
+		      == INTEGER_CST))
+		{
+		  tree val = gimple_assign_rhs1 (SSA_NAME_DEF_STMT (idx));
+		  e = find_taken_edge_switch_expr (swtch, val);
+		}
+	      else if (gimple_code (SSA_NAME_DEF_STMT (idx)) == GIMPLE_PHI)
+		{
+		  gimple *phi = SSA_NAME_DEF_STMT (idx);
+		  basic_block pbb = gimple_bb (phi);
+		  for (edge e2 : edges)
+		    if (e2->dest == pbb)
+		      {
+			tree val = gimple_phi_arg_def_from_edge (phi, e2);
+			if (TREE_CODE (val) == SSA_NAME)
+			  if (gimple *g = SSA_NAME_DEF_STMT (val))
+			    if (is_gimple_assign (g)
+				&& gimple_assign_rhs_code (g) == INTEGER_CST)
+			      val = gimple_assign_rhs1 (g);
+			if (TREE_CODE (val) == INTEGER_CST)
+			  e = find_taken_edge_switch_expr (swtch, val);
 			break;
 		      }
 		}
@@ -1302,57 +1416,74 @@ find_tail_calls (basic_block bb, edge esucc, struct tailcall **ret,
     {
       bool ok = false;
       value_range val;
-      tree valr;
-      /* If IPA-VRP proves called function always returns a singleton range,
-	 the return value is replaced by the only value in that range.
-	 For tail call purposes, pretend such replacement didn't happen.  */
       if (ass_var == NULL_TREE && !tail_recursion)
-	if (tree type = gimple_range_type (call))
-	  if (tree callee = gimple_call_fndecl (call))
-	    if ((INTEGRAL_TYPE_P (type)
-		 || SCALAR_FLOAT_TYPE_P (type)
-		 || POINTER_TYPE_P (type))
-		&& useless_type_conversion_p (TREE_TYPE (TREE_TYPE (callee)),
-					      type)
-		&& useless_type_conversion_p (TREE_TYPE (ret_var), type)
-		&& ipa_return_value_range (val, callee)
-		&& val.singleton_p (&valr))
+	{
+	  tree other_value = NULL_TREE;
+	  /* If we have a function call that we know the return value is the same
+	     as the argument, try the argument too. */
+	  int flags = gimple_call_return_flags (call);
+	  if ((flags & ERF_RETURNS_ARG) != 0
+	      && (flags & ERF_RETURN_ARG_MASK) < gimple_call_num_args (call))
+	    {
+	      tree arg = gimple_call_arg (call, flags & ERF_RETURN_ARG_MASK);
+	      if (useless_type_conversion_p (TREE_TYPE (ret_var), TREE_TYPE (arg) ))
+		other_value = arg;
+	    }
+	  /* If IPA-VRP proves called function always returns a singleton range,
+	     the return value is replaced by the only value in that range.
+	     For tail call purposes, pretend such replacement didn't happen.  */
+	  else if (tree type = gimple_range_type (call))
+	    if (tree callee = gimple_call_fndecl (call))
 	      {
-		tree rv = ret_var;
-		unsigned int i = edges.length ();
-		/* If ret_var is equal to valr, we can tail optimize.  */
-		if (operand_equal_p (ret_var, valr, 0))
-		  ok = true;
-		else
-		  /* Otherwise, if ret_var is a PHI result, try to find out
-		     if valr isn't propagated through PHIs on the path from
-		     call's bb to SSA_NAME_DEF_STMT (ret_var)'s bb.  */
-		  while (TREE_CODE (rv) == SSA_NAME
-			 && gimple_code (SSA_NAME_DEF_STMT (rv)) == GIMPLE_PHI)
-		    {
-		      tree nrv = NULL_TREE;
-		      gimple *g = SSA_NAME_DEF_STMT (rv);
-		      for (; i; --i)
-			{
-			  if (edges[i - 1]->dest == gimple_bb (g))
-			    {
-			      nrv
-				= gimple_phi_arg_def_from_edge (g,
-								edges[i - 1]);
-			      --i;
-			      break;
-			    }
-			}
-		      if (nrv == NULL_TREE)
-			break;
-		      if (operand_equal_p (nrv, valr, 0))
-			{
-			  ok = true;
-			  break;
-			}
-		      rv = nrv;
-		    }
+		tree valr;
+		if ((INTEGRAL_TYPE_P (type)
+		     || SCALAR_FLOAT_TYPE_P (type)
+		     || POINTER_TYPE_P (type))
+		    && useless_type_conversion_p (TREE_TYPE (TREE_TYPE (callee)),
+					      type)
+		    && useless_type_conversion_p (TREE_TYPE (ret_var), type)
+		    && ipa_return_value_range (val, callee)
+		    && val.singleton_p (&valr))
+		  other_value = valr;
 	      }
+
+	  if (other_value)
+	    {
+	      tree rv = ret_var;
+	      unsigned int i = edges.length ();
+	      /* If ret_var is equal to other_value, we can tail optimize.  */
+	      if (operand_equal_p (ret_var, other_value, 0))
+		ok = true;
+	      else
+		/* Otherwise, if ret_var is a PHI result, try to find out
+		   if other_value isn't propagated through PHIs on the path from
+		   call's bb to SSA_NAME_DEF_STMT (ret_var)'s bb.  */
+		while (TREE_CODE (rv) == SSA_NAME
+		      && gimple_code (SSA_NAME_DEF_STMT (rv)) == GIMPLE_PHI)
+		  {
+		    tree nrv = NULL_TREE;
+		    gimple *g = SSA_NAME_DEF_STMT (rv);
+		    for (; i; --i)
+		      {
+			if (edges[i - 1]->dest == gimple_bb (g))
+			  {
+			    nrv = gimple_phi_arg_def_from_edge (g,
+								edges[i - 1]);
+			    --i;
+			    break;
+			  }
+		      }
+		    if (nrv == NULL_TREE)
+		      break;
+		    if (operand_equal_p (nrv, other_value, 0))
+		      {
+			ok = true;
+			break;
+		      }
+		      rv = nrv;
+		  }
+	  }
+	}
       if (!ok)
 	{
 	  maybe_error_musttail (call, _("call and return value are different"),

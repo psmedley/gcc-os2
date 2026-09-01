@@ -53,7 +53,7 @@
 extern int ydfdebug;
 #endif
 /* "%code requires" blocks.  */
-#line 103 "cdf.y"
+#line 105 "cdf.y"
 
   #include "cdfval.h"
 
@@ -105,8 +105,11 @@ extern int ydfdebug;
   cdfval_t operator/( const cdfval_base_t& lhs, const cdfval_base_t& rhs );
   cdfval_t negate( cdfval_base_t lhs );
 
+  cbl_field_t
+  cdf_literalize( const std::string& name, const cdfval_t& value );
 
-#line 110 "cdf.h"
+
+#line 113 "cdf.h"
 
 /* Token kinds.  */
 #ifndef YDFTOKENTYPE
@@ -116,61 +119,62 @@ extern int ydfdebug;
     YDF_YDFEMPTY = -2,
     YDF_YYEOF = 0,                 /* "end of file"  */
     YDF_YDFerror = 256,            /* error  */
-    YDF_YDFUNDEF = 948,            /* "invalid token"  */
-    YDF_BOOL = 949,                /* BOOL  */
-    YDF_FEATURE = 365,             /* FEATURE  */
-    YDF_NUMBER = 303,              /* NUMBER  */
+    YDF_YDFUNDEF = 959,            /* "invalid token"  */
+    YDF_BOOL = 960,                /* BOOL  */
+    YDF_FEATURE = 367,             /* FEATURE  */
+    YDF_NUMBER = 304,              /* NUMBER  */
     YDF_EXCEPTION_NAME = 280,      /* "EXCEPTION NAME"  */
-    YDF_BY = 486,                  /* BY  */
-    YDF_COPY = 362,                /* COPY  */
-    YDF_CDF_DISPLAY = 384,         /* ">>DISPLAY"  */
-    YDF_IN = 605,                  /* IN  */
+    YDF_BY = 488,                  /* BY  */
+    YDF_COPY = 364,                /* COPY  */
+    YDF_CDF_DISPLAY = 386,         /* ">>DISPLAY"  */
+    YDF_IN = 606,                  /* IN  */
     YDF_NAME = 286,                /* NAME  */
-    YDF_NUMSTR = 305,              /* "numeric literal"  */
-    YDF_OF = 686,                  /* OF  */
-    YDF_PSEUDOTEXT = 721,          /* PSEUDOTEXT  */
-    YDF_REPLACING = 743,           /* REPLACING  */
-    YDF_LITERAL = 298,             /* LITERAL  */
-    YDF_SUPPRESS = 376,            /* SUPPRESS  */
-    YDF_LSUB = 367,                /* "("  */
-    YDF_SUBSCRIPT = 375,           /* SUBSCRIPT  */
-    YDF_RSUB = 372,                /* ")"  */
-    YDF_CDF_DEFINE = 383,          /* ">>DEFINE"  */
-    YDF_CDF_IF = 385,              /* ">>IF"  */
-    YDF_CDF_ELSE = 386,            /* ">>ELSE"  */
-    YDF_CDF_END_IF = 387,          /* ">>END-IF"  */
-    YDF_CDF_EVALUATE = 388,        /* ">>EVALUATE"  */
-    YDF_CDF_WHEN = 389,            /* ">>WHEN"  */
-    YDF_CDF_END_EVALUATE = 390,    /* ">>END-EVALUATE"  */
-    YDF_ALL = 450,                 /* ALL  */
-    YDF_CALL_CONVENTION = 391,     /* ">>CALL-CONVENTION"  */
-    YDF_COBOL_WORDS = 380,         /* ">>COBOL-WORDS"  */
-    YDF_CDF_PUSH = 394,            /* ">>PUSH"  */
-    YDF_CDF_POP = 395,             /* ">>POP"  */
-    YDF_SOURCE_FORMAT = 396,       /* ">>SOURCE FORMAT"  */
-    YDF_AS = 468,                  /* AS  */
-    YDF_CONSTANT = 361,            /* CONSTANT  */
-    YDF_DEFINED = 363,             /* DEFINED  */
-    YDF_OTHER = 698,               /* OTHER  */
-    YDF_PARAMETER_kw = 368,        /* "PARAMETER"  */
-    YDF_OFF = 687,                 /* OFF  */
-    YDF_OVERRIDE = 369,            /* OVERRIDE  */
-    YDF_THRU = 939,                /* THRU  */
-    YDF_TRUE_kw = 813,             /* "True"  */
-    YDF_CALL_COBOL = 392,          /* "CALL"  */
-    YDF_CALL_VERBATIM = 393,       /* "CALL (as C)"  */
-    YDF_TURN = 815,                /* TURN  */
-    YDF_CHECKING = 496,            /* CHECKING  */
-    YDF_LOCATION = 649,            /* LOCATION  */
-    YDF_ON = 689,                  /* ON  */
-    YDF_WITH = 841,                /* WITH  */
-    YDF_OR = 940,                  /* OR  */
-    YDF_AND = 941,                 /* AND  */
-    YDF_NOT = 942,                 /* NOT  */
-    YDF_NE = 943,                  /* NE  */
-    YDF_LE = 944,                  /* LE  */
-    YDF_GE = 945,                  /* GE  */
-    YDF_NEG = 947                  /* NEG  */
+    YDF_NUMSTR = 306,              /* "numeric literal"  */
+    YDF_OF = 687,                  /* OF  */
+    YDF_PSEUDOTEXT = 723,          /* PSEUDOTEXT  */
+    YDF_REPLACING = 745,           /* REPLACING  */
+    YDF_LITERAL = 299,             /* LITERAL  */
+    YDF_SUPPRESS = 378,            /* SUPPRESS  */
+    YDF_LSUB = 369,                /* "("  */
+    YDF_SUBSCRIPT = 377,           /* SUBSCRIPT  */
+    YDF_RSUB = 374,                /* ")"  */
+    YDF_CDF_DEFINE = 385,          /* ">>DEFINE"  */
+    YDF_CDF_IF = 387,              /* ">>IF"  */
+    YDF_CDF_ELSE = 388,            /* ">>ELSE"  */
+    YDF_CDF_END_IF = 389,          /* ">>END-IF"  */
+    YDF_CDF_EVALUATE = 390,        /* ">>EVALUATE"  */
+    YDF_CDF_WHEN = 391,            /* ">>WHEN"  */
+    YDF_CDF_END_EVALUATE = 392,    /* ">>END-EVALUATE"  */
+    YDF_ALL = 452,                 /* ALL  */
+    YDF_CALL_CONVENTION = 393,     /* ">>CALL-CONVENTION"  */
+    YDF_COBOL_WORDS = 382,         /* ">>COBOL-WORDS"  */
+    YDF_CDF_PUSH = 396,            /* ">>PUSH"  */
+    YDF_CDF_POP = 397,             /* ">>POP"  */
+    YDF_SOURCE_FORMAT = 398,       /* ">>SOURCE FORMAT"  */
+    YDF_AS = 470,                  /* AS  */
+    YDF_CONSTANT = 363,            /* CONSTANT  */
+    YDF_DEFINED = 365,             /* DEFINED  */
+    YDF_OTHER = 699,               /* OTHER  */
+    YDF_PARAMETER_kw = 370,        /* "PARAMETER"  */
+    YDF_OFF = 688,                 /* OFF  */
+    YDF_OVERRIDE = 371,            /* OVERRIDE  */
+    YDF_THRU = 950,                /* THRU  */
+    YDF_TRUE_kw = 815,             /* "True"  */
+    YDF_CALL_COBOL = 394,          /* "CALL"  */
+    YDF_CALL_VERBATIM = 395,       /* "CALL (as C)"  */
+    YDF_TURN = 817,                /* TURN  */
+    YDF_CHECKING = 498,            /* CHECKING  */
+    YDF_LOCATION = 650,            /* LOCATION  */
+    YDF_ON = 690,                  /* ON  */
+    YDF_WITH = 844,                /* WITH  */
+    YDF_OR = 951,                  /* OR  */
+    YDF_AND = 952,                 /* AND  */
+    YDF_NOT = 953,                 /* NOT  */
+    YDF_EQ = 298,                  /* EQ  */
+    YDF_NE = 954,                  /* NE  */
+    YDF_LE = 955,                  /* LE  */
+    YDF_GE = 956,                  /* GE  */
+    YDF_NEG = 958                  /* NEG  */
   };
   typedef enum ydftokentype ydftoken_kind_t;
 #endif
@@ -179,7 +183,7 @@ extern int ydfdebug;
 #if ! defined YDFSTYPE && ! defined YDFSTYPE_IS_DECLARED
 union YDFSTYPE
 {
-#line 177 "cdf.y"
+#line 182 "cdf.y"
 
     bool boolean;
     int number;
@@ -189,7 +193,7 @@ union YDFSTYPE
     cbl_file_t *file;
     std::set<size_t> *files;
 
-#line 193 "cdf.h"
+#line 197 "cdf.h"
 
 };
 typedef union YDFSTYPE YDFSTYPE;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2021-2025 Symas Corporation
+ * Copyright (c) 2021-2026 Symas Corporation
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -54,7 +54,6 @@ extern GTY(()) tree cblc_field_p_type_node;
 extern GTY(()) tree cblc_field_pp_type_node;
 extern GTY(()) tree cblc_file_type_node;
 extern GTY(()) tree cblc_file_p_type_node;
-extern GTY(()) tree cbl_enabled_exception_type_node;
 extern GTY(()) tree cblc_goto_type_node;
 
 extern void create_our_type_nodes();
