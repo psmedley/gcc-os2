@@ -221,7 +221,7 @@ pex_djgpp_exec_child (struct pex_obj *obj, int flags, const char *executable,
     char* argv_rsp[3];
     char** _argv = argv;
     char* arg = _argv[0];
-    char rsp_arg[_MAX_PATH];
+    char* rsp_arg = NULL;
     int i = 0;
     int arglen = 0;
 
@@ -236,11 +236,12 @@ pex_djgpp_exec_child (struct pex_obj *obj, int flags, const char *executable,
       {
         /* create temporary file */
         char* rsp = tempnam( NULL, "grsp");
-        FILE* out = fopen( rsp, "w");
+        FILE* out = rsp ? fopen( rsp, "w") : NULL;
         if (out == NULL)
           {
             *err = errno;
-            *errmsg = "tempnam";
+            *errmsg = rsp ? "fopen" : "tempnam";
+            free (rsp);
             return (pid_t) -1;
           }
         /* dump arguments, skip program name */
@@ -253,7 +254,8 @@ pex_djgpp_exec_child (struct pex_obj *obj, int flags, const char *executable,
         fclose( out);
         /* new command line args */
         argv_rsp[0] = _argv[0];
-        sprintf( rsp_arg, "@%s", rsp);
+        /* TMPDIR may be longer than _MAX_PATH; don't use a fixed buffer.  */
+        rsp_arg = concat ("@", rsp, NULL);
         argv_rsp[1] = rsp_arg;
         argv_rsp[2] = NULL;
         /* add it for automatic cleanup */
@@ -269,6 +271,7 @@ pex_djgpp_exec_child (struct pex_obj *obj, int flags, const char *executable,
     else
       status = (((flags & PEX_SEARCH) != 0 ? spawnvp : spawnv)
                 (P_NOWAIT, executable, _argv));
+    free (rsp_arg);
   }
 #else
   if (env)

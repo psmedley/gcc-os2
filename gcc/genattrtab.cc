@@ -5243,7 +5243,7 @@ main (int argc, const char **argv)
   class insn_def *id;
   int i;
 
-#ifdef EMX
+#ifdef __EMX__ /* host check: genattrtab runs on the build machine */
   /* Otherwise we can't use more than 32Mb memory and genattrtab uses a lot */
   _uflags (_UF_SBRK_MODEL, _UF_SBRK_ARBITRARY);
 #endif

@@ -5359,6 +5359,8 @@ process_command (unsigned int decoded_options_count,
 	obase = "a";
 #else
 	{
+	  /* Fallback if no suitable input file is found below.  */
+	  obase = "a";
 	  for (int i = 0; i < n_infiles; i++)
 	    {
 	      if (infiles[i].language

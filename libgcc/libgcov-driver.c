@@ -456,6 +456,10 @@ write_topn_counters (const struct gcov_ctr_info *ci_ptr,
 #if !defined(inhibit_libc) && HAVE_SYS_MMAN_H && !defined(__OS2__)
       list_sizes
 	= (unsigned *)malloc_mmap (list_size_length * sizeof (unsigned));
+#else
+      /* No mmap: drop the old, too small buffer so that the fallback
+	 below allocates one of the new size.  */
+      list_sizes = NULL;
 #endif
 
       /* Malloc fallback.  */
