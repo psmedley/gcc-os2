@@ -297,11 +297,10 @@ extern int emx_c_set_decl_assembler_name (tree, int);
 
 extern int emx_return_in_memory_with_fntype (tree type, tree fntype);
 extern const char * emx_strip_name_encoding_full (const char *);
-extern void emx_eh_frame_section (const void*);
+extern void emx_eh_frame_section (const char *);
 extern void emx_output_function_begin_epilogue (FILE *);
 
 /* These functions are for handling dllexport and dllimport. */
-extern void i386_emx_record_exported_symbol (const char *, int);
 extern void i386_emx_file_end (void);
 extern void i386_emx_encode_section_info (tree, rtx, int);
 
@@ -606,7 +605,7 @@ do {                                                                    \
           setenv ("GCC_ROOT", root_path, 1);                                   \
         if (fGPP)                                                              \
           setenv ("G++_ROOT", root_path, 1);                                   \
-        if (fGCC)                                                              \
+        if (fBIN)                                                              \
           setenv ("BINUTILS_ROOT", root_path, 1);                              \
       }                                                                        \
     }                                                                          \

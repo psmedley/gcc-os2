@@ -439,7 +439,8 @@ gen_system_or_optlink_suffix (tree decl, tree id)
   char *new_str, *p;
   gcc_assert (TREE_CODE (decl) == FUNCTION_DECL);
 
-  p = new_str = XALLOCAVEC (char, 1 + strlen (old_str));
+  /* '*' prefix + name + terminating NUL.  */
+  p = new_str = XALLOCAVEC (char, 1 + strlen (old_str) + 1);
   *p++ = '*';
   sprintf (p, "%s", old_str);
   return get_identifier (new_str);
@@ -627,7 +628,7 @@ static GTY(()) struct export_list *export_head;
 void
 i386_emx_asm_output_aligned_decl_common (FILE *stream, tree decl,
 					const char *name, HOST_WIDE_INT size,
-					HOST_WIDE_INT align ATTRIBUTE_UNUSED)
+					HOST_WIDE_INT align)
 {
   dfprintf ((stderr, "trace: i386_emx_asm_output_aligned_decl_common\n"));
 
@@ -637,13 +638,21 @@ i386_emx_asm_output_aligned_decl_common (FILE *stream, tree decl,
   symbol = XEXP (DECL_RTL (decl), 0);
   gcc_assert (GET_CODE (symbol) == SYMBOL_REF);
   if (!SYMBOL_REF_DLLIMPORT_P (symbol)){
-      /* 16 is the best we can do (segment para). */
-      const int xalign = (align) > 16 ? 16 : (align);
+      /* a.out .comm has no alignment operand; the linker derives the
+	 alignment of a common symbol from its size, so round the size up
+	 to a multiple of the wanted alignment.  ALIGN is in bits.
+	 16 bytes is the best we can do (segment para).  */
+      HOST_WIDE_INT xalign = align / BITS_PER_UNIT;
+      if (xalign < 1)
+	xalign = 1;
+      else if (xalign > 16)
+	xalign = 16;
       fprintf ((stream), "\t.comm\t");
       assemble_name ((stream), (name));
-      fprintf ((stream), ", %lld\t# %lld\n",
+      fprintf ((stream), ", " HOST_WIDE_INT_PRINT_DEC "\t# "
+	       HOST_WIDE_INT_PRINT_DEC "\n",
 	       (((size) + xalign - 1) / xalign) * xalign,
-               (size));
+	       (size));
   }
 }
 
@@ -673,8 +682,12 @@ i386_emx_maybe_record_exported_symbol (tree decl, const char *name, int is_data 
 
   gcc_assert (TREE_PUBLIC (decl));
 
-  p = (struct export_list *) xmalloc (sizeof *p);
+  /* Zero-initialize: i386_emx_file_end reads every field.  DECL is left
+     NULL_TREE on purpose so the export refers to NAME, which is the label
+     that was actually emitted.  */
+  p = XCNEW (struct export_list);
   p->next = export_head;
+  p->decl = NULL_TREE;
   p->name = name;
   p->asm_name = NULL;
   p->exported_name = NULL;

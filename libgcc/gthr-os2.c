@@ -40,6 +40,18 @@ Boston, MA 02111-1307, USA.  */
 
 #include "gthr-os2.h"
 
+/* With NDEBUG the deadlock assertion below compiles away, so there is no
+   need to query the owner count of a non-recursive mutex on every
+   blocking lock.  */
+#ifdef NDEBUG
+# define __GTHREAD_OS2_CHECK_DEADLOCK 0
+#else
+# define __GTHREAD_OS2_CHECK_DEADLOCK 1
+#endif
+
+/* Protects the thread list used by create/join/detach.  */
+static _fmutex __gthread_os2_thread_lock = _FMUTEX_INITIALIZER;
+
 void
 __gthread_os2_mutex_init (__gthread_mutex_t *mutex, int recursive)
 {
@@ -53,6 +65,10 @@ __gthread_os2_mutex_destroy (__gthread_mutex_t *mutex, int recursive)
   if (mutex->recursive != recursive)
     return 1;
 
+  /* A statically initialized mutex that was never locked has no handle.  */
+  if ((HMTX) mutex->mtx == NULLHANDLE)
+    return 0;
+
   return DosCloseMutexSem ((HMTX) mutex->mtx);
 }
 
@@ -60,9 +76,7 @@ static int
 __gthread_os2_mutex_lock_common (__gthread_mutex_t *mutex, int recursive,
                                  ULONG ulTimeout)
 {
-  PID pid;
-  TID tid;
-  ULONG ulCount;
+  APIRET rc;
 
   if (mutex->recursive != recursive)
     return 1;
@@ -77,20 +91,37 @@ __gthread_os2_mutex_lock_common (__gthread_mutex_t *mutex, int recursive,
       _fmutex_release (&mutex->static_lock);
     }
 
-  if (DosRequestMutexSem ((HMTX) mutex->mtx, ulTimeout))
+  /* An indefinite wait can be interrupted (e.g. by signal delivery);
+     a lock that silently fails here would leave callers such as
+     __gthread_os2_cond_wait_common believing they own the mutex.  */
+  do
+    rc = DosRequestMutexSem ((HMTX) mutex->mtx, ulTimeout);
+  while (rc == ERROR_INTERRUPT && ulTimeout == SEM_INDEFINITE_WAIT);
+
+  if (rc)
     return 1;
 
-  DosQueryMutexSem ((HMTX) mutex->mtx, &pid, &tid, &ulCount);
-
-  /* non-recursive trylock ? */
-  if (!mutex->recursive && ulTimeout == SEM_IMMEDIATE_RETURN && ulCount > 1)
+  /* OS/2 mutex semaphores are always recursive.  For a non-recursive
+     mutex, a request by the owner must fail (trylock / timedlock) or is a
+     deadlock (lock).  Recursive mutexes don't need the extra query.  */
+  if (!mutex->recursive
+      && (ulTimeout != SEM_INDEFINITE_WAIT || __GTHREAD_OS2_CHECK_DEADLOCK))
     {
-      DosReleaseMutexSem ((HMTX) mutex->mtx);
+      PID pid;
+      TID tid;
+      ULONG ulCount = 1;
 
-      return 1;
+      DosQueryMutexSem ((HMTX) mutex->mtx, &pid, &tid, &ulCount);
+
+      if (ulCount > 1 && ulTimeout != SEM_INDEFINITE_WAIT)
+        {
+          DosReleaseMutexSem ((HMTX) mutex->mtx);
+
+          return 1;
+        }
+
+      assert (!"Dead lock" || ulCount == 1);
     }
-
-  assert (!"Dead lock" || mutex->recursive || ulCount == 1);
 
   return 0;
 }
@@ -121,17 +152,35 @@ __gthread_os2_mutex_unlock (__gthread_mutex_t *mutex, int recursive)
 void
 __gthread_os2_cond_init (__gthread_cond_t *cond)
 {
-  DosCreateEventSem (NULL, (PHEV) &cond->ev, 0, FALSE);
-  DosCreateEventSem (NULL, (PHEV) &cond->ack, 0, FALSE);
+  HEV hevAck = NULLHANDLE;
+  HEV hevEv = NULLHANDLE;
+
   cond->signaled = 0;
   cond->waiters = 0;
+
+  /* cond->ev is the "initialized" flag tested without a lock by the
+     lazy-init fast path, so it must be published last, after ack exists.  */
+  DosCreateEventSem (NULL, &hevAck, 0, FALSE);
+  DosCreateEventSem (NULL, &hevEv, 0, FALSE);
+  cond->ack = hevAck;
+  __asm__ __volatile__ ("" ::: "memory");
+  cond->ev = hevEv;
 }
 
 int
 __gthread_os2_cond_destroy (__gthread_cond_t *cond)
 {
-  return DosCloseEventSem ((HEV) cond->ev) ||
-         DosCloseEventSem ((HEV) cond->ack);
+  APIRET rc1, rc2;
+
+  /* A statically initialized condition that was never used has no
+     handles.  */
+  if ((HEV) cond->ev == NULLHANDLE)
+    return 0;
+
+  rc1 = DosCloseEventSem ((HEV) cond->ev);
+  rc2 = DosCloseEventSem ((HEV) cond->ack);
+
+  return rc1 || rc2;
 }
 
 static void
@@ -261,6 +310,9 @@ __gthread_os2_thread_find (__gthread_t tid)
   return thread;
 }
 
+/* The thread list functions below must be called with
+   __gthread_os2_thread_lock held.  */
+
 static void
 __gthread_os2_thread_add (__gthread_os2_t *thread, __gthread_t tid)
 {
@@ -305,7 +357,11 @@ static void thread_entry (void *args)
   DosPostEventSem (th->hevDone);
 
   if (detached)
-    __gthread_os2_thread_del (th);
+    {
+      _fmutex_request (&__gthread_os2_thread_lock, _FMR_IGNINT);
+      __gthread_os2_thread_del (th);
+      _fmutex_release (&__gthread_os2_thread_lock);
+    }
 }
 
 int
@@ -318,15 +374,25 @@ __gthread_os2_create (__gthread_t *thread, void *(*func) (void*), void *args)
   if (!th)
     return ENOMEM;
 
+  /* Hold the list lock across thread creation so that the new thread
+     is in the list before anyone can look it up.  thread_entry only
+     takes the lock after join/detach, which require the list entry.  */
+  _fmutex_request (&__gthread_os2_thread_lock, _FMR_IGNINT);
+
   tid = _beginthread (thread_entry, NULL, 1024 * 1024, th);
   if (tid == -1)
     {
+      int err = errno ? errno : EAGAIN;
+
+      _fmutex_release (&__gthread_os2_thread_lock);
       __gthread_os2_thread_free (th);
 
-      return 1;
+      return err;
     }
 
   __gthread_os2_thread_add (th, tid);
+
+  _fmutex_release (&__gthread_os2_thread_lock);
 
   *thread = tid;
 
@@ -338,20 +404,30 @@ __gthread_os2_join (__gthread_t thread, void **value_ptr)
 {
   __gthread_os2_t *th;
 
+  APIRET rc;
+
+  _fmutex_request (&__gthread_os2_thread_lock, _FMR_IGNINT);
   th = __gthread_os2_thread_find (thread);
+  _fmutex_release (&__gthread_os2_thread_lock);
 
   if (!th || th->detached)
     return 1;
 
   DosPostEventSem (th->hevQuit);
 
-  if (DosWaitEventSem (th->hevDone, SEM_INDEFINITE_WAIT))
+  do
+    rc = DosWaitEventSem (th->hevDone, SEM_INDEFINITE_WAIT);
+  while (rc == ERROR_INTERRUPT);
+
+  if (rc)
     return 1;
 
   if (value_ptr)
     *value_ptr = th->result;
 
+  _fmutex_request (&__gthread_os2_thread_lock, _FMR_IGNINT);
   __gthread_os2_thread_del (th);
+  _fmutex_release (&__gthread_os2_thread_lock);
 
   return 0;
 }
@@ -361,11 +437,14 @@ __gthread_os2_detach (__gthread_t thread)
 {
   __gthread_os2_t *th;
 
+  _fmutex_request (&__gthread_os2_thread_lock, _FMR_IGNINT);
   th = __gthread_os2_thread_find (thread);
+  if (th)
+    th->detached = 1;
+  _fmutex_release (&__gthread_os2_thread_lock);
+
   if (!th)
     return 1;
-
-  th->detached = 1;
 
   DosPostEventSem (th->hevQuit);
 
@@ -397,16 +476,28 @@ static ULONG
 __gthread_os2_abs2rem (const __gthread_time_t *abs_timeout)
 {
   struct timeval tv;
-  ULONG ulNow;
-  ULONG ulDeadline;
-  ULONG ulRemain;
+  long long llNow;
+  long long llDeadline;
+  long long llRemain;
 
+  /* Compute in 64 bits: seconds since the epoch times 1000 does not fit
+     in a ULONG, and the wrapped 32-bit values compare wrongly whenever the
+     wait straddles a wrap (about every 49.7 days), giving either an
+     immediate timeout or a near-infinite wait.  */
   gettimeofday (&tv, NULL);
-  ulNow = tv.tv_sec * 1000 + tv.tv_usec / 1000;
-  ulDeadline = abs_timeout->tv_sec * 1000 + abs_timeout->tv_nsec / 1000000UL;
-  ulRemain = (ulDeadline > ulNow) ? (ulDeadline - ulNow) : 0;
+  llNow = (long long) tv.tv_sec * 1000 + tv.tv_usec / 1000;
+  llDeadline = (long long) abs_timeout->tv_sec * 1000
+               + abs_timeout->tv_nsec / 1000000L;
+  llRemain = llDeadline - llNow;
 
-  return ulRemain;
+  if (llRemain <= 0)
+    return SEM_IMMEDIATE_RETURN;
+
+  /* SEM_INDEFINITE_WAIT is (ULONG) -1; stay just below it.  */
+  if (llRemain >= (long long) SEM_INDEFINITE_WAIT)
+    return SEM_INDEFINITE_WAIT - 1;
+
+  return (ULONG) llRemain;
 }
 
 int
