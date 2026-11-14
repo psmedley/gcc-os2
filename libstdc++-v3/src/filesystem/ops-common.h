@@ -332,7 +332,11 @@ _GLIBCXX_BEGIN_NAMESPACE_FILESYSTEM
   inline file_type
   make_file_type(const stat_type& st) noexcept
   {
-#ifdef _GLIBCXX_HAVE_S_ISREG
+    // Also test the <sys/stat.h> macro itself: if the configure check for
+    // S_ISREG fails (e.g. its link test fails on OS/2), every file would
+    // otherwise be classified as file_type::unknown, making file_size()
+    // fail with ENOTSUP and create_directories() fail with ENOTDIR.
+#if defined _GLIBCXX_HAVE_S_ISREG || defined S_ISREG
     if (S_ISREG(st.st_mode))
       return file_type::regular;
     else if (S_ISDIR(st.st_mode))
